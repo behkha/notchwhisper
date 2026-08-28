@@ -1,0 +1,24 @@
+{
+  "originHash" : "cd2d1bbaf5d5fe63b1d32fe34f5108227c73088ef4d5c873fab3fde2e07046b1",
+  "pins" : [
+    {
+      "identity" : "swift-argument-parser",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-argument-parser.git",
+      "state" : {
+        "revision" : "6a52f3251125d74daf04fcbd5e6f08a75d074382",
+        "version" : "1.8.2"
+      }
+    },
+    {
+      "identity" : "whisperkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/argmaxinc/WhisperKit.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "ea872ffd35705aa757f33033500b9b0d40bd38df"
+      }
+    }
+  ],
+  "version" : 3
+}

@@ -1,0 +1,389 @@
+// swift-interface-format-version: 1.0
+// swift-compiler-version: Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)
+// swift-module-flags: -target arm64-apple-macosx13.0 -enable-objc-interop -enable-library-evolution -swift-version 6 -O -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -module-name SpeakerKit -package-name whisperkit -module-alias Module___SpeakerKit=SpeakerKit -module-alias Module____StringProcessing=_StringProcessing -module-alias Module____SwiftConcurrencyShims=_SwiftConcurrencyShims -module-alias Module____Concurrency=_Concurrency -module-alias Module___WhisperKit=WhisperKit -module-alias Module___ArgmaxCore=ArgmaxCore -module-alias Module___Accelerate=Accelerate -module-alias Module___CoreML=CoreML
+// swift-module-flags-ignorable:  -formal-cxx-interoperability-mode=off -interface-compiler-version 6.3.3
+import Module___Accelerate
+import Module___ArgmaxCore
+@preconcurrency import Module___CoreML
+import Foundation
+import Swift
+import Module___WhisperKit
+import Module____Concurrency
+import Module____StringProcessing
+import Module____SwiftConcurrencyShims
+public protocol DiarizationTimings : Swift.CustomDebugStringConvertible, Swift.CustomStringConvertible, Swift.Sendable {
+}
+public struct DiarizationResult : Swift.Sendable {
+  public let speakerCount: Swift.Int
+  public let totalFrames: Swift.Int
+  public let frameRate: Swift.Float
+  public var segments: [Module___SpeakerKit.SpeakerSegment] {
+    get
+  }
+  public var timings: (any Module___SpeakerKit.DiarizationTimings)?
+  public var speakerCentroidEmbeddings: [Swift.Int : [Swift.Float]] {
+    get
+  }
+  public init(speakerCount: Swift.Int, totalFrames: Swift.Int, frameRate: Swift.Float, segments: [Module___SpeakerKit.SpeakerSegment], timings: (any Module___SpeakerKit.DiarizationTimings)? = nil, speakerCentroidEmbeddings: [Swift.Int : [Swift.Float]] = [:])
+  public mutating func updateSegments(minActiveOffset: Swift.Float)
+  public func centroidCosineDistance(between a: Swift.Int, and b: Swift.Int) -> Swift.Float?
+  public func nearestSpeakerCentroid(to embedding: [Swift.Float]) -> (speakerId: Swift.Int, distance: Swift.Float)?
+  public func addSpeakerInfo(to transcription: [Module___WhisperKit.TranscriptionResult], strategy: Module___SpeakerKit.SpeakerInfoStrategy = SpeakerInfoStrategy.subsegment) -> [[Module___SpeakerKit.SpeakerSegment]]
+}
+@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+public protocol Diarizer : Swift.Sendable {
+  var modelFolder: Foundation.URL? { get }
+  var modelState: Module___ArgmaxCore.ModelState { get }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func downloadModels() async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func loadModels() async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func unloadModels() async
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func diarize(audioArray: [Swift.Float], options: (any Module___SpeakerKit.DiarizationOptions)?, progressCallback: (@Sendable (Foundation.Progress) -> Swift.Void)?) async throws -> Module___SpeakerKit.DiarizationResult
+  #endif
+}
+extension Module___ArgmaxCore.ModelInfo {
+  public static func segmenter(version: Swift.String? = nil, variant: Swift.String? = nil, computeUnits: Module___CoreML.MLComputeUnits = .cpuOnly) -> Module___ArgmaxCore.ModelInfo
+  public static func embedder(version: Swift.String? = nil, variant: Swift.String? = nil, computeUnits: Module___CoreML.MLComputeUnits = .cpuAndNeuralEngine) -> Module___ArgmaxCore.ModelInfo
+  public static func plda() -> Module___ArgmaxCore.ModelInfo
+}
+@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+public class PyannoteConfig : Module___SpeakerKit.SpeakerKitConfig, @unchecked Swift.Sendable {
+  public var fullRedundancy: Swift.Bool
+  public var concurrentSegmenterWorkers: Swift.Int
+  public var concurrentEmbedderWorkers: Swift.Int?
+  public init(modelDownloadConfig: Module___ArgmaxCore.ModelDownloadConfig? = nil, download: Swift.Bool = true, load: Swift.Bool = false, verbose: Swift.Bool = true, logLevel: Module___ArgmaxCore.Logging.LogLevel = .info, fullRedundancy: Swift.Bool = true, concurrentSegmenterWorkers: Swift.Int = 4, concurrentEmbedderWorkers: Swift.Int? = nil, diarizer: (any Module___SpeakerKit.Diarizer)? = nil)
+  public init(downloadBase: Swift.String? = nil, modelRepo: Swift.String = "argmaxinc/speakerkit-coreml", modelToken: Swift.String? = nil, modelFolder: Swift.String? = nil, download: Swift.Bool = true, useBackgroundDownloadSession: Swift.Bool = false, modelEndpoint: Swift.String = "https://huggingface.co", downloadRevision: Swift.String = "main", load: Swift.Bool = false, verbose: Swift.Bool = true, logLevel: Module___ArgmaxCore.Logging.LogLevel = .info, fullRedundancy: Swift.Bool = true, concurrentSegmenterWorkers: Swift.Int = 4, concurrentEmbedderWorkers: Swift.Int? = nil, diarizer: (any Module___SpeakerKit.Diarizer)? = nil)
+  @objc deinit
+}
+public enum SpeakerCentroidSource : Swift.Equatable, Swift.Hashable, Swift.Sendable {
+  case finalAssignment
+  case trainableOnly
+  public static func == (a: Module___SpeakerKit.SpeakerCentroidSource, b: Module___SpeakerKit.SpeakerCentroidSource) -> Swift.Bool
+  public func hash(into hasher: inout Swift.Hasher)
+  public var hashValue: Swift.Int {
+    get
+  }
+}
+public struct PyannoteDiarizationOptions : Module___SpeakerKit.DiarizationOptions {
+  public var numberOfSpeakers: Swift.Int?
+  public var minActiveOffset: Swift.Float?
+  public var clusterDistanceThreshold: Swift.Float?
+  public var minClusterSize: Swift.Int?
+  public var useExclusiveReconciliation: Swift.Bool
+  public var centroidSource: Module___SpeakerKit.SpeakerCentroidSource
+  public var clipTimestamps: [Swift.Float]
+  public init(numberOfSpeakers: Swift.Int? = nil, minActiveOffset: Swift.Float? = nil, clusterDistanceThreshold: Swift.Float? = nil, minClusterSize: Swift.Int? = nil, useExclusiveReconciliation: Swift.Bool = true, centroidSource: Module___SpeakerKit.SpeakerCentroidSource = .finalAssignment, clipTimestamps: [Swift.Float] = [])
+}
+public struct PyannoteDiarizationTimings : Module___SpeakerKit.DiarizationTimings, Swift.CustomStringConvertible, Swift.CustomDebugStringConvertible {
+  public init()
+  public var inputAudioSeconds: Swift.Double {
+    get
+  }
+  public var numberOfChunks: Swift.Int {
+    get
+  }
+  public var numberOfEmbeddings: Swift.Int {
+    get
+  }
+  public var numberOfSpeakers: Swift.Int {
+    get
+  }
+  public var numberOfSegmenterWorkers: Swift.Int {
+    get
+  }
+  public var numberOfEmbedderWorkers: Swift.Int {
+    get
+  }
+  public var pipelineStart: Swift.Double {
+    get
+  }
+  public var modelLoading: Swift.Double {
+    get
+  }
+  public var segmenterTime: Swift.Double {
+    get
+  }
+  public var embedderTime: Swift.Double {
+    get
+  }
+  public var clusteringTime: Swift.Double {
+    get
+  }
+  public var fullPipeline: Swift.Double {
+    get
+  }
+  public var description: Swift.String {
+    get
+  }
+  public var debugDescription: Swift.String {
+    get
+  }
+}
+@_hasMissingDesignatedInitializers @available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+final public class PyannoteDiarizer : Module___SpeakerKit.Diarizer, @unchecked Swift.Sendable {
+  final public var modelFolder: Foundation.URL? {
+    get
+  }
+  final public var modelState: Module___ArgmaxCore.ModelState {
+    get
+  }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  final nonisolated(nonsending) public func downloadModels() async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  final nonisolated(nonsending) public func downloadModels(progressCallback: (@Sendable (Foundation.Progress) -> Swift.Void)?) async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  final nonisolated(nonsending) public func loadModels() async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  final nonisolated(nonsending) public func unloadModels() async
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) final public func diarize(audioArray: [Swift.Float], options: (any Module___SpeakerKit.DiarizationOptions)? = nil, progressCallback: (@Sendable (Foundation.Progress) -> Swift.Void)? = nil) async throws -> Module___SpeakerKit.DiarizationResult
+  #endif
+  @objc deinit
+}
+@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+extension Module___SpeakerKit.SpeakerKitDiarizer {
+  public static func pyannote(config: Module___SpeakerKit.PyannoteConfig = PyannoteConfig(), segmenterModelInfo: Module___ArgmaxCore.ModelInfo = .segmenter(), embedderModelInfo: Module___ArgmaxCore.ModelInfo = .embedder(), pldaModelInfo: Module___ArgmaxCore.ModelInfo = .plda(), downloader: Module___ArgmaxCore.ModelDownloader? = nil) -> Module___SpeakerKit.SpeakerKitDiarizer
+}
+@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+final public class PyannoteModelLoader : Module___ArgmaxCore.ModelLoader, @unchecked Swift.Sendable {
+  final public let pyannoteConfig: Module___SpeakerKit.PyannoteConfig
+  final public var models: Module___SpeakerKit.PyannoteModels? {
+    get
+  }
+  final public var modelFolder: Swift.String? {
+    get
+  }
+  public init(config: Module___SpeakerKit.PyannoteConfig = PyannoteConfig(), segmenterModelInfo: Module___ArgmaxCore.ModelInfo = .segmenter(), embedderModelInfo: Module___ArgmaxCore.ModelInfo = .embedder(), pldaModelInfo: Module___ArgmaxCore.ModelInfo = .plda())
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  final nonisolated(nonsending) public func resolveModels(downloader: Module___ArgmaxCore.ModelDownloader, progressCallback: ((Foundation.Progress) -> Swift.Void)?) async throws -> Swift.String
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  final nonisolated(nonsending) public func load(from modelPath: Swift.String, prewarm: Swift.Bool) async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  final nonisolated(nonsending) public func unload() async
+  #endif
+  final public func makeDiarizer() throws -> Module___SpeakerKit.PyannoteDiarizer
+  @objc deinit
+}
+@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+public struct PyannoteModels : Module___SpeakerKit.SpeakerKitModels {
+  public let segmenter: Module___SpeakerKit.SpeakerSegmenterModel
+  public let embedder: Module___SpeakerKit.SpeakerEmbedderModel
+  public let config: Module___SpeakerKit.PyannoteConfig
+  public let segmenterModelInfo: Module___ArgmaxCore.ModelInfo
+  public let embedderModelInfo: Module___ArgmaxCore.ModelInfo
+  public let pldaModelInfo: Module___ArgmaxCore.ModelInfo
+  public var modelInfos: [Module___ArgmaxCore.ModelInfo] {
+    get
+  }
+}
+@_hasMissingDesignatedInitializers @available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+final public class SpeakerEmbedderModel : @unchecked Swift.Sendable {
+  @objc deinit
+}
+@_hasMissingDesignatedInitializers @available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+public class SpeakerSegmenterModel : @unchecked Swift.Sendable {
+  public var modelURL: Foundation.URL {
+    get
+  }
+  public var computeUnits: Module___CoreML.MLComputeUnits {
+    get
+  }
+  @Module___ArgmaxCore.Protected<Module___CoreML.MLModel?> public var model: Module___CoreML.MLModel? {
+    get
+  }
+  public var modelState: Module___ArgmaxCore.ModelState {
+    get
+  }
+  final public let sampleRate: Swift.Int
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func loadModel(prewarmMode: Swift.Bool = false) async throws
+  #endif
+  public func unloadModel()
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func predict(audioArray: [Swift.Float], outputContinuation: Module____Concurrency.AsyncStream<Module___SpeakerKit.SpeakerSegmenterOutput>.Continuation, windowPadding: Swift.Int = 0) async throws
+  #endif
+  @objc deinit
+}
+public class SpeakerSegmenterOutput : Module___CoreML.MLFeatureProvider, Swift.CustomDebugStringConvertible, @unchecked Swift.Sendable {
+  public var chunkIndex: Swift.Int {
+    get
+  }
+  final public let audioChunk: Module___CoreML.MLMultiArray
+  final public let chunkStride: Swift.Int
+  final public let waveformLength: Swift.Float
+  final public let modelSampleRate: Swift.Float
+  final public let audioSampleRate: Swift.Float
+  @objc public var featureNames: Swift.Set<Swift.String> {
+    @objc get
+  }
+  public var debugDescription: Swift.String {
+    get
+  }
+  public init(features: any Module___CoreML.MLFeatureProvider, chunkIndex: Swift.Int, audioChunk: Module___CoreML.MLMultiArray, chunkStride: Swift.Int, waveformLength: Swift.Float, modelSampleRate: Swift.Float, audioSampleRate: Swift.Float)
+  convenience public init()
+  @objc public func featureValue(for featureName: Swift.String) -> Module___CoreML.MLFeatureValue?
+  @objc deinit
+}
+public struct WordWithSpeaker : Swift.Equatable, Swift.Sendable {
+  public let wordTiming: Module___WhisperKit.WordTiming
+  public let speaker: Swift.Int?
+  public init(wordTiming: Module___WhisperKit.WordTiming, speaker: Swift.Int?)
+  public static func == (a: Module___SpeakerKit.WordWithSpeaker, b: Module___SpeakerKit.WordWithSpeaker) -> Swift.Bool
+}
+public struct RTTMLine : Swift.CustomStringConvertible {
+  public let fileId: Swift.String
+  public let startTime: Swift.Float
+  public let duration: Swift.Float
+  public let orthography: Swift.String
+  public let speakerName: Swift.String
+  public init(fileId: Swift.String, speakerId: Swift.Int, startTime: Swift.Float, duration: Swift.Float, orthography: Swift.String = "<NA>")
+  public var description: Swift.String {
+    get
+  }
+  public static func fromWords(_ wordsWithSpeakers: [Module___SpeakerKit.WordWithSpeaker], fileName: Swift.String) -> [Module___SpeakerKit.RTTMLine]
+}
+public enum SpeakerInfoStrategy : Swift.Equatable, Swift.Hashable {
+  case segment
+  case subsegment(betweenWordThreshold: Swift.Float)
+  public static var subsegment: Module___SpeakerKit.SpeakerInfoStrategy {
+    get
+  }
+  public init?(from string: Swift.String)
+  public static func == (a: Module___SpeakerKit.SpeakerInfoStrategy, b: Module___SpeakerKit.SpeakerInfoStrategy) -> Swift.Bool
+  public func hash(into hasher: inout Swift.Hasher)
+  public var hashValue: Swift.Int {
+    get
+  }
+}
+public enum SpeakerInfo : Swift.Hashable, Swift.Codable, Swift.CustomStringConvertible, Swift.Sendable {
+  case noMatch
+  case multiple([Swift.Int])
+  case speakerId(Swift.Int)
+  public var speakerId: Swift.Int? {
+    get
+  }
+  public var speakerIds: [Swift.Int] {
+    get
+  }
+  public var description: Swift.String {
+    get
+  }
+  public static func == (a: Module___SpeakerKit.SpeakerInfo, b: Module___SpeakerKit.SpeakerInfo) -> Swift.Bool
+  public func encode(to encoder: any Swift.Encoder) throws
+  public func hash(into hasher: inout Swift.Hasher)
+  public var hashValue: Swift.Int {
+    get
+  }
+  public init(from decoder: any Swift.Decoder) throws
+}
+public struct SpeakerWordTiming : Swift.Hashable, Swift.Codable, Swift.Sendable {
+  public let wordTiming: Module___WhisperKit.WordTiming
+  public let speaker: Module___SpeakerKit.SpeakerInfo
+  public init(wordTiming: Module___WhisperKit.WordTiming, speaker: Module___SpeakerKit.SpeakerInfo)
+  public static func == (a: Module___SpeakerKit.SpeakerWordTiming, b: Module___SpeakerKit.SpeakerWordTiming) -> Swift.Bool
+  public func encode(to encoder: any Swift.Encoder) throws
+  public func hash(into hasher: inout Swift.Hasher)
+  public var hashValue: Swift.Int {
+    get
+  }
+  public init(from decoder: any Swift.Decoder) throws
+}
+@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+open class SpeakerKit : @unchecked Swift.Sendable {
+  public var diarizer: any Module___SpeakerKit.Diarizer
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public init(_ config: Module___SpeakerKit.SpeakerKitConfig = PyannoteConfig()) async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func ensureModelsLoaded() async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func unloadModels() async
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func diarize(audioArray: [Swift.Float], options: (any Module___SpeakerKit.DiarizationOptions)? = nil, progressCallback: (@Sendable (Foundation.Progress) -> Swift.Void)? = nil) async throws -> Module___SpeakerKit.DiarizationResult
+  #endif
+  open class func generateRTTM(from diarizationResult: Module___SpeakerKit.DiarizationResult, strategy: Module___SpeakerKit.SpeakerInfoStrategy = .subsegment, transcription: [Module___WhisperKit.TranscriptionResult]? = nil, fileName: Swift.String = "audio") -> [Module___SpeakerKit.RTTMLine]
+  @objc deinit
+}
+public enum SpeakerKitError : Swift.Error, Foundation.LocalizedError {
+  case modelUnavailable(Swift.String)
+  case invalidConfiguration(Swift.String)
+  case invalidModelOutput(Swift.String)
+  case generic(Swift.String)
+  public var errorDescription: Swift.String? {
+    get
+  }
+}
+public protocol DiarizationOptions : Swift.Sendable {
+}
+@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+public protocol SpeakerKitModels : Swift.Sendable {
+  var modelInfos: [Module___ArgmaxCore.ModelInfo] { get }
+}
+@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+open class SpeakerKitConfig : @unchecked Swift.Sendable {
+  public var diarizer: (any Module___SpeakerKit.Diarizer)?
+  public var modelDownloadConfig: Module___ArgmaxCore.ModelDownloadConfig
+  public var verbose: Swift.Bool
+  public var logLevel: Module___ArgmaxCore.Logging.LogLevel
+  public var download: Swift.Bool
+  public var load: Swift.Bool
+  public init(modelDownloadConfig: Module___ArgmaxCore.ModelDownloadConfig? = nil, download: Swift.Bool = true, verbose: Swift.Bool = true, logLevel: Module___ArgmaxCore.Logging.LogLevel = .info, load: Swift.Bool = false, diarizer: (any Module___SpeakerKit.Diarizer)? = nil)
+  @objc deinit
+}
+@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+public class SpeakerKitDiarizer : Module___ArgmaxCore.ModelManager, Module___SpeakerKit.Diarizer, @unchecked Swift.Sendable {
+  final public let diarize: nonisolated(nonsending) ([Swift.Float], (any Module___SpeakerKit.DiarizationOptions)?, (@Sendable (Foundation.Progress) -> Swift.Void)?) async throws -> Module___SpeakerKit.DiarizationResult
+  public init(loader: any Module___ArgmaxCore.ModelLoader, downloader: Module___ArgmaxCore.ModelDownloader, diarize: (nonisolated(nonsending) ([Swift.Float], (any Module___SpeakerKit.DiarizationOptions)?, (@Sendable (Foundation.Progress) -> Swift.Void)?) async throws -> Module___SpeakerKit.DiarizationResult)? = nil)
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func downloadModels() async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func downloadModels(progressCallback: (@Sendable (Foundation.Progress) -> Swift.Void)?) async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func diarize(audioArray: [Swift.Float], options: (any Module___SpeakerKit.DiarizationOptions)?, progressCallback: (@Sendable (Foundation.Progress) -> Swift.Void)?) async throws -> Module___SpeakerKit.DiarizationResult
+  #endif
+  @objc deinit
+}
+public struct SpeakerSegment : Swift.Identifiable, Swift.CustomStringConvertible, Swift.CustomDebugStringConvertible, Swift.Sendable {
+  public let id: Foundation.UUID
+  public let speaker: Module___SpeakerKit.SpeakerInfo
+  public let startTime: Swift.Float
+  public let endTime: Swift.Float
+  public let frameRate: Swift.Float
+  public var startFrame: Swift.Int {
+    get
+  }
+  public var endFrame: Swift.Int {
+    get
+  }
+  public let transcription: Module___WhisperKit.TranscriptionSegment?
+  public let speakerWords: [Module___SpeakerKit.SpeakerWordTiming]
+  public var text: Swift.String {
+    get
+  }
+  public var description: Swift.String {
+    get
+  }
+  public var debugDescription: Swift.String {
+    get
+  }
+  public init(speaker: Module___SpeakerKit.SpeakerInfo, startTime: Swift.Float, endTime: Swift.Float, frameRate: Swift.Float, transcription: Module___WhisperKit.TranscriptionSegment? = nil, speakerWords: [Module___SpeakerKit.SpeakerWordTiming] = [])
+  public init(speaker: Module___SpeakerKit.SpeakerInfo, startFrame: Swift.Int, endFrame: Swift.Int, frameRate: Swift.Float, transcription: Module___WhisperKit.TranscriptionSegment? = nil, speakerWords: [Module___SpeakerKit.SpeakerWordTiming] = [])
+  public init(transcription: Module___WhisperKit.TranscriptionSegment, speakerWords: [Module___SpeakerKit.SpeakerWordTiming], diarizationFrameRate: Swift.Float)
+  public typealias ID = Foundation.UUID
+}

@@ -1,0 +1,217 @@
+{
+  "": {
+    "dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ArgmaxCore.d",
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ArgmaxCore.o",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/primary.swiftdeps"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/ArgmaxCoreError.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ArgmaxCoreError.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ArgmaxCoreError~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ArgmaxCoreError.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ArgmaxCoreError.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/AutoTokenizerWrapper.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/AutoTokenizerWrapper.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/AutoTokenizerWrapper~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/AutoTokenizerWrapper.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/AutoTokenizerWrapper.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/ConcurrencyUtilities.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ConcurrencyUtilities.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ConcurrencyUtilities~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ConcurrencyUtilities.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ConcurrencyUtilities.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Hub/BinaryDistinct.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/BinaryDistinct.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/BinaryDistinct~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/BinaryDistinct.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/BinaryDistinct.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Hub/Config.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Config.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Config~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Config.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Config.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Hub/Downloader.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Downloader.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Downloader~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Downloader.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Downloader.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Hub/Extensions/JSONSerialization+BOM.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/JSONSerialization+BOM.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/JSONSerialization+BOM~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/JSONSerialization+BOM.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/JSONSerialization+BOM.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Hub/Hub.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Hub.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Hub~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Hub.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Hub.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Hub/HubApi.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/HubApi.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/HubApi~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/HubApi.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/HubApi.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Tokenizers/BPETokenizer.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/BPETokenizer.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/BPETokenizer~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/BPETokenizer.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/BPETokenizer.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Tokenizers/BertTokenizer.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/BertTokenizer.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/BertTokenizer~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/BertTokenizer.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/BertTokenizer.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Tokenizers/ByteEncoder.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ByteEncoder.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ByteEncoder~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ByteEncoder.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ByteEncoder.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Tokenizers/Decoder.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Decoder.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Decoder~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Decoder.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Decoder.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Tokenizers/Normalizer.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Normalizer.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Normalizer~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Normalizer.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Normalizer.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Tokenizers/PostProcessor.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/PostProcessor.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/PostProcessor~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/PostProcessor.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/PostProcessor.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Tokenizers/PreTokenizer.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/PreTokenizer.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/PreTokenizer~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/PreTokenizer.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/PreTokenizer.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Tokenizers/String+PreTokenization.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/String+PreTokenization.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/String+PreTokenization~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/String+PreTokenization.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/String+PreTokenization.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Tokenizers/TokenLattice.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/TokenLattice.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/TokenLattice~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/TokenLattice.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/TokenLattice.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Tokenizers/Tokenizer.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Tokenizer.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Tokenizer~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Tokenizer.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Tokenizer.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Tokenizers/Trie.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Trie.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Trie~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Trie.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Trie.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Tokenizers/UnigramTokenizer.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/UnigramTokenizer.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/UnigramTokenizer~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/UnigramTokenizer.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/UnigramTokenizer.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/External/Tokenizers/Utils.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Utils.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Utils~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Utils.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Utils.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/FloatType.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/FloatType.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/FloatType~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/FloatType.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/FloatType.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/FoundationExtensions.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/FoundationExtensions.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/FoundationExtensions~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/FoundationExtensions.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/FoundationExtensions.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/HubWrapper.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/HubWrapper.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/HubWrapper~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/HubWrapper.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/HubWrapper.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/Logging.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Logging.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Logging~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Logging.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/Logging.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/MLModelExtensions.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLModelExtensions.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLModelExtensions~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLModelExtensions.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLModelExtensions.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/MLModelLoading.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLModelLoading.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLModelLoading~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLModelLoading.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLModelLoading.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/MLMultiArrayExtensions.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLMultiArrayExtensions.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLMultiArrayExtensions~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLMultiArrayExtensions.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLMultiArrayExtensions.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/MLTensorExtensions.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLTensorExtensions.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLTensorExtensions~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLTensorExtensions.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/MLTensorExtensions.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/ModelDownloader.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelDownloader.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelDownloader~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelDownloader.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelDownloader.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/ModelManager.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelManager.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelManager~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelManager.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelManager.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/ModelState.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelState.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelState~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelState.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelState.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/ModelUtilities.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelUtilities.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelUtilities~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelUtilities.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/ModelUtilities.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCore/TokenizerWrapper.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/TokenizerWrapper.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/TokenizerWrapper~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/TokenizerWrapper.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCore.build/TokenizerWrapper.dia"
+  }
+}

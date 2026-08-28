@@ -1,0 +1,3 @@
+module TTSKit {
+    header "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/include/TTSKit-Swift.h"
+}

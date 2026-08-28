@@ -1,0 +1,52 @@
+{
+  "ABIRoot": {
+    "kind": "Root",
+    "name": "ArgmaxOSS",
+    "printedName": "ArgmaxOSS",
+    "children": [
+      {
+        "kind": "Import",
+        "name": "ArgmaxCore",
+        "printedName": "ArgmaxCore",
+        "declKind": "Import",
+        "moduleName": "ArgmaxOSS",
+        "declAttributes": [
+          "Exported",
+          "RawDocComment"
+        ]
+      },
+      {
+        "kind": "Import",
+        "name": "WhisperKit",
+        "printedName": "WhisperKit",
+        "declKind": "Import",
+        "moduleName": "ArgmaxOSS",
+        "declAttributes": [
+          "Exported"
+        ]
+      },
+      {
+        "kind": "Import",
+        "name": "TTSKit",
+        "printedName": "TTSKit",
+        "declKind": "Import",
+        "moduleName": "ArgmaxOSS",
+        "declAttributes": [
+          "Exported"
+        ]
+      },
+      {
+        "kind": "Import",
+        "name": "SpeakerKit",
+        "printedName": "SpeakerKit",
+        "declKind": "Import",
+        "moduleName": "ArgmaxOSS",
+        "declAttributes": [
+          "Exported"
+        ]
+      }
+    ],
+    "json_format_version": 8
+  },
+  "ConstValues": []
+}

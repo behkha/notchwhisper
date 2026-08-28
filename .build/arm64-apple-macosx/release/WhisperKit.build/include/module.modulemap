@@ -1,0 +1,3 @@
+module WhisperKit {
+    header "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/WhisperKit.build/include/WhisperKit-Swift.h"
+}

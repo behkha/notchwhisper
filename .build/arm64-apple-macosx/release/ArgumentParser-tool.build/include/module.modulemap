@@ -1,0 +1,3 @@
+module ArgumentParser {
+    header "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgumentParser-tool.build/include/ArgumentParser-Swift.h"
+}

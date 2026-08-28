@@ -1,0 +1,115 @@
+{
+  "": {
+    "dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerKit.d",
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerKit.o",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/primary.swiftdeps"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/DiarizationResult.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/DiarizationResult.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/DiarizationResult~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/DiarizationResult.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/DiarizationResult.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/Diarizer.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/Diarizer.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/Diarizer~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/Diarizer.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/Diarizer.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/Pyannote/ClusteringAlgorithms.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/ClusteringAlgorithms.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/ClusteringAlgorithms~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/ClusteringAlgorithms.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/ClusteringAlgorithms.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/Pyannote/MathOps.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/MathOps.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/MathOps~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/MathOps.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/MathOps.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/Pyannote/PyannoteConfig.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/PyannoteConfig.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/PyannoteConfig~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/PyannoteConfig.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/PyannoteConfig.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/Pyannote/PyannoteDiarizer.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/PyannoteDiarizer.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/PyannoteDiarizer~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/PyannoteDiarizer.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/PyannoteDiarizer.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/Pyannote/PyannoteModelManager.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/PyannoteModelManager.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/PyannoteModelManager~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/PyannoteModelManager.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/PyannoteModelManager.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/Pyannote/SpeakerClustering.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerClustering.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerClustering~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerClustering.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerClustering.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/Pyannote/SpeakerEmbedderModel.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerEmbedderModel.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerEmbedderModel~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerEmbedderModel.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerEmbedderModel.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/Pyannote/SpeakerPreEmbedderModel.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerPreEmbedderModel.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerPreEmbedderModel~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerPreEmbedderModel.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerPreEmbedderModel.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/Pyannote/SpeakerSegmenterModel.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerSegmenterModel.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerSegmenterModel~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerSegmenterModel.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerSegmenterModel.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/Pyannote/VBxClustering.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/VBxClustering.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/VBxClustering~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/VBxClustering.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/VBxClustering.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/RTTMLine.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/RTTMLine.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/RTTMLine~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/RTTMLine.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/RTTMLine.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/SpeakerInfo.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerInfo.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerInfo~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerInfo.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerInfo.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/SpeakerKit.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerKit.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerKit~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerKit.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerKit.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/SpeakerKitConfig.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerKitConfig.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerKitConfig~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerKitConfig.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerKitConfig.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/SpeakerKitDiarizer.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerKitDiarizer.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerKitDiarizer~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerKitDiarizer.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerKitDiarizer.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/SpeakerKit/SpeakerSegment.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerSegment.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerSegment~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerSegment.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/SpeakerSegment.dia"
+  }
+}

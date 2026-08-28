@@ -1,0 +1,139 @@
+{
+  "": {
+    "dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TTSKit.d",
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TTSKit.o",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/primary.swiftdeps"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Configurations.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Configurations.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Configurations~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Configurations.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Configurations.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Generating.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Generating.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Generating~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Generating.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Generating.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Models.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Models.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Models~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Models.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Models.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Protocols.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Protocols.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Protocols~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Protocols.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Protocols.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Qwen3TTS/Qwen3CodeDecoder.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3CodeDecoder.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3CodeDecoder~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3CodeDecoder.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3CodeDecoder.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Qwen3TTS/Qwen3Config.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3Config.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3Config~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3Config.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3Config.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Qwen3TTS/Qwen3Embedders.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3Embedders.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3Embedders~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3Embedders.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3Embedders.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Qwen3TTS/Qwen3GenerateTask.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3GenerateTask.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3GenerateTask~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3GenerateTask.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3GenerateTask.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Qwen3TTS/Qwen3Models.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3Models.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3Models~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3Models.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3Models.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Qwen3TTS/Qwen3MultiCodeDecoder.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3MultiCodeDecoder.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3MultiCodeDecoder~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3MultiCodeDecoder.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3MultiCodeDecoder.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Qwen3TTS/Qwen3SpeechDecoder.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3SpeechDecoder.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3SpeechDecoder~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3SpeechDecoder.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3SpeechDecoder.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Qwen3TTS/Qwen3TextProjector.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3TextProjector.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3TextProjector~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3TextProjector.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Qwen3TextProjector.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Qwen3TTS/SpeechStreamWriter.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/SpeechStreamWriter.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/SpeechStreamWriter~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/SpeechStreamWriter.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/SpeechStreamWriter.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/TTSKit.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TTSKit.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TTSKit~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TTSKit.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TTSKit.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/TTSTokenizer.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TTSTokenizer.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TTSTokenizer~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TTSTokenizer.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TTSTokenizer.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Utilities/AudioOutput.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/AudioOutput.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/AudioOutput~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/AudioOutput.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/AudioOutput.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Utilities/EmbedTypes.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/EmbedTypes.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/EmbedTypes~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/EmbedTypes.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/EmbedTypes.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Utilities/KVCache.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/KVCache.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/KVCache~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/KVCache.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/KVCache.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Utilities/PromptCache.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/PromptCache.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/PromptCache~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/PromptCache.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/PromptCache.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Utilities/Sampling.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Sampling.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Sampling~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Sampling.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/Sampling.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Utilities/TTSError.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TTSError.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TTSError~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TTSError.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TTSError.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/TTSKit/Utilities/TextChunker.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TextChunker.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TextChunker~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TextChunker.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/TTSKit.build/TextChunker.dia"
+  }
+}

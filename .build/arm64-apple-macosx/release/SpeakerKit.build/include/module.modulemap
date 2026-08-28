@@ -1,0 +1,3 @@
+module SpeakerKit {
+    header "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/SpeakerKit.build/include/SpeakerKit-Swift.h"
+}

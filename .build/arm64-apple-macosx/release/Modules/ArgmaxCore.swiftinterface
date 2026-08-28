@@ -1,0 +1,536 @@
+// swift-interface-format-version: 1.0
+// swift-compiler-version: Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)
+// swift-module-flags: -target arm64-apple-macosx13.0 -enable-objc-interop -enable-library-evolution -swift-version 6 -O -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -module-name ArgmaxCore -package-name whisperkit -module-alias Module___ArgmaxCore=ArgmaxCore -module-alias Module____StringProcessing=_StringProcessing -module-alias Module____SwiftConcurrencyShims=_SwiftConcurrencyShims -module-alias Module____Concurrency=_Concurrency -module-alias Module___lock=lock -module-alias Module___os=os -module-alias Module___CryptoKit=CryptoKit -module-alias Module___Network=Network -module-alias Module___Accelerate=Accelerate -module-alias Module___CoreML=CoreML -module-alias Module___OSLog=OSLog
+// swift-module-flags-ignorable:  -formal-cxx-interoperability-mode=off -interface-compiler-version 6.3.3
+import Module___Accelerate
+@preconcurrency import Module___CoreML
+import Module___CryptoKit
+import Foundation
+import Module___Network
+import Module___OSLog
+import Swift
+import Module____Concurrency
+import Module____StringProcessing
+import Module____SwiftConcurrencyShims
+import Module___os.lock
+import Module___os
+@frozen public enum ArgmaxCoreError : Swift.Error, Foundation.LocalizedError {
+  case invalidConfiguration(Swift.String)
+  public var errorDescription: Swift.String? {
+    get
+  }
+}
+public enum AutoTokenizerWrapper {
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public static func from(pretrained model: Swift.String, hubApi: Module___ArgmaxCore.HubApiWrapper = .shared, strict: Swift.Bool = true) async throws -> Module___ArgmaxCore.TokenizerWrapper
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public static func from(modelFolder: Foundation.URL, hubApi: Module___ArgmaxCore.HubApiWrapper = .shared, strict: Swift.Bool = true) async throws -> Module___ArgmaxCore.TokenizerWrapper
+  #endif
+}
+public struct ConcurrencyUtilities {
+  public static var activeProcessorCount: Swift.Int {
+    get
+  }
+}
+final public class UnfairLock : @unchecked Swift.Sendable {
+  public init()
+  final public func withLock<T>(_ body: () throws -> T) rethrows -> T
+  @objc deinit
+}
+@propertyWrapper public struct PropertyLock<Value> : Swift.Sendable, Swift.Codable where Value : Swift.Decodable, Value : Swift.Encodable, Value : Swift.Sendable {
+  public init(wrappedValue: Value)
+  public init(from decoder: any Swift.Decoder) throws
+  public func encode(to encoder: any Swift.Encoder) throws
+  public var wrappedValue: Value {
+    get
+    set
+  }
+}
+@propertyWrapper public struct Protected<Value> : @unchecked Swift.Sendable {
+  public init(wrappedValue: Value)
+  public var wrappedValue: Value {
+    get
+    nonmutating set
+  }
+}
+extension Module___ArgmaxCore.Protected where Value : Swift.ExpressibleByNilLiteral {
+  public init()
+}
+final public class WeakSendableWrapper<T> : @unchecked Swift.Sendable where T : AnyObject {
+  weak final public var value: T?
+  public init(_ value: T?)
+  @objc deinit
+}
+public actor EarlyStopActor {
+  public init()
+  public func set(_ value: Swift.Bool, for uuid: Foundation.UUID)
+  public func get(for uuid: Foundation.UUID) -> Swift.Bool
+  @discardableResult
+  public func remove(for uuid: Foundation.UUID) -> Swift.Bool?
+  @objc deinit
+  @available(iOS 13.0, tvOS 13.0, watchOS 6.0, macOS 10.15, *)
+  @_semantics("defaultActor") nonisolated final public var unownedExecutor: Module____Concurrency.UnownedSerialExecutor {
+    get
+  }
+}
+public struct BinaryDistinctString : Swift.Equatable, Swift.Hashable, Swift.Sendable, Swift.Comparable, Swift.CustomStringConvertible, Swift.ExpressibleByStringLiteral {
+  public let value: [Swift.UInt16]
+  public var nsString: Foundation.NSString {
+    get
+  }
+  public var string: Swift.String {
+    get
+  }
+  public var count: Swift.Int {
+    get
+  }
+  public var description: Swift.String {
+    get
+  }
+  public init(_ bytes: [Swift.UInt16])
+  public init(_ str: Foundation.NSString)
+  public init(_ str: Swift.String)
+  public init(_ character: Module___ArgmaxCore.BinaryDistinctCharacter)
+  public init(_ characters: [Module___ArgmaxCore.BinaryDistinctCharacter])
+  public init(stringLiteral value: Swift.String)
+  public static func == (lhs: Module___ArgmaxCore.BinaryDistinctString, rhs: Module___ArgmaxCore.BinaryDistinctString) -> Swift.Bool
+  public static func < (lhs: Module___ArgmaxCore.BinaryDistinctString, rhs: Module___ArgmaxCore.BinaryDistinctString) -> Swift.Bool
+  public static func + (lhs: Module___ArgmaxCore.BinaryDistinctString, rhs: Module___ArgmaxCore.BinaryDistinctString) -> Module___ArgmaxCore.BinaryDistinctString
+  public func hasPrefix(_ prefix: Module___ArgmaxCore.BinaryDistinctString) -> Swift.Bool
+  public func hasSuffix(_ suffix: Module___ArgmaxCore.BinaryDistinctString) -> Swift.Bool
+  public func lowercased() -> Module___ArgmaxCore.BinaryDistinctString
+  public func replacingOccurrences(of: Module___ArgmaxCore.BinaryDistinctString, with: Module___ArgmaxCore.BinaryDistinctString) -> Module___ArgmaxCore.BinaryDistinctString
+  public typealias ExtendedGraphemeClusterLiteralType = Swift.String
+  public typealias StringLiteralType = Swift.String
+  public typealias UnicodeScalarLiteralType = Swift.String
+  public func hash(into hasher: inout Swift.Hasher)
+  public var hashValue: Swift.Int {
+    get
+  }
+}
+extension Module___ArgmaxCore.BinaryDistinctString {
+  public typealias Index = Swift.Int
+  public var startIndex: Module___ArgmaxCore.BinaryDistinctString.Index {
+    get
+  }
+  public var endIndex: Module___ArgmaxCore.BinaryDistinctString.Index {
+    get
+  }
+  public func index(_ i: Module___ArgmaxCore.BinaryDistinctString.Index, offsetBy distance: Swift.Int) -> Module___ArgmaxCore.BinaryDistinctString.Index
+  public func index(_ i: Module___ArgmaxCore.BinaryDistinctString.Index, offsetBy distance: Swift.Int, limitedBy limit: Module___ArgmaxCore.BinaryDistinctString.Index) -> Module___ArgmaxCore.BinaryDistinctString.Index?
+}
+extension Module___ArgmaxCore.BinaryDistinctString : Swift.Sequence {
+  public func makeIterator() -> Swift.AnyIterator<Module___ArgmaxCore.BinaryDistinctCharacter>
+  public typealias Element = Module___ArgmaxCore.BinaryDistinctCharacter
+  public typealias Iterator = Swift.AnyIterator<Module___ArgmaxCore.BinaryDistinctCharacter>
+}
+extension Module___ArgmaxCore.BinaryDistinctString {
+  public subscript(bounds: Swift.PartialRangeFrom<Swift.Int>) -> Module___ArgmaxCore.BinaryDistinctString {
+    get
+  }
+  public subscript(bounds: Swift.Range<Swift.Int>) -> Module___ArgmaxCore.BinaryDistinctString {
+    get
+  }
+}
+extension Swift.Dictionary where Key == Module___ArgmaxCore.BinaryDistinctString {
+  public mutating func merge(_ other: [Module___ArgmaxCore.BinaryDistinctString : Value], strategy: (Value, Value) -> Value = { _, new in new })
+  public mutating func merge(_ other: [Swift.String : Value], strategy: (Value, Value) -> Value = { _, new in new })
+  public mutating func merge(_ other: [Foundation.NSString : Value], strategy: (Value, Value) -> Value = { _, new in new })
+  public func merging(_ other: [Swift.String : Value], strategy: (Value, Value) -> Value = { _, new in new }) -> Swift.Dictionary<Key, Value>
+  public func merging(_ other: [Module___ArgmaxCore.BinaryDistinctString : Value], strategy: (Value, Value) -> Value = { _, new in new }) -> Swift.Dictionary<Key, Value>
+  public func merging(_ other: [Foundation.NSString : Value], strategy: (Value, Value) -> Value = { _, new in new }) -> Swift.Dictionary<Key, Value>
+}
+public protocol StringConvertible : Swift.ExpressibleByStringLiteral {
+}
+extension Module___ArgmaxCore.BinaryDistinctString : Module___ArgmaxCore.StringConvertible {
+}
+extension Swift.String : Module___ArgmaxCore.StringConvertible {
+}
+extension Foundation.NSString : Module___ArgmaxCore.StringConvertible {
+}
+public struct BinaryDistinctCharacter : Swift.Equatable, Swift.Hashable, Swift.CustomStringConvertible, Swift.ExpressibleByStringLiteral {
+  public init(_ character: Swift.Character)
+  public init(_ string: Swift.String)
+  public init(_ nsString: Foundation.NSString)
+  public init(bytes: [Swift.UInt16])
+  public init(stringLiteral value: Swift.String)
+  public var description: Swift.String {
+    get
+  }
+  public static func == (lhs: Module___ArgmaxCore.BinaryDistinctCharacter, rhs: Module___ArgmaxCore.BinaryDistinctCharacter) -> Swift.Bool
+  public typealias ExtendedGraphemeClusterLiteralType = Swift.String
+  public typealias StringLiteralType = Swift.String
+  public typealias UnicodeScalarLiteralType = Swift.String
+  public func hash(into hasher: inout Swift.Hasher)
+  public var hashValue: Swift.Int {
+    get
+  }
+}
+public typealias FloatType = Swift.Float16
+extension Swift.Float16 : @retroactive Module___Accelerate.BNNSScalar {
+  public static var bnnsDataType: Module___Accelerate.BNNSDataType {
+    get
+  }
+}
+extension Swift.Float16 : @retroactive Module___CoreML.MLShapedArrayScalar {
+  public static var multiArrayDataType: Module___CoreML.MLMultiArrayDataType {
+    get
+  }
+}
+extension Swift.Float {
+  public func rounded(_ decimalPlaces: Swift.Int) -> Swift.Float
+}
+extension Foundation.FileManager {
+  public static func resolveAbsolutePath(_ inputPath: Swift.String) -> Swift.String
+}
+extension Swift.Array {
+  public func batched(into size: Swift.Int) -> [[Element]]
+}
+extension Swift.Array where Element : Swift.Hashable {
+  public var orderedSet: [Element] {
+    get
+  }
+}
+extension Swift.String {
+  public func lastNaturalBoundary(minTokenCount: Swift.Int, encode: (Swift.String) -> [Swift.Int]) -> Swift.String?
+  public func trimmingFromEnd(character: Swift.Character = " ", upto: Swift.Int) -> Swift.String
+}
+extension Swift.Array where Element == Swift.String {
+  public func matching(glob: Swift.String) -> [Swift.String]
+}
+extension Foundation.ProcessInfo {
+  public static func stringFromSysctl(named name: Swift.String) -> Swift.String
+  public static let processor: Swift.String
+  public static let cores: Swift.String
+  public static let threads: Swift.String
+  public static let vendor: Swift.String
+  public static let family: Swift.String
+  public static let hwModel: Swift.String
+}
+public struct HubApiWrapper : Swift.Sendable {
+  public init(downloadBase: Foundation.URL? = nil, hfToken: Swift.String? = nil, endpoint: Swift.String? = nil, useBackgroundSession: Swift.Bool = false)
+  public static let shared: Module___ArgmaxCore.HubApiWrapper
+  public enum RepoType : Swift.String, Swift.Codable, Swift.Sendable {
+    case models
+    case datasets
+    case spaces
+    public init?(rawValue: Swift.String)
+    public typealias RawValue = Swift.String
+    public var rawValue: Swift.String {
+      get
+    }
+  }
+  public struct Repo : Swift.Codable, Swift.Sendable, Swift.Hashable {
+    public let id: Swift.String
+    public let type: Module___ArgmaxCore.HubApiWrapper.RepoType
+    public init(id: Swift.String, type: Module___ArgmaxCore.HubApiWrapper.RepoType = .models)
+    public static func == (a: Module___ArgmaxCore.HubApiWrapper.Repo, b: Module___ArgmaxCore.HubApiWrapper.Repo) -> Swift.Bool
+    public func encode(to encoder: any Swift.Encoder) throws
+    public func hash(into hasher: inout Swift.Hasher)
+    public var hashValue: Swift.Int {
+      get
+    }
+    public init(from decoder: any Swift.Decoder) throws
+  }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func snapshot(from repo: Module___ArgmaxCore.HubApiWrapper.Repo, revision: Swift.String = "main", matching globs: [Swift.String] = [], progressHandler: @escaping (Foundation.Progress) -> Swift.Void = { _ in }) async throws -> Foundation.URL
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func getFilenames(from repo: Module___ArgmaxCore.HubApiWrapper.Repo, revision: Swift.String = "main", matching globs: [Swift.String] = []) async throws -> [Swift.String]
+  #endif
+  public func localRepoLocation(_ repo: Module___ArgmaxCore.HubApiWrapper.Repo) -> Foundation.URL
+}
+@_hasMissingDesignatedInitializers final public class Logging : Swift.Sendable {
+  public typealias LoggingCallback = @Sendable (_ message: Swift.String) -> Swift.Void
+  @frozen public enum LogLevel : Swift.Int, Swift.Comparable, Swift.Sendable {
+    case debug
+    case info
+    case error
+    case none
+    public static func < (lhs: Module___ArgmaxCore.Logging.LogLevel, rhs: Module___ArgmaxCore.Logging.LogLevel) -> Swift.Bool
+    public init?(rawValue: Swift.Int)
+    public typealias RawValue = Swift.Int
+    public var rawValue: Swift.Int {
+      get
+    }
+  }
+  public static let shared: Module___ArgmaxCore.Logging
+  final public var logLevel: Module___ArgmaxCore.Logging.LogLevel {
+    get
+    set
+  }
+  final public var loggingCallback: Module___ArgmaxCore.Logging.LoggingCallback? {
+    get
+    set
+  }
+  final public var isLoggingEnabled: Swift.Bool {
+    get
+  }
+  final public func isLoggingEnabled(for level: Module___ArgmaxCore.Logging.LogLevel) -> Swift.Bool
+  final public func log(_ items: Any..., separator: Swift.String = " ", terminator: Swift.String? = nil, type: Module___os.OSLogType)
+  public static var isLoggingEnabled: Swift.Bool {
+    get
+  }
+  public static func isLoggingEnabled(for level: Module___ArgmaxCore.Logging.LogLevel) -> Swift.Bool
+  public static func debug(_ items: Any..., separator: Swift.String = " ", terminator: Swift.String? = nil)
+  public static func info(_ items: Any..., separator: Swift.String = " ", terminator: Swift.String? = nil)
+  public static func error(_ items: Any..., separator: Swift.String = " ", terminator: Swift.String? = nil)
+  @objc deinit
+}
+extension Module___ArgmaxCore.Logging {
+  public static func updateLogLevel(_ level: Module___ArgmaxCore.Logging.LogLevel)
+  public static func updateCallback(_ callback: Module___ArgmaxCore.Logging.LoggingCallback?)
+}
+extension Module___ArgmaxCore.Logging {
+  public static func logCurrentMemoryUsage(_ message: Swift.String)
+  public static func getMemoryUsage() -> Swift.UInt64
+}
+extension Module___ArgmaxCore.Logging {
+  public static func formatTimeWithPercentage(_ time: Swift.Double, _ runs: Swift.Double, _ fullPipelineDuration: Swift.Double) -> Swift.String
+}
+extension Module___CoreML.MLModel {
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func asyncPrediction(from input: any Module___CoreML.MLFeatureProvider, options: Module___CoreML.MLPredictionOptions = MLPredictionOptions()) async throws -> any Module___CoreML.MLFeatureProvider
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  nonisolated(nonsending) public func asyncPrediction(from input: any Module___CoreML.MLFeatureProvider, using state: Module___CoreML.MLState, options: Module___CoreML.MLPredictionOptions = MLPredictionOptions()) async throws -> any Module___CoreML.MLFeatureProvider
+  #endif
+}
+extension Module___CoreML.MLComputeUnits {
+  public var description: Swift.String {
+    get
+  }
+  public var displayName: Swift.String {
+    get
+  }
+}
+public protocol MLModelLoading {
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func loadModel(at url: Foundation.URL, computeUnits: Module___CoreML.MLComputeUnits, prewarmMode: Swift.Bool) async throws
+  #endif
+  func unloadModel()
+}
+extension Module___ArgmaxCore.MLModelLoading {
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func loadModel(at url: Foundation.URL, computeUnits: Module___CoreML.MLComputeUnits) async throws
+  #endif
+}
+extension Module___CoreML.MLMultiArray {
+  convenience public init(shape: [Foundation.NSNumber], dataType: Module___CoreML.MLMultiArrayDataType, initialValue: Any) throws
+  public static func from(_ array: [Swift.Int], dims: Swift.Int = 1) throws -> Module___CoreML.MLMultiArray
+}
+extension Module___CoreML.MLMultiArray {
+  @inline(__always) public func linearOffset(for index: [Swift.Int], strides strideInts: [Swift.Int]? = nil) -> Swift.Int
+  @available(*, deprecated, message: "Use linearOffset(for: [Int], strides:) instead.")
+  @inline(__always) public func linearOffset(for index: [Foundation.NSNumber], strides strideInts: [Swift.Int]? = nil) -> Swift.Int
+  public func fillLastDimension(indexes: Swift.Range<Swift.Int>, with value: Module___ArgmaxCore.FloatType)
+  public func fill<Value>(indexes: [[Swift.Int]], with value: Value)
+  @available(*, deprecated, message: "Use fill(indexes: [[Int]], with:) instead.")
+  public func fill<Value>(indexes: [[Foundation.NSNumber]], with value: Value)
+}
+extension Module___CoreML.MLMultiArray {
+  public class func pixelBuffer(for shape: [Foundation.NSNumber]) -> CoreVideo.CVPixelBuffer?
+}
+@frozen public enum MLMultiArrayCreationError : Swift.Error, Foundation.LocalizedError {
+  case pixelBufferFailed
+  public var errorDescription: Swift.String? {
+    get
+  }
+  public static func == (a: Module___ArgmaxCore.MLMultiArrayCreationError, b: Module___ArgmaxCore.MLMultiArrayCreationError) -> Swift.Bool
+  public func hash(into hasher: inout Swift.Hasher)
+  public var hashValue: Swift.Int {
+    get
+  }
+}
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension Module___CoreML.MLTensor {
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func toIntArray() async -> [Swift.Int]
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func toFloatArray() async -> [Swift.Float]
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func toMLMultiArray() async -> Module___CoreML.MLMultiArray
+  #endif
+}
+public struct ModelDownloadConfig : Swift.Sendable {
+  public let downloadBase: Swift.String?
+  public let modelRepo: Swift.String
+  public let modelToken: Swift.String?
+  public let modelFolder: Swift.String?
+  public let useBackgroundSession: Swift.Bool
+  public let endpoint: Swift.String
+  public let revision: Swift.String
+  public init(downloadBase: Swift.String? = nil, modelRepo: Swift.String, modelToken: Swift.String? = nil, modelFolder: Swift.String? = nil, useBackgroundSession: Swift.Bool = false, endpoint: Swift.String = "https://huggingface.co", revision: Swift.String = "main")
+}
+open class ModelDownloader {
+  public init(config: Module___ArgmaxCore.ModelDownloadConfig)
+  convenience public init(endpoint: Swift.String = "https://huggingface.co", repoName: Swift.String, modelToken: Swift.String? = nil, revision: Swift.String = "main", useBackgroundSession: Swift.Bool = false)
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func downloadModel(modelInfo: Module___ArgmaxCore.ModelInfo, downloadBase: Foundation.URL? = nil, useOfflineMode: Swift.Bool? = nil) async throws -> Foundation.URL
+  #endif
+  public func localRepoLocation(downloadBase: Foundation.URL? = nil) -> Foundation.URL
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func resolveModel(_ modelFileName: Swift.String, using info: Module___ArgmaxCore.ModelInfo, modelFolder: Foundation.URL? = nil, downloadBase: Foundation.URL? = nil, download: Swift.Bool = true, modelStateCallback: ((Module___ArgmaxCore.ModelState) -> Swift.Void)? = nil) async throws -> Foundation.URL
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func resolveModelPath(_ modelFileName: Swift.String, using info: Module___ArgmaxCore.ModelInfo, modelFolder: Foundation.URL? = nil, downloadBase: Foundation.URL? = nil, download: Swift.Bool = true, modelStateCallback: ((Module___ArgmaxCore.ModelState) -> Swift.Void)? = nil) async throws -> Swift.String
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func resolveRepo(patterns: [Swift.String], downloadBase: Foundation.URL? = nil, download: Swift.Bool = true, progressCallback: ((Foundation.Progress) -> Swift.Void)? = nil) async throws -> Foundation.URL
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func fetchFilenames(matching patterns: [Swift.String], downloadBase: Foundation.URL? = nil) async throws -> [Swift.String]
+  #endif
+  public func modelURLIfExists(inFolder folder: Foundation.URL, named name: Swift.String) -> Foundation.URL?
+  @objc deinit
+}
+@frozen public enum ModelDownloaderError : Swift.Error, Foundation.LocalizedError {
+  case modelUnavailable(Swift.String)
+  public var errorDescription: Swift.String? {
+    get
+  }
+}
+public struct ModelInfo : Swift.CustomStringConvertible, Swift.CustomDebugStringConvertible, Swift.Sendable {
+  public let version: Swift.String?
+  public let variant: Swift.String?
+  public let name: Swift.String
+  public let computeUnits: Module___CoreML.MLComputeUnits
+  public init(version: Swift.String? = nil, variant: Swift.String? = nil, name: Swift.String, computeUnits: Module___CoreML.MLComputeUnits)
+  public func modelURL(baseURL: Foundation.URL) -> Foundation.URL
+  public var downloadPattern: Swift.String {
+    get
+  }
+  public var description: Swift.String {
+    get
+  }
+  public var debugDescription: Swift.String {
+    get
+  }
+  public func findBaseFolder(in url: Foundation.URL) -> Foundation.URL?
+}
+@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+public protocol ModelLoader : AnyObject, Swift.Sendable {
+  var modelFolder: Swift.String? { get }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func resolveModels(downloader: Module___ArgmaxCore.ModelDownloader, progressCallback: ((Foundation.Progress) -> Swift.Void)?) async throws -> Swift.String
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func load(from modelPath: Swift.String, prewarm: Swift.Bool) async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func unload() async
+  #endif
+}
+@available(macOS 13, iOS 16, watchOS 10, visionOS 1, *)
+open class ModelManager : @unchecked Swift.Sendable {
+  public var modelState: Module___ArgmaxCore.ModelState {
+    get
+  }
+  public var modelStateCallback: ((Module___ArgmaxCore.ModelState, Module___ArgmaxCore.ModelState) -> Swift.Void)?
+  public var modelPath: Foundation.URL? {
+    get
+  }
+  public var modelFolder: Foundation.URL? {
+    get
+  }
+  final public let downloader: Module___ArgmaxCore.ModelDownloader
+  final public let loader: any Module___ArgmaxCore.ModelLoader
+  public init(loader: any Module___ArgmaxCore.ModelLoader, downloader: Module___ArgmaxCore.ModelDownloader)
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func ensureModelsLoaded() async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func downloadModels(progressCallback: ((Foundation.Progress) -> Swift.Void)? = nil) async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func prewarmModels() async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func loadModels() async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func unloadModels() async
+  #endif
+  public var isAvailable: Swift.Bool {
+    get
+  }
+  public var isLoaded: Swift.Bool {
+    get
+  }
+  @objc deinit
+}
+@frozen public enum ModelState : Swift.CustomStringConvertible, Swift.Equatable, Swift.Hashable {
+  case unloading
+  case unloaded
+  case loading
+  case loaded
+  case prewarming
+  case prewarmed
+  case downloading
+  case downloaded
+  public var description: Swift.String {
+    get
+  }
+  public var isBusy: Swift.Bool {
+    get
+  }
+  public static func == (a: Module___ArgmaxCore.ModelState, b: Module___ArgmaxCore.ModelState) -> Swift.Bool
+  public func hash(into hasher: inout Swift.Hasher)
+  public var hashValue: Swift.Int {
+    get
+  }
+}
+public typealias ModelStateCallback = @Sendable (_ oldState: Module___ArgmaxCore.ModelState?, _ newState: Module___ArgmaxCore.ModelState) -> Swift.Void
+public struct ModelUtilities {
+  public static func getModelInputShape(_ model: Module___CoreML.MLModel?, named: Swift.String) -> [Swift.Int]?
+  public static func getModelOutputShape(_ model: Module___CoreML.MLModel?, named: Swift.String) -> [Swift.Int]?
+  public static func getModelInputDimension(_ model: Module___CoreML.MLModel?, named: Swift.String, position: Swift.Int) -> Swift.Int?
+  public static func getModelOutputDimension(_ model: Module___CoreML.MLModel?, named: Swift.String, position: Swift.Int) -> Swift.Int?
+  public static func detectModelURL(inFolder path: Foundation.URL, named modelName: Swift.String, recursive: Swift.Bool) -> Foundation.URL
+  public static func detectModelURL(inFolder path: Foundation.URL, named modelName: Swift.String) -> Foundation.URL
+  public static func detectModelURL(inFolder path: Foundation.URL) -> Foundation.URL?
+}
+public struct TokenizerWrapper : Swift.Sendable {
+  public func tokenize(text: Swift.String) -> [Swift.String]
+  public func encode(text: Swift.String) -> [Swift.Int]
+  public func encode(text: Swift.String, addSpecialTokens: Swift.Bool) -> [Swift.Int]
+  public func decode(tokens: [Swift.Int]) -> Swift.String
+  public func decode(tokens: [Swift.Int], skipSpecialTokens: Swift.Bool) -> Swift.String
+  public func convertTokenToId(_ token: Swift.String) -> Swift.Int?
+  public func convertTokensToIds(_ tokens: [Swift.String]) -> [Swift.Int?]
+  public func convertIdToToken(_ id: Swift.Int) -> Swift.String?
+  public func convertIdsToTokens(_ ids: [Swift.Int]) -> [Swift.String?]
+  public var bosToken: Swift.String? {
+    get
+  }
+  public var bosTokenId: Swift.Int? {
+    get
+  }
+  public var eosToken: Swift.String? {
+    get
+  }
+  public var eosTokenId: Swift.Int? {
+    get
+  }
+  public var unknownToken: Swift.String? {
+    get
+  }
+  public var unknownTokenId: Swift.Int? {
+    get
+  }
+}
+extension Module___ArgmaxCore.HubApiWrapper.RepoType : Swift.Equatable {}
+extension Module___ArgmaxCore.HubApiWrapper.RepoType : Swift.Hashable {}
+extension Module___ArgmaxCore.HubApiWrapper.RepoType : Swift.RawRepresentable {}
+extension Module___ArgmaxCore.Logging.LogLevel : Swift.Hashable {}
+extension Module___ArgmaxCore.Logging.LogLevel : Swift.RawRepresentable {}
+extension Module___ArgmaxCore.Logging.LogLevel : Swift.BitwiseCopyable {}
+extension Module___ArgmaxCore.MLMultiArrayCreationError : Swift.Equatable {}
+extension Module___ArgmaxCore.MLMultiArrayCreationError : Swift.Hashable {}
+extension Module___ArgmaxCore.MLMultiArrayCreationError : Swift.BitwiseCopyable {}
+extension Module___ArgmaxCore.ModelState : Swift.Sendable {}
+extension Module___ArgmaxCore.ModelState : Swift.BitwiseCopyable {}

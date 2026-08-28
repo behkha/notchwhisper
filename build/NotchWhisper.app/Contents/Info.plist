@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>NotchWhisper</string>
+  <key>CFBundleDisplayName</key><string>NotchWhisper</string>
+  <key>CFBundleIdentifier</key><string>com.behkha.notchwhisper</string>
+  <key>CFBundleVersion</key><string>1.0</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleExecutable</key><string>NotchWhisper</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>NotchWhisper uses your microphone to transcribe your voice locally, on-device.</string>
+  <key>NSInputMonitoringUsageDescription</key>
+  <string>NotchWhisper needs Input Monitoring to listen for the hold-to-talk hotkey while you use other apps.</string>
+  <key>NSAccessibilityUsageDescription</key>
+  <string>NotchWhisper needs Accessibility access to type your transcript into the focused text field.</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <!-- Background agent: no Dock icon. Lives in the menu bar + notch; the
+       main window is opened explicitly from the menu bar item. -->
+  <key>LSUIElement</key><true/>
+</dict>
+</plist>

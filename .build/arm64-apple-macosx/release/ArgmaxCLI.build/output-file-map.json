@@ -1,0 +1,49 @@
+{
+  "": {
+    "dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/ArgmaxCLI.d",
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/ArgmaxCLI.o",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/primary.swiftdeps"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCLI/ArgmaxCLI.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/ArgmaxCLI.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/ArgmaxCLI~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/ArgmaxCLI.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/ArgmaxCLI.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCLI/CLIUtils.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/CLIUtils.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/CLIUtils~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/CLIUtils.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/CLIUtils.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCLI/DiarizeCLI.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/DiarizeCLI.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/DiarizeCLI~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/DiarizeCLI.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/DiarizeCLI.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCLI/TTSCLI.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TTSCLI.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TTSCLI~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TTSCLI.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TTSCLI.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCLI/TranscribeCLI.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TranscribeCLI.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TranscribeCLI~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TranscribeCLI.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TranscribeCLI.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCLI/TranscribeCLIArguments.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TranscribeCLIArguments.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TranscribeCLIArguments~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TranscribeCLIArguments.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TranscribeCLIArguments.dia"
+  },
+  "/Users/behkha/Programming/NotchWhisper/.build/checkouts/WhisperKit/Sources/ArgmaxCLI/TranscribeCLIUtils.swift": {
+    "object": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TranscribeCLIUtils.swift.o",
+    "swiftmodule": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TranscribeCLIUtils~partial.swiftmodule",
+    "swift-dependencies": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TranscribeCLIUtils.swiftdeps",
+    "diagnostics": "/Users/behkha/Programming/NotchWhisper/.build/arm64-apple-macosx/release/ArgmaxCLI.build/TranscribeCLIUtils.dia"
+  }
+}

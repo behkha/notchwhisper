@@ -1,0 +1,1108 @@
+// swift-interface-format-version: 1.0
+// swift-compiler-version: Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)
+// swift-module-flags: -target arm64-apple-macosx13.0 -enable-objc-interop -enable-library-evolution -swift-version 6 -O -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -module-name TTSKit -package-name whisperkit -module-alias Module___TTSKit=TTSKit -module-alias Module____StringProcessing=_StringProcessing -module-alias Module____SwiftConcurrencyShims=_SwiftConcurrencyShims -module-alias Module____Concurrency=_Concurrency -module-alias Module___CoreML=CoreML -module-alias Module___ArgmaxCore=ArgmaxCore -module-alias Module___Accelerate=Accelerate -module-alias Module___os=os -module-alias Module___AVFoundation=AVFoundation
+// swift-module-flags-ignorable:  -formal-cxx-interoperability-mode=off -interface-compiler-version 6.3.3
+import Module___AVFoundation
+import Module___Accelerate
+@_exported import Module___ArgmaxCore
+@preconcurrency import Module___CoreML
+import Foundation
+import Swift
+import Module____Concurrency
+import Module____StringProcessing
+import Module____SwiftConcurrencyShims
+import Module___os
+public struct ComputeOptions : Swift.Sendable {
+  public var embedderComputeUnits: Module___CoreML.MLComputeUnits
+  public var codeDecoderComputeUnits: Module___CoreML.MLComputeUnits
+  public var multiCodeDecoderComputeUnits: Module___CoreML.MLComputeUnits
+  public var speechDecoderComputeUnits: Module___CoreML.MLComputeUnits
+  public init(embedderComputeUnits: Module___CoreML.MLComputeUnits = .cpuOnly, codeDecoderComputeUnits: Module___CoreML.MLComputeUnits = .cpuAndNeuralEngine, multiCodeDecoderComputeUnits: Module___CoreML.MLComputeUnits = .cpuAndNeuralEngine, speechDecoderComputeUnits: Module___CoreML.MLComputeUnits = .cpuAndNeuralEngine)
+}
+public protocol SpeechGenerating : Swift.Sendable {
+  var defaultVoice: Swift.String { get }
+  var defaultLanguage: Swift.String { get }
+  var sampleRate: Swift.Int { get }
+  var samplesPerFrame: Swift.Int { get }
+  var minimumBufferDuration: Foundation.TimeInterval { get }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func run(text: Swift.String, voice: Swift.String, language: Swift.String, options: Module___TTSKit.GenerationOptions, callback: Module___TTSKit.SpeechCallback, prefixCache: Module___TTSKit.TTSPromptCache?) async throws -> Module___TTSKit.SpeechResult
+  #endif
+}
+public struct SpeechProgress : Swift.Sendable {
+  public var audio: [Swift.Float]
+  public var timings: Module___TTSKit.SpeechTimings
+  public var stepTime: Foundation.TimeInterval?
+  public var chunkIndex: Swift.Int?
+  public var totalChunks: Swift.Int?
+  public var stepsCompleted: Swift.Int?
+  public var totalSteps: Swift.Int?
+  public init(audio: [Swift.Float], timings: Module___TTSKit.SpeechTimings, stepTime: Foundation.TimeInterval? = nil, chunkIndex: Swift.Int? = nil, totalChunks: Swift.Int? = nil, stepsCompleted: Swift.Int? = nil, totalSteps: Swift.Int? = nil)
+}
+public typealias SpeechCallback = (@Sendable (Module___TTSKit.SpeechProgress) -> Swift.Bool?)?
+public protocol SpeechModel : AnyObject, Swift.Sendable {
+  var sampleRate: Swift.Int { get }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func generate(text: Swift.String, voice: Swift.String?, language: Swift.String?, options: Module___TTSKit.GenerationOptions, callback: Module___TTSKit.SpeechCallback) async throws -> Module___TTSKit.SpeechResult
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func play(text: Swift.String, voice: Swift.String?, language: Swift.String?, options: Module___TTSKit.GenerationOptions, playbackStrategy: Module___TTSKit.PlaybackStrategy, callback: Module___TTSKit.SpeechCallback) async throws -> Module___TTSKit.SpeechResult
+  #endif
+}
+public enum PlaybackStrategy : Swift.Sendable {
+  case auto
+  case stream
+  case buffered(seconds: Swift.Double)
+  case generateFirst
+  public static let minimumBufferDuration: Swift.Double
+  public static func audioPerStep(samplesPerFrame: Swift.Int, sampleRate: Swift.Int) -> Swift.Double
+  public static func requiredBuffer(stepTime: Foundation.TimeInterval, maxNewTokens: Swift.Int, samplesPerFrame: Swift.Int, sampleRate: Swift.Int, minimumBuffer: Foundation.TimeInterval = PlaybackStrategy.minimumBufferDuration) -> Foundation.TimeInterval
+}
+public struct GenerationOptions : Swift.Codable, Swift.Sendable {
+  public static let defaultTemperature: Swift.Float
+  public static let defaultTopK: Swift.Int
+  public static let defaultRepetitionPenalty: Swift.Float
+  public static let defaultMaxNewTokens: Swift.Int
+  public var temperature: Swift.Float
+  public var topK: Swift.Int
+  public var repetitionPenalty: Swift.Float
+  public var maxNewTokens: Swift.Int
+  public var concurrentWorkerCount: Swift.Int
+  public var chunkingStrategy: Module___TTSKit.TextChunkingStrategy?
+  public var targetChunkSize: Swift.Int?
+  public var minChunkSize: Swift.Int?
+  public var instruction: Swift.String?
+  public var forceLegacyEmbedPath: Swift.Bool
+  public init(temperature: Swift.Float = GenerationOptions.defaultTemperature, topK: Swift.Int = GenerationOptions.defaultTopK, repetitionPenalty: Swift.Float = GenerationOptions.defaultRepetitionPenalty, maxNewTokens: Swift.Int = GenerationOptions.defaultMaxNewTokens, concurrentWorkerCount: Swift.Int = 0, chunkingStrategy: Module___TTSKit.TextChunkingStrategy? = nil, targetChunkSize: Swift.Int? = nil, minChunkSize: Swift.Int? = nil, instruction: Swift.String? = nil, forceLegacyEmbedPath: Swift.Bool = false)
+  public func encode(to encoder: any Swift.Encoder) throws
+  public init(from decoder: any Swift.Decoder) throws
+}
+public struct SpeechTimings : Swift.Codable, Swift.Sendable {
+  public var modelLoading: Swift.Double
+  public var tokenizerLoadTime: Swift.Double
+  public var tokenize: Swift.Double
+  public var prefill: Swift.Double
+  public var timeToFirstBuffer: Swift.Double
+  public var fullPipeline: Swift.Double
+  public var decodingLoop: Swift.Double
+  public var decodingPredictions: Swift.Double
+  public var multiCodeDecoder: Swift.Double
+  public var multiCodeDecoderPredictions: Swift.Double
+  public var multiCodeDecoderSampling: Swift.Double
+  public var multiCodeDecoderEmbedding: Swift.Double
+  public var decodingKvCaching: Swift.Double
+  public var totalMultiCodeDecoderPredictions: Swift.Double
+  public var speechDecoder: Swift.Double
+  public var speechDecoderPredictions: Swift.Double
+  public var totalSpeechDecoderInvocations: Swift.Double
+  public var kvCacheUpdate: Swift.Double
+  public var codeEmbed: Swift.Double
+  public var codecHidden: Swift.Double
+  public var textProjection: Swift.Double
+  public var decodingSampling: Swift.Double
+  public var prefillTokens: Swift.Double
+  public var totalDecodingLoops: Swift.Double
+  public var inputAudioSeconds: Swift.Double
+  public init()
+  public var totalPredictions: Foundation.TimeInterval {
+    get
+  }
+  public var concurrentStepOverlap: Foundation.TimeInterval {
+    get
+  }
+  public var totalNonPrediction: Foundation.TimeInterval {
+    get
+  }
+  public var tokensPerSecond: Swift.Double {
+    get
+  }
+  public var realTimeFactor: Swift.Double {
+    get
+  }
+  public var speedFactor: Swift.Double {
+    get
+  }
+  public mutating func merge(_ other: Module___TTSKit.SpeechTimings)
+  public func encode(to encoder: any Swift.Encoder) throws
+  public init(from decoder: any Swift.Decoder) throws
+}
+public struct SpeechResult : Swift.Codable, Swift.Sendable {
+  public let audio: [Swift.Float]
+  public let timings: Module___TTSKit.SpeechTimings
+  public let sampleRate: Swift.Int
+  public var audioDuration: Swift.Double {
+    get
+  }
+  public init(audio: [Swift.Float], timings: Module___TTSKit.SpeechTimings, sampleRate: Swift.Int)
+  public func logTimings()
+  public func encode(to encoder: any Swift.Encoder) throws
+  public init(from decoder: any Swift.Decoder) throws
+}
+public struct MultiCodeGenerationResult {
+  public let codes: [Swift.Int32]
+  public let timings: Module___TTSKit.SpeechTimings
+  public let offsetCodeEmbeds: [[Module___ArgmaxCore.FloatType]]
+  @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  public var offsetCodeEmbedTensors: [Module___CoreML.MLTensor]? {
+    get
+  }
+  public init(codes: [Swift.Int32], timings: Module___TTSKit.SpeechTimings, offsetCodeEmbeds: [[Module___ArgmaxCore.FloatType]])
+  @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  public init(codes: [Swift.Int32], timings: Module___TTSKit.SpeechTimings, offsetCodeEmbedTensors: [Module___CoreML.MLTensor])
+}
+public struct SpeechDecoderTimedResult : Swift.Sendable {
+  public let samples: [Swift.Float]
+  public let timings: Module___TTSKit.SpeechTimings
+}
+public protocol TextProjecting : Module___ArgmaxCore.MLModelLoading {
+  var model: Module___CoreML.MLModel? { get }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func project(tokenId: Swift.Int32) async throws -> [Module___ArgmaxCore.FloatType]
+  #endif
+}
+public protocol CodeEmbedding : Module___ArgmaxCore.MLModelLoading {
+  var model: Module___CoreML.MLModel? { get }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func embed(tokenId: Swift.Int32) async throws -> [Module___ArgmaxCore.FloatType]
+  #endif
+}
+public protocol MultiCodeEmbedding : Module___ArgmaxCore.MLModelLoading {
+  var model: Module___CoreML.MLModel? { get }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func embed(tokenId: Swift.Int32) async throws -> [Module___ArgmaxCore.FloatType]
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  nonisolated(nonsending) func embed(tokenId: Swift.Int32) async throws -> Module___CoreML.MLTensor
+  #endif
+}
+public protocol CodeDecoding : Module___ArgmaxCore.MLModelLoading {
+  var model: Module___CoreML.MLModel? { get }
+  var isStateful: Swift.Bool { get }
+  var kvCacheEmbedDim: Swift.Int { get }
+  var kvCacheMaxSequenceLength: Swift.Int { get }
+  var embedSize: Swift.Int { get }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func decode(inputEmbeds: any Module___TTSKit.EmbedInputType, cache: Module___TTSKit.KVCache, state: Any?) async throws -> Module___TTSKit.CodeDecoderOutput
+  #endif
+  func makeState() -> Any?
+}
+public struct CodeDecoderOutput {
+  public let logits: any Module___TTSKit.EmbedTensorType
+  public let hiddenStates: any Module___TTSKit.EmbedTensorType
+  public let keyCacheUpdates: Module___CoreML.MLMultiArray?
+  public let valueCacheUpdates: Module___CoreML.MLMultiArray?
+  public var internalCacheUpdateTime: Swift.Double
+}
+public struct MultiCodeDecoderOutput {
+  public let allLogits: any Module___TTSKit.EmbedTensorType
+  public let keyCacheUpdates: Module___CoreML.MLMultiArray?
+  public let valueCacheUpdates: Module___CoreML.MLMultiArray?
+}
+public protocol MultiCodeDecoding : Module___ArgmaxCore.MLModelLoading {
+  var model: Module___CoreML.MLModel? { get }
+  var isStateful: Swift.Bool { get }
+  var kvCacheEmbedDim: Swift.Int { get }
+  var kvCacheMaxSequenceLength: Swift.Int { get }
+  var codecVocabSize: Swift.Int { get }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func decode(inputEmbeds: any Module___TTSKit.EmbedInputType, cache: Module___TTSKit.KVCache, state: Any?) async throws -> Module___TTSKit.MultiCodeDecoderOutput
+  #endif
+  func makeState() -> Any?
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func generateMultiCodes(hiddenStates: [Module___ArgmaxCore.FloatType], code0Embed: [Module___ArgmaxCore.FloatType], multiCodeEmbedder: any Module___TTSKit.MultiCodeEmbedding, sampler: any Module___TTSKit.TokenSampling, options: Module___TTSKit.GenerationOptions) async throws -> Module___TTSKit.MultiCodeGenerationResult
+  #endif
+}
+public protocol SpeechDecoding : Module___ArgmaxCore.MLModelLoading {
+  var model: Module___CoreML.MLModel? { get }
+  var sampleRate: Swift.Int { get }
+  var samplesPerFrame: Swift.Int { get }
+  var minimumBufferDuration: Foundation.TimeInterval { get }
+  var kvCacheEmbedDim: Swift.Int { get }
+  var kvCacheMaxSequenceLength: Swift.Int { get }
+  var hiddenDim: Swift.Int { get }
+  var hiddenContextLen: Swift.Int { get }
+  var codesPerStep: Swift.Int { get }
+  var usesRank3UpdateMask: Swift.Bool { get }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func decodeFrame(codes: [[Swift.Int32]], cache: Module___TTSKit.SpeechDecoderCache) async throws -> [Swift.Float]
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func decodeFrameAsync(codes: [[Swift.Int32]], cache: Module___TTSKit.SpeechDecoderCache) async throws -> Module___TTSKit.SpeechDecoderTimedResult
+  #endif
+}
+extension Module___TTSKit.SpeechDecoding {
+  public var usesRank3UpdateMask: Swift.Bool {
+    get
+  }
+}
+public class Qwen3CodeDecoder : Module___TTSKit.CodeDecoding, @unchecked Swift.Sendable {
+  @Module___ArgmaxCore.Protected<Module___CoreML.MLModel?> public var model: Module___CoreML.MLModel? {
+    get
+    set
+    _modify
+  }
+  public var kvCacheEmbedDim: Swift.Int {
+    get
+  }
+  public var kvCacheMaxSequenceLength: Swift.Int {
+    get
+  }
+  public var embedSize: Swift.Int {
+    get
+  }
+  public init()
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func loadModel(at url: Foundation.URL, computeUnits: Module___CoreML.MLComputeUnits, prewarmMode: Swift.Bool = false) async throws
+  #endif
+  public var isStateful: Swift.Bool {
+    get
+  }
+  public func makeState() -> Any?
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func decode(inputEmbeds: any Module___TTSKit.EmbedInputType, cache: Module___TTSKit.KVCache, state: Any? = nil) async throws -> Module___TTSKit.CodeDecoderOutput
+  #endif
+  public func unloadModel()
+  @objc deinit
+}
+@frozen public enum TTSModelFamily : Swift.String, Swift.Sendable {
+  case qwen3
+  public init?(rawValue: Swift.String)
+  public typealias RawValue = Swift.String
+  public var rawValue: Swift.String {
+    get
+  }
+}
+@frozen public enum TTSModelVariant : Swift.String, Swift.CustomStringConvertible, Swift.CaseIterable, Swift.Sendable {
+  case qwen3TTS_0_6b
+  case qwen3TTS_1_7b
+  public var family: Module___TTSKit.TTSModelFamily {
+    get
+  }
+  public var description: Swift.String {
+    get
+  }
+  public var displayName: Swift.String {
+    get
+  }
+  public var supportsVoiceDirection: Swift.Bool {
+    get
+  }
+  public var isAvailableOnCurrentPlatform: Swift.Bool {
+    get
+  }
+  public static var defaultForCurrentPlatform: Module___TTSKit.TTSModelVariant {
+    get
+  }
+  public var versionDir: Swift.String {
+    get
+  }
+  public var codeDecoderVariant: Swift.String {
+    get
+  }
+  public var multiCodeDecoderVariant: Swift.String {
+    get
+  }
+  public var codeEmbedderVariant: Swift.String {
+    get
+  }
+  public var multiCodeEmbedderVariant: Swift.String {
+    get
+  }
+  public var textProjectorVariant: Swift.String {
+    get
+  }
+  public var speechDecoderVariant: Swift.String {
+    get
+  }
+  public var tokenizerRepo: Swift.String {
+    get
+  }
+  public init?(rawValue: Swift.String)
+  public typealias AllCases = [Module___TTSKit.TTSModelVariant]
+  public typealias RawValue = Swift.String
+  nonisolated public static var allCases: [Module___TTSKit.TTSModelVariant] {
+    get
+  }
+  public var rawValue: Swift.String {
+    get
+  }
+}
+public enum Qwen3VariantDefaults {
+  public static let codeDecoder: Swift.String
+  public static let multiCodeDecoder: Swift.String
+  public static let codeEmbedder: Swift.String
+  public static let multiCodeEmbedder: Swift.String
+  public static let textProjector: Swift.String
+  public static let speechDecoder: Swift.String
+}
+open class TTSKitConfig {
+  public var model: Module___TTSKit.TTSModelVariant
+  public var modelFolder: Foundation.URL?
+  public var downloadBase: Foundation.URL?
+  public var modelRepo: Swift.String
+  public var tokenizerFolder: Foundation.URL?
+  public var modelToken: Swift.String?
+  public var modelEndpoint: Swift.String
+  public var versionDir: Swift.String
+  public var codeDecoderVariant: Swift.String
+  public var multiCodeDecoderVariant: Swift.String
+  public var codeEmbedderVariant: Swift.String
+  public var multiCodeEmbedderVariant: Swift.String
+  public var textProjectorVariant: Swift.String
+  public var speechDecoderVariant: Swift.String
+  public var speechDecoderMode: Module___TTSKit.Qwen3SpeechDecoderMode
+  public var multiCodeDecoderMode: Module___TTSKit.Qwen3MultiCodeDecoderMode
+  public var computeOptions: Module___TTSKit.ComputeOptions
+  public var verbose: Swift.Bool
+  public var logLevel: Module___ArgmaxCore.Logging.LogLevel
+  public var downloadRevision: Swift.String?
+  public var downloadAdditionalPatterns: [Swift.String]
+  public var useBackgroundDownloadSession: Swift.Bool
+  public var download: Swift.Bool
+  public var prewarm: Swift.Bool?
+  public var load: Swift.Bool?
+  public var seed: Swift.UInt64?
+  public var textProjector: (any Module___TTSKit.TextProjecting)?
+  public var codeEmbedder: (any Module___TTSKit.CodeEmbedding)?
+  public var multiCodeEmbedder: (any Module___TTSKit.MultiCodeEmbedding)?
+  public var codeDecoder: (any Module___TTSKit.CodeDecoding)?
+  public var multiCodeDecoder: (any Module___TTSKit.MultiCodeDecoding)?
+  public var speechDecoder: (any Module___TTSKit.SpeechDecoding)?
+  public init(model: Module___TTSKit.TTSModelVariant = .qwen3TTS_0_6b, modelFolder: Foundation.URL? = nil, downloadBase: Foundation.URL? = nil, modelRepo: Swift.String = Qwen3TTSConstants.defaultModelRepo, tokenizerFolder: Foundation.URL? = nil, modelToken: Swift.String? = nil, modelEndpoint: Swift.String = Qwen3TTSConstants.defaultEndpoint, versionDir: Swift.String? = nil, codeDecoderVariant: Swift.String? = nil, multiCodeDecoderVariant: Swift.String? = nil, codeEmbedderVariant: Swift.String? = nil, multiCodeEmbedderVariant: Swift.String? = nil, textProjectorVariant: Swift.String? = nil, speechDecoderVariant: Swift.String? = nil, speechDecoderMode: Module___TTSKit.Qwen3SpeechDecoderMode = .latencyOptimized, multiCodeDecoderMode: Module___TTSKit.Qwen3MultiCodeDecoderMode = .stepped, computeOptions: Module___TTSKit.ComputeOptions = ComputeOptions(), verbose: Swift.Bool = true, logLevel: Module___ArgmaxCore.Logging.LogLevel = .info, downloadRevision: Swift.String? = nil, downloadAdditionalPatterns: [Swift.String] = [], useBackgroundDownloadSession: Swift.Bool = false, download: Swift.Bool = true, prewarm: Swift.Bool? = nil, load: Swift.Bool? = nil, seed: Swift.UInt64? = nil)
+  public func modelURL(component: Swift.String, variant: Swift.String) -> Foundation.URL?
+  public var tokenizerSource: Swift.String {
+    get
+  }
+  public static let componentNames: [Swift.String]
+  public func componentDirectories(in folder: Foundation.URL? = nil) -> [Foundation.URL]
+  public var downloadPatterns: [Swift.String] {
+    get
+  }
+  @objc deinit
+}
+public class Qwen3CodeEmbedder : Module___TTSKit.CodeEmbedding, @unchecked Swift.Sendable {
+  @Module___ArgmaxCore.Protected<Module___CoreML.MLModel?> public var model: Module___CoreML.MLModel? {
+    get
+    set
+    _modify
+  }
+  public init()
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func loadModel(at url: Foundation.URL, computeUnits: Module___CoreML.MLComputeUnits, prewarmMode: Swift.Bool = false) async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func embed(tokenId: Swift.Int32) async throws -> [Module___ArgmaxCore.FloatType]
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  nonisolated(nonsending) public func embed(tokenId: Swift.Int32) async throws -> Module___CoreML.MLTensor
+  #endif
+  public func unloadModel()
+  @objc deinit
+}
+public class Qwen3MultiCodeEmbedder : Module___TTSKit.MultiCodeEmbedding, @unchecked Swift.Sendable {
+  @Module___ArgmaxCore.Protected<Module___CoreML.MLModel?> public var model: Module___CoreML.MLModel? {
+    get
+    set
+    _modify
+  }
+  public init()
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func loadModel(at url: Foundation.URL, computeUnits: Module___CoreML.MLComputeUnits, prewarmMode: Swift.Bool = false) async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func embed(tokenId: Swift.Int32) async throws -> [Module___ArgmaxCore.FloatType]
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  nonisolated(nonsending) public func embed(tokenId: Swift.Int32) async throws -> Module___CoreML.MLTensor
+  #endif
+  public func unloadModel()
+  @objc deinit
+}
+open class Qwen3GenerateTask : @unchecked Swift.Sendable, Module___TTSKit.SpeechGenerating {
+  final public let textProjector: Module___TTSKit.Qwen3TextProjector
+  final public let codeEmbedder: Module___TTSKit.Qwen3CodeEmbedder
+  final public let multiCodeEmbedder: Module___TTSKit.Qwen3MultiCodeEmbedder
+  final public let codeDecoder: Module___TTSKit.Qwen3CodeDecoder
+  final public let multiCodeDecoder: Module___TTSKit.Qwen3MultiCodeDecoder
+  final public let speechDecoder: Module___TTSKit.Qwen3SpeechDecoder
+  final public let sampler: any Module___TTSKit.TokenSampling
+  final public let tokenizer: any Module___TTSKit.TTSTokenizer
+  final public let suppressTokenIds: Swift.Set<Swift.Int>
+  final public let loadTimings: Module___TTSKit.SpeechTimings
+  final public let progress: Foundation.Progress
+  public init(textProjector: Module___TTSKit.Qwen3TextProjector, codeEmbedder: Module___TTSKit.Qwen3CodeEmbedder, multiCodeEmbedder: Module___TTSKit.Qwen3MultiCodeEmbedder, codeDecoder: Module___TTSKit.Qwen3CodeDecoder, multiCodeDecoder: Module___TTSKit.Qwen3MultiCodeDecoder, speechDecoder: Module___TTSKit.Qwen3SpeechDecoder, sampler: any Module___TTSKit.TokenSampling, tokenizer: any Module___TTSKit.TTSTokenizer, suppressTokenIds: Swift.Set<Swift.Int>, loadTimings: Module___TTSKit.SpeechTimings = SpeechTimings(), progress: Foundation.Progress? = nil)
+  public var defaultVoice: Swift.String {
+    get
+  }
+  public var defaultLanguage: Swift.String {
+    get
+  }
+  public var sampleRate: Swift.Int {
+    get
+  }
+  public var samplesPerFrame: Swift.Int {
+    get
+  }
+  public var minimumBufferDuration: Foundation.TimeInterval {
+    get
+  }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func run(text: Swift.String, voice: Swift.String, language: Swift.String, options: Module___TTSKit.GenerationOptions, callback: Module___TTSKit.SpeechCallback, prefixCache: Module___TTSKit.TTSPromptCache? = nil) async throws -> Module___TTSKit.SpeechResult
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func buildPromptCache(voice: Swift.String, language: Swift.String, instruction: Swift.String?) async throws -> Module___TTSKit.TTSPromptCache
+  #endif
+  @objc deinit
+}
+public enum Qwen3TTSConstants {
+  public static let codecPAD: Swift.Int32
+  public static let codecBOS: Swift.Int32
+  public static let codecEOS: Swift.Int32
+  public static let codecThink: Swift.Int32
+  public static let codecThinkBos: Swift.Int32
+  public static let codecThinkEos: Swift.Int32
+  public static let textPAD: Swift.Int32
+  public static let textBOS: Swift.Int32
+  public static let codecVocabSize: Swift.Int
+  public static let mcdHeads: Swift.Int
+  public static let sampleRate: Swift.Int
+  public static let samplesPerFrame: Swift.Int
+  public static let embedDim: Swift.Int
+  public static let cdCacheDim: Swift.Int
+  public static let cdMaxSeq: Swift.Int
+  public static let mcdCacheDim: Swift.Int
+  public static let mcdMaxSeq: Swift.Int
+  public static let sdCacheDim: Swift.Int
+  public static let sdMaxSeq: Swift.Int
+  public static let sdHiddenDim: Swift.Int
+  public static let sdHiddenContextLen: Swift.Int
+  public static let defaultTokenizerRepo: Swift.String
+  public static let defaultModelRepo: Swift.String
+  public static let defaultEndpoint: Swift.String
+  public static let modelFamilyDir: Swift.String
+  public static let defaultVersionDir: Swift.String
+  public static let suppressTokenIds: Swift.Set<Swift.Int>
+}
+public enum Qwen3Speaker : Swift.String, Swift.CaseIterable, Swift.Sendable {
+  case ryan, aiden
+  case onoAnna
+  case sohee, eric, dylan, serena, vivian
+  case uncleFu
+  public var tokenID: Swift.Int32 {
+    get
+  }
+  public var displayName: Swift.String {
+    get
+  }
+  public var voiceDescription: Swift.String {
+    get
+  }
+  public var nativeLanguage: Swift.String {
+    get
+  }
+  public init?(rawValue: Swift.String)
+  public typealias AllCases = [Module___TTSKit.Qwen3Speaker]
+  public typealias RawValue = Swift.String
+  nonisolated public static var allCases: [Module___TTSKit.Qwen3Speaker] {
+    get
+  }
+  public var rawValue: Swift.String {
+    get
+  }
+}
+public enum Qwen3Language : Swift.String, Swift.CaseIterable, Swift.Sendable {
+  case english, chinese, japanese, korean, german, french, russian, portuguese, spanish, italian
+  public var tokenID: Swift.Int32 {
+    get
+  }
+  public init?(rawValue: Swift.String)
+  public typealias AllCases = [Module___TTSKit.Qwen3Language]
+  public typealias RawValue = Swift.String
+  nonisolated public static var allCases: [Module___TTSKit.Qwen3Language] {
+    get
+  }
+  public var rawValue: Swift.String {
+    get
+  }
+}
+@frozen public enum Qwen3SpeechDecoderMode : Swift.String, Swift.Sendable, Swift.CaseIterable {
+  case latencyOptimized
+  case throughputOptimized
+  public var functionName: Swift.String {
+    get
+  }
+  public init?(rawValue: Swift.String)
+  public typealias AllCases = [Module___TTSKit.Qwen3SpeechDecoderMode]
+  public typealias RawValue = Swift.String
+  nonisolated public static var allCases: [Module___TTSKit.Qwen3SpeechDecoderMode] {
+    get
+  }
+  public var rawValue: Swift.String {
+    get
+  }
+}
+@frozen public enum Qwen3MultiCodeDecoderMode : Swift.String, Swift.Sendable, Swift.CaseIterable {
+  case stepped
+  case fused
+  public var functionName: Swift.String {
+    get
+  }
+  public init?(rawValue: Swift.String)
+  public typealias AllCases = [Module___TTSKit.Qwen3MultiCodeDecoderMode]
+  public typealias RawValue = Swift.String
+  nonisolated public static var allCases: [Module___TTSKit.Qwen3MultiCodeDecoderMode] {
+    get
+  }
+  public var rawValue: Swift.String {
+    get
+  }
+}
+public class Qwen3MultiCodeDecoder : Module___TTSKit.MultiCodeDecoding, @unchecked Swift.Sendable {
+  @Module___ArgmaxCore.Protected<Module___CoreML.MLModel?> public var model: Module___CoreML.MLModel? {
+    get
+    set
+    _modify
+  }
+  public var kvCacheEmbedDim: Swift.Int {
+    get
+  }
+  public var kvCacheMaxSequenceLength: Swift.Int {
+    get
+  }
+  public var codecVocabSize: Swift.Int {
+    get
+  }
+  public var mode: Module___TTSKit.Qwen3MultiCodeDecoderMode
+  public var isMultifunction: Swift.Bool {
+    get
+  }
+  public init()
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func loadModel(at url: Foundation.URL, computeUnits: Module___CoreML.MLComputeUnits, prewarmMode: Swift.Bool = false) async throws
+  #endif
+  public var inputEmbedDim: Swift.Int {
+    get
+  }
+  public var isFused: Swift.Bool {
+    get
+  }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  nonisolated(nonsending) public func generateMultiCodesFused(hiddenStatesTensor: Module___CoreML.MLTensor, code0EmbedTensor: Module___CoreML.MLTensor, sampler: any Module___TTSKit.TokenSampling, options: Module___TTSKit.GenerationOptions) async throws -> (codes: [Swift.Int32], embedSum: Module___CoreML.MLTensor, predictionTime: Foundation.TimeInterval)
+  #endif
+  public var isStateful: Swift.Bool {
+    get
+  }
+  public func makeState() -> Any?
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  nonisolated(nonsending) public func prewarmInference() async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func decode(inputEmbeds: any Module___TTSKit.EmbedInputType, cache: Module___TTSKit.KVCache, state: Any? = nil) async throws -> Module___TTSKit.MultiCodeDecoderOutput
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  nonisolated(nonsending) public func generateMultiCodes(hiddenStatesTensor: Module___CoreML.MLTensor, code0EmbedTensor: Module___CoreML.MLTensor, multiCodeEmbedder: any Module___TTSKit.MultiCodeEmbedding, sampler: any Module___TTSKit.TokenSampling, options: Module___TTSKit.GenerationOptions) async throws -> Module___TTSKit.MultiCodeGenerationResult
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func generateMultiCodes(hiddenStates: [Module___ArgmaxCore.FloatType], code0Embed: [Module___ArgmaxCore.FloatType], multiCodeEmbedder: any Module___TTSKit.MultiCodeEmbedding, sampler: any Module___TTSKit.TokenSampling, options: Module___TTSKit.GenerationOptions) async throws -> Module___TTSKit.MultiCodeGenerationResult
+  #endif
+  public func unloadModel()
+  @objc deinit
+}
+public class Qwen3SpeechDecoder : Module___TTSKit.SpeechDecoding, @unchecked Swift.Sendable {
+  @Module___ArgmaxCore.Protected<Module___CoreML.MLModel?> public var model: Module___CoreML.MLModel? {
+    get
+    set
+    _modify
+  }
+  final public let sampleRate: Swift.Int
+  final public let samplesPerFrame: Swift.Int
+  public var minimumBufferDuration: Swift.Double {
+    get
+  }
+  public var mode: Module___TTSKit.Qwen3SpeechDecoderMode
+  public var isMultifunction: Swift.Bool {
+    get
+  }
+  public var hiddenContextLen: Swift.Int {
+    get
+  }
+  public var kvCacheEmbedDim: Swift.Int {
+    get
+  }
+  public var kvCacheMaxSequenceLength: Swift.Int {
+    get
+  }
+  public var hiddenDim: Swift.Int {
+    get
+  }
+  public var codesPerStep: Swift.Int {
+    get
+  }
+  public var usesRank3UpdateMask: Swift.Bool {
+    get
+  }
+  public init()
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func loadModel(at url: Foundation.URL, computeUnits: Module___CoreML.MLComputeUnits, prewarmMode: Swift.Bool = false) async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func decodeFrame(codes: [[Swift.Int32]], cache: Module___TTSKit.SpeechDecoderCache) async throws -> [Swift.Float]
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func decodeFrameAsync(codes: [[Swift.Int32]], cache: Module___TTSKit.SpeechDecoderCache) async throws -> Module___TTSKit.SpeechDecoderTimedResult
+  #endif
+  public func unloadModel()
+  @objc deinit
+}
+public class Qwen3TextProjector : Module___TTSKit.TextProjecting, @unchecked Swift.Sendable {
+  @Module___ArgmaxCore.Protected<Module___CoreML.MLModel?> public var model: Module___CoreML.MLModel? {
+    get
+    set
+    _modify
+  }
+  public init()
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func loadModel(at url: Foundation.URL, computeUnits: Module___CoreML.MLComputeUnits, prewarmMode: Swift.Bool = false) async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func project(tokenId: Swift.Int32) async throws -> [Module___ArgmaxCore.FloatType]
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  nonisolated(nonsending) public func project(tokenId: Swift.Int32) async throws -> Module___CoreML.MLTensor
+  #endif
+  public func unloadModel()
+  @objc deinit
+}
+open class TTSKit : @unchecked Swift.Sendable {
+  public var textProjector: any Module___TTSKit.TextProjecting
+  public var codeEmbedder: any Module___TTSKit.CodeEmbedding
+  public var multiCodeEmbedder: any Module___TTSKit.MultiCodeEmbedding
+  public var codeDecoder: any Module___TTSKit.CodeDecoding
+  public var multiCodeDecoder: any Module___TTSKit.MultiCodeDecoding
+  public var speechDecoder: any Module___TTSKit.SpeechDecoding
+  public var tokenizer: (any Module___TTSKit.TTSTokenizer)?
+  public var modelState: Module___ArgmaxCore.ModelState {
+    get
+  }
+  public var config: Module___TTSKit.TTSKitConfig
+  public var modelFolder: Foundation.URL? {
+    get
+    set
+  }
+  public var useBackgroundDownloadSession: Swift.Bool {
+    get
+    set
+  }
+  public var currentTimings: Module___TTSKit.SpeechTimings {
+    get
+  }
+  public var modelLoadTime: Foundation.TimeInterval {
+    get
+  }
+  public var tokenizerLoadTime: Foundation.TimeInterval {
+    get
+  }
+  final public let audioOutput: Module___TTSKit.AudioOutput
+  public var promptCache: Module___TTSKit.TTSPromptCache?
+  public var modelStateCallback: Module___ArgmaxCore.ModelStateCallback?
+  final public let seed: Swift.UInt64?
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public init(_ config: Module___TTSKit.TTSKitConfig = TTSKitConfig()) async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  convenience nonisolated(nonsending) public init(model: Module___TTSKit.TTSModelVariant = .qwen3TTS_0_6b, modelFolder: Foundation.URL? = nil, downloadBase: Foundation.URL? = nil, modelRepo: Swift.String = Qwen3TTSConstants.defaultModelRepo, tokenizerFolder: Foundation.URL? = nil, modelToken: Swift.String? = nil, computeOptions: Module___TTSKit.ComputeOptions? = nil, textProjector: (any Module___TTSKit.TextProjecting)? = nil, codeEmbedder: (any Module___TTSKit.CodeEmbedding)? = nil, multiCodeEmbedder: (any Module___TTSKit.MultiCodeEmbedding)? = nil, codeDecoder: (any Module___TTSKit.CodeDecoding)? = nil, multiCodeDecoder: (any Module___TTSKit.MultiCodeDecoding)? = nil, speechDecoder: (any Module___TTSKit.SpeechDecoding)? = nil, verbose: Swift.Bool = false, logLevel: Module___ArgmaxCore.Logging.LogLevel = .debug, prewarm: Swift.Bool? = nil, load: Swift.Bool? = nil, download: Swift.Bool = true, useBackgroundDownloadSession: Swift.Bool = false, seed: Swift.UInt64? = nil) async throws
+  #endif
+  open func setupPipeline(for variant: Module___TTSKit.TTSModelVariant, config: Module___TTSKit.TTSKitConfig)
+  public static func recommendedModels() -> Module___TTSKit.TTSModelVariant
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public static func fetchAvailableModels(from repo: Swift.String = Qwen3TTSConstants.defaultModelRepo, matching: [Swift.String] = ["*"], downloadBase: Foundation.URL? = nil, token: Swift.String? = nil, endpoint: Swift.String = Qwen3TTSConstants.defaultEndpoint) async throws -> [Swift.String]
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open class func download(variant: Module___TTSKit.TTSModelVariant = .defaultForCurrentPlatform, downloadBase: Foundation.URL? = nil, useBackgroundSession: Swift.Bool = false, from repo: Swift.String = Qwen3TTSConstants.defaultModelRepo, token: Swift.String? = nil, endpoint: Swift.String = Qwen3TTSConstants.defaultEndpoint, revision: Swift.String? = nil, additionalPatterns: [Swift.String] = [], progressCallback: (@Sendable (Foundation.Progress) -> Swift.Void)? = nil) async throws -> Foundation.URL
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open class func download(config: Module___TTSKit.TTSKitConfig = TTSKitConfig(), progressCallback: (@Sendable (Foundation.Progress) -> Swift.Void)? = nil) async throws -> Foundation.URL
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func setupModels(model: Module___TTSKit.TTSModelVariant? = nil, downloadBase: Foundation.URL? = nil, modelRepo: Swift.String? = nil, modelToken: Swift.String? = nil, modelFolder: Foundation.URL? = nil, download: Swift.Bool, endpoint: Swift.String = Qwen3TTSConstants.defaultEndpoint) async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func prewarmModels() async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func loadModels(prewarmMode: Swift.Bool = false) async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func loadTokenizerIfNeeded() async throws
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func loadTokenizer() async throws -> any Module___TTSKit.TTSTokenizer
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func unloadModels() async
+  #endif
+  open func clearState()
+  @objc deinit
+  open func loggingCallback(_ callback: Module___ArgmaxCore.Logging.LoggingCallback?)
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  @discardableResult
+  nonisolated(nonsending) open func buildPromptCache(voice: Swift.String? = nil, language: Swift.String? = nil, instruction: Swift.String? = nil) async throws -> Module___TTSKit.TTSPromptCache
+  #endif
+  public func savePromptCache() throws
+  @discardableResult
+  public func loadPromptCache(voice: Swift.String, language: Swift.String, instruction: Swift.String? = nil) -> Module___TTSKit.TTSPromptCache?
+  open func setupGenerateTask(currentTimings: Module___TTSKit.SpeechTimings, progress: Foundation.Progress, tokenizer: any Module___TTSKit.TTSTokenizer, sampler: any Module___TTSKit.TokenSampling) throws -> any Module___TTSKit.SpeechGenerating
+  open func createTask(progress: Foundation.Progress? = nil) throws -> any Module___TTSKit.SpeechGenerating
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func generate(text: Swift.String, voice: Swift.String? = nil, language: Swift.String? = nil, options: Module___TTSKit.GenerationOptions = GenerationOptions(), callback: Module___TTSKit.SpeechCallback = nil) async throws -> Module___TTSKit.SpeechResult
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func play(text: Swift.String, voice: Swift.String? = nil, language: Swift.String? = nil, options: Module___TTSKit.GenerationOptions = GenerationOptions(), playbackStrategy: Module___TTSKit.PlaybackStrategy = .auto, callback: Module___TTSKit.SpeechCallback = nil) async throws -> Module___TTSKit.SpeechResult
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  @discardableResult
+  nonisolated(nonsending) open func buildPromptCache(speaker: Module___TTSKit.Qwen3Speaker, language: Module___TTSKit.Qwen3Language, instruction: Swift.String? = nil) async throws -> Module___TTSKit.TTSPromptCache
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func generate(text: Swift.String, speaker: Module___TTSKit.Qwen3Speaker, language: Module___TTSKit.Qwen3Language = .english, options: Module___TTSKit.GenerationOptions = GenerationOptions(), callback: Module___TTSKit.SpeechCallback = nil) async throws -> Module___TTSKit.SpeechResult
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) open func play(text: Swift.String, speaker: Module___TTSKit.Qwen3Speaker, language: Module___TTSKit.Qwen3Language = .english, options: Module___TTSKit.GenerationOptions = GenerationOptions(), playbackStrategy: Module___TTSKit.PlaybackStrategy = .auto, callback: Module___TTSKit.SpeechCallback = nil) async throws -> Module___TTSKit.SpeechResult
+  #endif
+}
+extension Module___TTSKit.TTSKit : Module___TTSKit.SpeechModel {
+  public var sampleRate: Swift.Int {
+    get
+  }
+}
+public protocol TTSTokenizer : Swift.Sendable {
+  func encode(text: Swift.String) -> [Swift.Int]
+  func encode(text: Swift.String, addSpecialTokens: Swift.Bool) -> [Swift.Int]
+  func decode(tokens: [Swift.Int]) -> Swift.String
+  func decode(tokens: [Swift.Int], skipSpecialTokens: Swift.Bool) -> Swift.String
+  func convertTokenToId(_ token: Swift.String) -> Swift.Int?
+  func convertIdToToken(_ id: Swift.Int) -> Swift.String?
+  var bosToken: Swift.String? { get }
+  var bosTokenId: Swift.Int? { get }
+  var eosToken: Swift.String? { get }
+  var eosTokenId: Swift.Int? { get }
+  var unknownToken: Swift.String? { get }
+  var unknownTokenId: Swift.Int? { get }
+}
+public struct TTSTokenizerWrapper : Module___TTSKit.TTSTokenizer {
+  public init(_ tokenizer: Module___ArgmaxCore.TokenizerWrapper)
+  public func encode(text: Swift.String) -> [Swift.Int]
+  public func encode(text: Swift.String, addSpecialTokens: Swift.Bool) -> [Swift.Int]
+  public func decode(tokens: [Swift.Int]) -> Swift.String
+  public func decode(tokens: [Swift.Int], skipSpecialTokens: Swift.Bool) -> Swift.String
+  public func convertTokenToId(_ token: Swift.String) -> Swift.Int?
+  public func convertIdToToken(_ id: Swift.Int) -> Swift.String?
+  public var bosToken: Swift.String? {
+    get
+  }
+  public var bosTokenId: Swift.Int? {
+    get
+  }
+  public var eosToken: Swift.String? {
+    get
+  }
+  public var eosTokenId: Swift.Int? {
+    get
+  }
+  public var unknownToken: Swift.String? {
+    get
+  }
+  public var unknownTokenId: Swift.Int? {
+    get
+  }
+}
+public class AudioOutput : @unchecked Swift.Sendable {
+  public var scheduledAudioDuration: Swift.Double {
+    get
+  }
+  public static let fadeLengthSamples: Swift.Int
+  public var sampleRate: Swift.Int {
+    get
+  }
+  public var audioFormat: AVFAudio.AVAudioFormat {
+    get
+  }
+  public init(sampleRate: Swift.Int = 24000)
+  public func configure(sampleRate newRate: Swift.Int)
+  public var silentBufferRemaining: Foundation.TimeInterval {
+    get
+  }
+  public var currentPlaybackTime: Foundation.TimeInterval {
+    get
+  }
+  public func setBufferDuration(_ seconds: Foundation.TimeInterval)
+  public enum AudioFileFormat : Swift.String, Swift.Sendable {
+    case m4a
+    case wav
+    public var fileExtension: Swift.String {
+      get
+    }
+    public static func resolve(_ preferred: Module___TTSKit.AudioOutput.AudioFileFormat = .m4a) -> Module___TTSKit.AudioOutput.AudioFileFormat
+    public init?(rawValue: Swift.String)
+    public typealias RawValue = Swift.String
+    public var rawValue: Swift.String {
+      get
+    }
+  }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  @discardableResult
+  nonisolated(nonsending) public static func saveAudio(_ samples: [Swift.Float], toFolder folder: Foundation.URL, filename: Swift.String, sampleRate: Swift.Int = 24000, format: Module___TTSKit.AudioOutput.AudioFileFormat? = nil, metadataProvider: (@Sendable () throws -> [Module___AVFoundation.AVMetadataItem])? = nil) async throws -> Foundation.URL
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public static func duration(of url: Foundation.URL) async throws -> Foundation.TimeInterval
+  #endif
+  public static func crossfade(_ chunks: [[Swift.Float]], fadeLength: Swift.Int) -> [Swift.Float]
+  public func startPlayback(deferEngineStart: Swift.Bool = false) throws
+  public func enqueueAudioChunk(_ samples: [Swift.Float])
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func stopPlayback(waitForCompletion: Swift.Bool = true) async
+  #endif
+  @objc deinit
+}
+public protocol EmbedTensorType {
+}
+public protocol EmbedInputType {
+}
+extension Module___CoreML.MLMultiArray : Module___TTSKit.EmbedTensorType {
+}
+extension Module___CoreML.MLMultiArray : Module___TTSKit.EmbedInputType {
+}
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension Module___CoreML.MLTensor : Module___TTSKit.EmbedTensorType {
+}
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension Module___CoreML.MLTensor : Module___TTSKit.EmbedInputType {
+}
+extension Swift.Array : Module___TTSKit.EmbedTensorType where Element == Swift.Float16 {
+}
+public enum EmbedUtilities {
+  public static func addEmbeddings(_ a: [Module___ArgmaxCore.FloatType], _ b: [Module___ArgmaxCore.FloatType]) -> [Module___ArgmaxCore.FloatType]
+  public static func sumEmbeddings(_ embeddings: [[Module___ArgmaxCore.FloatType]]) -> [Module___ArgmaxCore.FloatType]
+  public static func extractEmbed(from arr: Module___CoreML.MLMultiArray) -> [Module___ArgmaxCore.FloatType]
+  public static func createEmbedMLArray(_ values: [Module___ArgmaxCore.FloatType]) throws -> Module___CoreML.MLMultiArray
+  public static func zeroEmbed(dim: Swift.Int = 1024) -> [Module___ArgmaxCore.FloatType]
+  public static func makeInt32Array(_ values: [Swift.Int32]) throws -> Module___CoreML.MLMultiArray
+  @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  @inline(__always) public static func addEmbeddings(_ a: Module___CoreML.MLTensor, _ b: Module___CoreML.MLTensor) -> Module___CoreML.MLTensor
+  @available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+  public static func sumEmbeddings(_ tensors: [Module___CoreML.MLTensor]) -> Module___CoreML.MLTensor
+}
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension Swift.Array where Element == Swift.Float16 {
+  public func asMLTensor() -> Module___CoreML.MLTensor
+}
+public class KVCache : @unchecked Swift.Sendable {
+  public var cacheLength: Swift.Int32
+  final public let maxSeqLength: Swift.Int
+  final public let cacheDim: Swift.Int
+  final public let isStateful: Swift.Bool
+  final public let codesPerStep: Swift.Int
+  final public let useRank3UpdateMask: Swift.Bool
+  final public let keyCache: Module___CoreML.MLMultiArray?
+  final public let valueCache: Module___CoreML.MLMultiArray?
+  final public let kvCacheUpdateMask: Module___CoreML.MLMultiArray
+  final public let keyPaddingMask: Module___CoreML.MLMultiArray
+  public init(cacheDim: Swift.Int, maxSeqLength: Swift.Int, codesPerStep: Swift.Int = 1, useRank3UpdateMask: Swift.Bool = false, isStateful: Swift.Bool = false) throws
+  public func reset()
+  public func update(keyCacheUpdates: Module___CoreML.MLMultiArray? = nil, valueCacheUpdates: Module___CoreML.MLMultiArray? = nil)
+  public var isFull: Swift.Bool {
+    get
+  }
+  public var freePositions: Swift.Int {
+    get
+  }
+  public func makeCacheLengthArray() throws -> Module___CoreML.MLMultiArray
+  @objc deinit
+}
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension Module___TTSKit.KVCache {
+  public var cacheLengthTensor: Module___CoreML.MLTensor {
+    get
+  }
+  public var kvCacheUpdateMaskTensor: Module___CoreML.MLTensor {
+    get
+  }
+  public var keyPaddingMaskTensor: Module___CoreML.MLTensor {
+    get
+  }
+  public var keyCacheTensor: Module___CoreML.MLTensor? {
+    get
+  }
+  public var valueCacheTensor: Module___CoreML.MLTensor? {
+    get
+  }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func update(keyTensor: Module___CoreML.MLTensor, valueTensor: Module___CoreML.MLTensor) async
+  #endif
+}
+public class SpeechDecoderCache : Module___TTSKit.KVCache, @unchecked Swift.Sendable {
+  final public let hiddenContext: Module___CoreML.MLMultiArray
+  final public let hiddenDim: Swift.Int
+  final public let hiddenContextLen: Swift.Int
+  final public let qkMask: Module___CoreML.MLMultiArray?
+  public init(cacheDim: Swift.Int = Qwen3TTSConstants.sdCacheDim, maxSeqLength: Swift.Int = Qwen3TTSConstants.sdMaxSeq, hiddenDim: Swift.Int = Qwen3TTSConstants.sdHiddenDim, hiddenContextLen: Swift.Int = Qwen3TTSConstants.sdHiddenContextLen, codesPerStep: Swift.Int = 1, useRank3UpdateMask: Swift.Bool = true) throws
+  override public func reset()
+  override public func update(keyCacheUpdates: Module___CoreML.MLMultiArray? = nil, valueCacheUpdates: Module___CoreML.MLMultiArray? = nil)
+  public func updateWithHiddenContext(output: any Module___CoreML.MLFeatureProvider)
+  @objc deinit
+}
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension Module___TTSKit.SpeechDecoderCache {
+  public var hiddenContextTensor: Module___CoreML.MLTensor {
+    get
+  }
+  public var qkMaskTensor: Module___CoreML.MLTensor? {
+    get
+  }
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func updateWithHiddenContext(tensorOutputs: [Swift.String : Module___CoreML.MLTensor]) async
+  #endif
+}
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension Module___TTSKit.KVCache {
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public static func updateStateCache(state: Module___CoreML.MLState, keyTensor: Module___CoreML.MLTensor, valueTensor: Module___CoreML.MLTensor, position: Swift.Int) async
+  #endif
+  public static func updateStateCache(state: Module___CoreML.MLState, keyCacheUpdates: Module___CoreML.MLMultiArray, valueCacheUpdates: Module___CoreML.MLMultiArray, position: Swift.Int)
+}
+@_hasMissingDesignatedInitializers final public class TTSPromptCache : @unchecked Swift.Sendable {
+  final public let voice: Swift.String
+  final public let language: Swift.String
+  final public let instruction: Swift.String?
+  final public let prefixLength: Swift.Int
+  final public func matches(voice: Swift.String, language: Swift.String, instruction: Swift.String?) -> Swift.Bool
+  @objc deinit
+}
+public struct KVCacheSnapshot : Swift.Sendable {
+  public let isStateful: Swift.Bool
+  public let cacheDim: Swift.Int
+  public let maxSeqLength: Swift.Int
+  public let cacheLength: Swift.Int32
+  public let keyCacheData: Foundation.Data
+  public let valueCacheData: Foundation.Data
+  public let updateMaskData: Foundation.Data
+  public let paddingMaskData: Foundation.Data
+}
+public struct KVStateData : Swift.Sendable {
+  public let keyData: Foundation.Data
+  public let valueData: Foundation.Data
+}
+extension Module___TTSKit.KVCache {
+  public func snapshot() -> Module___TTSKit.KVCacheSnapshot
+  public func restore(from snapshot: Module___TTSKit.KVCacheSnapshot)
+}
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, visionOS 2.0, *)
+extension Module___CoreML.MLState {
+  public func snapshot() -> Module___TTSKit.KVStateData
+  public func restore(from data: Module___TTSKit.KVStateData)
+}
+extension Module___TTSKit.TTSPromptCache {
+  final public func save(to url: Foundation.URL) throws
+  public static func load(from url: Foundation.URL) throws -> Module___TTSKit.TTSPromptCache
+  final public var cacheFileName: Swift.String {
+    get
+  }
+}
+public protocol TokenSampling {
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func sampleCodec0(logits: any Module___TTSKit.EmbedTensorType, temperature: Swift.Float, topK: Swift.Int, generatedTokens: [Swift.Int32], repetitionPenalty: Swift.Float, suppressTokenIds: Swift.Set<Swift.Int>) async -> Swift.Int32
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) func sampleMultiHead(allLogits: any Module___TTSKit.EmbedTensorType, headIndex: Swift.Int, temperature: Swift.Float, topK: Swift.Int) async -> Swift.Int32
+  #endif
+  func gumbelNoise(count: Swift.Int) -> [Swift.Float]
+}
+extension Module___TTSKit.TokenSampling {
+  public func gumbelNoise(count: Swift.Int) -> [Swift.Float]
+  public static func gumbelNoise(count: Swift.Int, using rng: inout any Swift.RandomNumberGenerator) -> [Swift.Float]
+}
+public class GreedyTokenSampler : Module___TTSKit.TokenSampling, @unchecked Swift.Sendable {
+  public init(seed: Swift.UInt64? = nil)
+  public func gumbelNoise(count: Swift.Int) -> [Swift.Float]
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func sampleCodec0(logits: any Module___TTSKit.EmbedTensorType, temperature: Swift.Float, topK: Swift.Int, generatedTokens: [Swift.Int32], repetitionPenalty: Swift.Float, suppressTokenIds: Swift.Set<Swift.Int>) async -> Swift.Int32
+  #endif
+  #if compiler(>=5.3) && $AsyncExecutionBehaviorAttributes
+  nonisolated(nonsending) public func sampleMultiHead(allLogits: any Module___TTSKit.EmbedTensorType, headIndex: Swift.Int, temperature: Swift.Float, topK: Swift.Int) async -> Swift.Int32
+  #endif
+  @objc deinit
+}
+public struct SeededRandomNumberGenerator : Swift.RandomNumberGenerator {
+  public init(seed: Swift.UInt64)
+  public mutating func next() -> Swift.UInt64
+}
+@frozen public enum TTSError : Swift.Error, Foundation.LocalizedError, Swift.Equatable {
+  case emptyText
+  case modelNotFound(Swift.String)
+  case modelLoadingFailed(Swift.String)
+  case generationFailed(Swift.String)
+  case tokenizerUnavailable(Swift.String)
+  case audioOutputFailed(Swift.String)
+  case invalidConfiguration(Swift.String)
+  public var errorDescription: Swift.String? {
+    get
+  }
+  public static func == (a: Module___TTSKit.TTSError, b: Module___TTSKit.TTSError) -> Swift.Bool
+}
+@frozen public enum TextChunkingStrategy : Swift.String, Swift.Codable, Swift.CaseIterable, Swift.Sendable {
+  case none
+  case sentence
+  public init?(rawValue: Swift.String)
+  public typealias AllCases = [Module___TTSKit.TextChunkingStrategy]
+  public typealias RawValue = Swift.String
+  nonisolated public static var allCases: [Module___TTSKit.TextChunkingStrategy] {
+    get
+  }
+  public var rawValue: Swift.String {
+    get
+  }
+}
+public struct TextChunker {
+  public static let defaultTargetChunkSize: Swift.Int
+  public static let defaultMinChunkSize: Swift.Int
+  public let targetChunkSize: Swift.Int
+  public let minChunkSize: Swift.Int
+  public init(targetChunkSize: Swift.Int = TextChunker.defaultTargetChunkSize, minChunkSize: Swift.Int = TextChunker.defaultMinChunkSize, tokenizer: any Module___TTSKit.TTSTokenizer)
+  public func chunk(_ text: Swift.String) -> [Swift.String]
+}
+extension Module___TTSKit.TTSModelFamily : Swift.Equatable {}
+extension Module___TTSKit.TTSModelFamily : Swift.Hashable {}
+extension Module___TTSKit.TTSModelFamily : Swift.RawRepresentable {}
+extension Module___TTSKit.TTSModelFamily : Swift.BitwiseCopyable {}
+extension Module___TTSKit.TTSModelVariant : Swift.Equatable {}
+extension Module___TTSKit.TTSModelVariant : Swift.Hashable {}
+extension Module___TTSKit.TTSModelVariant : Swift.RawRepresentable {}
+extension Module___TTSKit.TTSModelVariant : Swift.BitwiseCopyable {}
+extension Module___TTSKit.Qwen3Speaker : Swift.Equatable {}
+extension Module___TTSKit.Qwen3Speaker : Swift.Hashable {}
+extension Module___TTSKit.Qwen3Speaker : Swift.RawRepresentable {}
+extension Module___TTSKit.Qwen3Language : Swift.Equatable {}
+extension Module___TTSKit.Qwen3Language : Swift.Hashable {}
+extension Module___TTSKit.Qwen3Language : Swift.RawRepresentable {}
+extension Module___TTSKit.Qwen3SpeechDecoderMode : Swift.Equatable {}
+extension Module___TTSKit.Qwen3SpeechDecoderMode : Swift.Hashable {}
+extension Module___TTSKit.Qwen3SpeechDecoderMode : Swift.RawRepresentable {}
+extension Module___TTSKit.Qwen3SpeechDecoderMode : Swift.BitwiseCopyable {}
+extension Module___TTSKit.Qwen3MultiCodeDecoderMode : Swift.Equatable {}
+extension Module___TTSKit.Qwen3MultiCodeDecoderMode : Swift.Hashable {}
+extension Module___TTSKit.Qwen3MultiCodeDecoderMode : Swift.RawRepresentable {}
+extension Module___TTSKit.Qwen3MultiCodeDecoderMode : Swift.BitwiseCopyable {}
+extension Module___TTSKit.AudioOutput.AudioFileFormat : Swift.Equatable {}
+extension Module___TTSKit.AudioOutput.AudioFileFormat : Swift.Hashable {}
+extension Module___TTSKit.AudioOutput.AudioFileFormat : Swift.RawRepresentable {}
+extension Module___TTSKit.TextChunkingStrategy : Swift.Equatable {}
+extension Module___TTSKit.TextChunkingStrategy : Swift.Hashable {}
+extension Module___TTSKit.TextChunkingStrategy : Swift.RawRepresentable {}
+extension Module___TTSKit.TextChunkingStrategy : Swift.BitwiseCopyable {}
