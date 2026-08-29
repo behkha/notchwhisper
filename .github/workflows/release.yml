@@ -1,63 +1,30 @@
 name: Release
 
-# Build three .dmg variants (Apple Silicon, Intel, Universal) and attach them
-# to a GitHub Release. The user picks the one matching their Mac.
+# Create a GitHub Release when a version tag is pushed.
 #
-# Trigger by pushing a version tag, e.g. `git tag v1.0.0 && git push origin v1.0.0`,
-# or run manually from the Actions tab. A manual run derives its release tag from
-# the app's version, or you can pass an explicit one via the "tag" workflow input.
+# Binary .dmg distribution is currently DISABLED: the app is not notarized, so
+# downloads would trip Gatekeeper ("Apple could not verify … free of malware").
+# Users clone the repo and build from source (see README "Installing"). Re-enable
+# dmg build/upload in this workflow once Developer ID signing + notarization is
+# wired in.
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Release tag, e.g. v1.0.0. Leave empty to derive from the app version.'
-        required: false
-        default: ''
 
 permissions:
   contents: write
 
 jobs:
-  build-dmg:
-    runs-on: macos-latest   # Apple Silicon runner; cross-compiles the x86_64 slice
-    timeout-minutes: 360
+  release:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Show toolchain versions
-        run: |
-          sw_vers
-          xcodebuild -version
-          swift --version
-
-      - name: Build Apple Silicon (arm64) app + DMG
-        run: ARCH=arm64 bash ./build.sh && bash ./make_dmg.sh arm64
-
-      - name: Build Intel (x86_64) app + DMG
-        run: ARCH=x86_64 bash ./build.sh && bash ./make_dmg.sh x86_64
-
-      - name: Build Universal (arm64 + x86_64) app + DMG
-        run: ARCH=universal bash ./build.sh && bash ./make_dmg.sh universal
-
-      - name: Read version
-        id: ver
-        run: echo "version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/NotchWhisper.app/Contents/Info.plist)" >> "$GITHUB_OUTPUT"
-
-      - name: Upload to GitHub Release
+      - name: Create GitHub Release (source only)
         uses: softprops/action-gh-release@v2
         with:
-          # Use an explicit tag if given, else the pushed tag, else derive one
-          # from the app version (so manual runs don't fail with "requires a tag").
-          tag_name: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || format('v{0}', steps.ver.outputs.version) }}
-          name: NotchWhisper ${{ steps.ver.outputs.version }}
-          files: |
-            NotchWhisper-${{ steps.ver.outputs.version }}-arm64.dmg
-            NotchWhisper-${{ steps.ver.outputs.version }}-x86_64.dmg
-            NotchWhisper-${{ steps.ver.outputs.version }}-universal.dmg
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

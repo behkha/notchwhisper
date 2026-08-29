@@ -252,40 +252,20 @@ Because the app is ad-hoc signed (no paid Developer ID), macOS may ask you to al
 
 ---
 
-## Releasing a .dmg (GitHub Releases)
+## Installing (build from source — no prebuilt binaries)
 
-Each release ships **three** `.dmg` files so the user can pick the one matching their Mac:
-
-| Asset | For |
-| --- | --- |
-| `NotchWhisper-<version>-arm64.dmg` | Apple Silicon Macs (M1/M2/M3/M4) |
-| `NotchWhisper-<version>-x86_64.dmg` | Intel Macs |
-| `NotchWhisper-<version>-universal.dmg` | Either — contains both slices in one binary |
-
-`build.sh` accepts an `ARCH` variable (`arm64` / `x86_64` / `universal`, or unset for host arch) and `make_dmg.sh` takes the matching suffix to name the disk image.
-
-**Locally (build one at a time)**
-
-Build and package each variant separately — `build.sh` overwrites `build/NotchWhisper.app`, so create the `.dmg` immediately after each build:
+Prebuilt `.dmg` files are **not distributed** for now. The app is ad-hoc/self-signed, so a downloaded copy would trip Gatekeeper on other Macs (see Permissions & code signing). To run NotchWhisper, clone the repo and build it yourself:
 
 ```bash
-ARCH=arm64 ./build.sh && ./make_dmg.sh arm64         # -> NotchWhisper-<version>-arm64.dmg
-ARCH=x86_64 ./build.sh && ./make_dmg.sh x86_64       # -> NotchWhisper-<version>-x86_64.dmg
-ARCH=universal ./build.sh && ./make_dmg.sh universal  # -> NotchWhisper-<version>-universal.dmg
+git clone https://github.com/behkha/notchwhisper.git
+cd notchwhisper
+./build.sh
+open build/NotchWhisper.app
 ```
 
-(Legacy form `UNIVERSAL=1 ./build.sh` is still accepted and equals `ARCH=universal`.)
+`build.sh` accepts an `ARCH` variable (`arm64` / `x86_64` / `universal`; omit it to build for your Mac's architecture) and falls back to host arch. To package a `.dmg` for your own local use, run `./make_dmg.sh` (optionally with the arch suffix) after building.
 
-**Via GitHub Actions (automatic)**
-
-Push a version tag (or run the workflow manually) and a single macOS runner builds all three variants and attaches them to one GitHub Release:
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-The workflow lives at `.github/workflows/release.yml` and uses only Apple-native tools — no extra dependencies. The Apple Silicon runner cross-compiles the Intel slice, so no second machine is required.
+**Releases.** Pushing a `v*` tag cuts a GitHub Release containing source archives only. The workflow at `.github/workflows/release.yml` is kept minimal on purpose; once Developer ID signing + notarization is wired up, it can be extended to build and attach notarized `.dmg`s again.
 
 A **manual** run (**Actions → Release → Run workflow**) derives its release tag from the app's version (e.g. `v1.0`); you can also pass an explicit tag via the workflow's **tag** input. A tag-push run uses the pushed tag directly.
 
@@ -349,7 +329,7 @@ This project **does not currently ship a `LICENSE` file**. Until one is added, t
 ## Troubleshooting
 
 - **"Why isn't it typing?"** — Enable **Accessibility** for NotchWhisper in System Settings → Privacy & Security. Terminals (Terminal.app, iTerm, Warp) ignore Accessibility value writes, so NotchWhisper posts synthetic keystrokes there instead — that path needs **Input Monitoring** (or Accessibility) too.
-- **"Apple could not verify NotchWhisper.app is free of malware" on first launch** — This is a *signing* warning, not malware. The releases are signed ad-hoc (or with the local self-signed "NotchWhisper Dev" identity, which exists only on the build machine), so Gatekeeper on another Mac has no trusted signature to verify. To open it anyway: right-click the app → **Open** → click **Open** in the dialog (approves just this app), or run `xattr -dr com.apple.quarantine /Applications/NotchWhisper.app` in Terminal. For a clean, warning-free install for others, sign with an Apple **Developer ID Application** cert and **notarize** (see Permissions & code signing).
+- **"Apple could not verify NotchWhisper.app is free of malware" on first launch** — This is a *signing* warning, not malware. Locally built copies are signed ad-hoc (or with the local self-signed "NotchWhisper Dev" identity, which exists only on the build machine), so Gatekeeper on another Mac has no trusted signature to verify. To open it anyway: right-click the app → **Open** → click **Open** in the dialog (approves just this app), or run `xattr -dr com.apple.quarantine /Applications/NotchWhisper.app` in Terminal. For a clean, warning-free install for others, sign with an Apple **Developer ID Application** cert and **notarize** (see Permissions & code signing).
 - **Hotkey doesn't fire / permission prompt reappears after a rebuild** — this is the ad-hoc signing issue above. Run `./setup_signing_identity.sh` once, rebuild, and re-grant permissions.
 - **Local LLM says "can't connect"** — make sure your Ollama/LM Studio/Unsloth server is running and the **Endpoint** in Settings → Local LLM points at its `…/v1` address. Use **Test connection** to verify. Your text is sent only to that local endpoint.
 - **Wrong word keeps appearing** — add it as a **Term** (to bias recognition) and/or a **Correction** (to fix the typed output) in the Dictionary tab.
