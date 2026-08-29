@@ -10,7 +10,16 @@ import WhisperKit
 
     private var engine: AVAudioEngine?
     private var converter: AVAudioConverter?
+    /// 16 kHz mono capture buffer.
+    ///
+    /// MUTATED ON THE MIC TAP'S AUDIO THREAD (AVAudioEngine tap callbacks do
+    /// NOT run on the main thread) and copied/trimmed from the MainActor by
+    /// the live-dictation loop — every access must hold `bufferLock`. The
+    /// unguarded version of this buffer is a real data race that corrupts
+    /// mid-session: dictation would type the first sentence(s) and then stall
+    /// or produce garbage once the concurrent append/copy/trim collided.
     private var audioSamples: [Float] = []
+    private let bufferLock = NSLock()
     private let targetRate = Double(WhisperKit.sampleRate)   // 16000
     private var levelRing: [Float] = Array(repeating: 0.12, count: 28)
 
@@ -61,7 +70,11 @@ import WhisperKit
             let ptr = ch[0]
             let count = Int(outBuf.frameLength)
             let chunk = Array(UnsafeBufferPointer(start: ptr, count: count))
+            // Audio thread → guard the shared buffer (the live-dictation loop
+            // reads and trims it from the MainActor).
+            bufferLock.lock()
             audioSamples.append(contentsOf: chunk)
+            bufferLock.unlock()
 
             // RMS level for the notch waveform — computed on the CONVERTED
             // buffer, which is guaranteed float32 (the hardware buffer's
@@ -84,14 +97,52 @@ import WhisperKit
         state.levels = levelRing
     }
 
+    /// Whether the mic tap is currently installed (recording in progress).
+    var isCapturing: Bool { engine != nil }
+
+    /// Copy of everything captured so far (16 kHz mono) — read by the live
+    /// dictation loop without stopping the stream. Lock-guarded: the tap
+    /// callback appends on the audio thread while this runs on the MainActor.
+    var accumulatedSamples: [Float] {
+        bufferLock.lock()
+        defer { bufferLock.unlock() }
+        return audioSamples
+    }
+
+    /// Current buffer length (lock-guarded, safe from any thread).
+    var sampleCount: Int {
+        bufferLock.lock()
+        defer { bufferLock.unlock() }
+        return audioSamples.count
+    }
+
+    /// Drop the first `count` already-transcribed samples so a long dictation
+    /// session doesn't grow the buffer without bound.
+    ///
+    /// Returns how many samples were ACTUALLY dropped — possibly fewer than
+    /// requested if the buffer shrank concurrently. Callers MUST adjust their
+    /// bookkeeping (`typedUpto`, …) by the RETURNED value, never the requested
+    /// one, or every sample index desyncs from the buffer and dictation stalls.
+    @discardableResult
+    func trimSamples(_ count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        bufferLock.lock()
+        defer { bufferLock.unlock() }
+        guard audioSamples.count > count else { return 0 }
+        audioSamples.removeFirst(count)
+        return count
+    }
+
     /// Stop recording and return the captured 16 kHz mono samples.
     func stop() -> [Float] {
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         engine = nil
         converter = nil
+        bufferLock.lock()
         let out = audioSamples
         audioSamples = []
+        bufferLock.unlock()
         return out
     }
 

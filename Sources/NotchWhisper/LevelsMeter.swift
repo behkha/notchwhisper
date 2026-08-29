@@ -4,9 +4,11 @@ import SwiftUI
 /// Token-bound: spacing, radius, colors, motion all come from Tokens.
 struct LevelsMeter: View {
     @EnvironmentObject private var state: AppState
+    @ObservedObject private var theme = Tokens.ThemeManager.shared
     var height: CGFloat = 40
 
     var body: some View {
+        let _ = theme.theme   // record bars re-tint on theme change
         HStack(spacing: Tokens.Space.x1) {
             ForEach(0..<state.levels.count, id: \.self) { i in
                 let lvl = state.levels[i]
@@ -35,27 +37,39 @@ struct LevelsMeter: View {
 /// A compact circular record button.
 struct RecordButton: View {
     @EnvironmentObject private var state: AppState
+    @ObservedObject private var theme = Tokens.ThemeManager.shared
     let action: () -> Void
 
+    private var isActive: Bool {
+        state.mode == .recording || state.mode == .dictating
+    }
+
     var body: some View {
+        let _ = theme.theme   // re-tint on theme change
         Button(action: action) {
             HStack(spacing: Tokens.Space.x2) {
-                Image(systemName: state.mode == .recording ? "stop.fill" : "mic.fill")
+                Image(systemName: isActive ? "stop.fill" : "mic.fill")
                     .font(.system(size: 15, weight: .semibold))
-                Text(state.mode == .recording ? "Stop" : "Record")
+                    .symbolFeedback(value: state.mode)
+                Text(isActive ? "Stop" : "Record")
                     .font(Tokens.TypeScale.headline)
+                    .contentTransition(.opacity)
             }
-            .foregroundStyle(state.mode == .recording ? Tokens.Color.textOnAccent : Tokens.Color.text)
+            .foregroundStyle(isActive ? Tokens.Color.textOnAccent : Tokens.Color.onAccent)
             .padding(.horizontal, Tokens.Space.x4)
             .padding(.vertical, Tokens.Space.x2)
             .background(
-                state.mode == .recording
-                    ? Tokens.Color.record
-                    : Tokens.Color.fillQuiet,
+                isActive
+                    ? AnyShapeStyle(Tokens.Color.record)
+                    : AnyShapeStyle(LinearGradient(
+                        colors: [Tokens.Color.accent, Tokens.Color.accent.opacity(0.82)],
+                        startPoint: .bottom, endPoint: .top)),
                 in: Capsule()
             )
+            // Record⇄Stop reads as one control changing, not two controls.
+            .animation(Tokens.Motion.quick(reduceMotion: Tokens.A11y.reduceMotion), value: state.mode)
         }
         .buttonStyle(Pressable(scale: 0.96))
-        .help(state.mode == .recording ? "Stop recording" : "Start recording")
+        .help(isActive ? "Stop" : "Start")
     }
 }

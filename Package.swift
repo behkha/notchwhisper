@@ -5,17 +5,23 @@ let package = Package(
     name: "NotchWhisper",
     platforms: [.macOS(.v14)],
     dependencies: [
-        .package(url: "https://github.com/argmaxinc/WhisperKit.git", branch: "main")
+        .package(url: "https://github.com/argmaxinc/WhisperKit.git", branch: "main"),
     ],
     targets: [
         .executableTarget(
             name: "NotchWhisper",
             dependencies: [
-                .product(name: "WhisperKit", package: "WhisperKit")
+                .product(name: "WhisperKit", package: "WhisperKit"),
             ]
         ),
         .executableTarget(
             name: "TranscribeTest",
+            dependencies: [
+                .product(name: "WhisperKit", package: "WhisperKit")
+            ]
+        ),
+        .executableTarget(
+            name: "LiveRepro",
             dependencies: [
                 .product(name: "WhisperKit", package: "WhisperKit")
             ]

@@ -43,7 +43,9 @@ final class MenuBarController {
         switch mode {
         case .idle:         symbol = "mic"
         case .recording:    symbol = "mic.fill"
+        case .dictating:    symbol = "text.bubble.fill"
         case .transcribing: symbol = "waveform"
+        case .improving:    symbol = "wand.and.stars"
         case .done:         symbol = "checkmark.circle"
         case .error:        symbol = "exclamationmark.circle"
         }
@@ -69,11 +71,43 @@ final class MenuBarController {
 
         menu.addItem(.separator())
 
+        // Text Processing — lightweight, always-available mode switching so the
+        // user never has to open Settings for a one-off dictation.
+        if settings.llmEnabled {
+            let modeItem = NSMenuItem(title: "Text Processing", action: nil, keyEquivalent: "")
+            modeItem.isEnabled = true
+            let sub = NSMenu(title: "Text Processing")
+            for mode in LLMMode.allCases {
+                let item = NSMenuItem(
+                    title: mode.displayName,
+                    action: #selector(switchMode(_:)),
+                    keyEquivalent: ""
+                )
+                item.tag = LLMMode.allCases.firstIndex(of: mode) ?? 0
+                item.state = (settings.llmMode == mode) ? .on : .off
+                item.target = self
+                sub.addItem(item)
+            }
+            modeItem.submenu = sub
+            menu.addItem(modeItem)
+        }
+
         menu.addItem(NSMenuItem(title: "Open NotchWhisper", action: #selector(openApp), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Start Recording", action: #selector(startRec), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Stop Recording", action: #selector(stopRec), keyEquivalent: ""))
+        // State-aware: offer only the action that can actually run right now,
+        // so the menu never contains a silent no-op.
+        switch state.mode {
+        case .recording:
+            menu.addItem(NSMenuItem(title: "Stop Recording", action: #selector(stopRec), keyEquivalent: ""))
+        case .dictating:
+            menu.addItem(NSMenuItem(title: "Stop Dictation", action: #selector(stopRec), keyEquivalent: ""))
+        case .idle, .done, .error:
+            let action = settings.liveDictation ? "Start Dictation" : "Start Recording"
+            menu.addItem(NSMenuItem(title: action, action: #selector(startRec), keyEquivalent: ""))
+        case .transcribing, .improving:
+            break  // a recording is already finishing; nothing to toggle
+        }
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit NotchWhisper", action: #selector(quit), keyEquivalent: "q"))
 
@@ -88,13 +122,19 @@ final class MenuBarController {
         switch state.mode {
         case .idle:
             switch state.modelStatus {
-            case .ready: return "Ready · hold \(settings.hotkeyDisplay)"
+            case .ready:
+                return settings.liveDictation
+                    ? "Ready · \(settings.hotkeyDisplay) toggles dictation"
+                    : "Ready · hold \(settings.hotkeyDisplay)"
             case .loading, .downloading: return "Loading model…"
             case .error(let e): return "Model error: \(e)"
             case .unknown: return "Starting…"
             }
         case .recording:    return "Recording…"
+        case .dictating:    return "Dictating… press \(settings.hotkeyDisplay) to stop"
         case .transcribing: return "Transcribing…"
+        case .improving:
+            return state.statusMessage.isEmpty ? "Improving…" : state.statusMessage
         case .done:         return "Done"
         case .error:        return state.statusMessage.isEmpty ? "Error" : state.statusMessage
         }
@@ -102,7 +142,17 @@ final class MenuBarController {
 
     @objc private func openApp() { AppDelegate.shared?.showMainWindow() }
     @objc private func openSettings() { AppDelegate.shared?.showSettings() }
-    @objc private func startRec() { AppDelegate.shared?.startRecording() }
-    @objc private func stopRec() { AppDelegate.shared?.stopRecording() }
+    // Switch the processing mode (menu bar → Text Processing). The active
+    // mode is persisted to Settings so the next dictation uses it.
+    @objc private func switchMode(_ sender: NSMenuItem) {
+        let modes = LLMMode.allCases
+        guard modes.indices.contains(sender.tag) else { return }
+        settings.llmMode = modes[sender.tag]
+    }
+    // Both the Start and Stop items route through the unified toggle so they
+    // handle either interaction model (hold-to-talk or live dictation) — the
+    // menu-bar Stop item otherwise no-ops while dictating.
+    @objc private func startRec() { AppDelegate.shared?.toggleRecord() }
+    @objc private func stopRec() { AppDelegate.shared?.toggleRecord() }
     @objc private func quit() { NSApp.terminate(nil) }
 }

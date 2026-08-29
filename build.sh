@@ -15,9 +15,19 @@ echo "==> Resolving dependencies (WhisperKit)"
 pushd "$ROOT" >/dev/null
 swift package resolve 2>&1 | tail -5
 
-echo "==> Building release executable"
-swift build -c release 2>&1 | tail -40
-BIN_SRC="$(swift build -c release --show-bin-path | tr -d '[:space:]')"
+# Universal (Intel x86_64 + Apple Silicon arm64) build when UNIVERSAL=1.
+# A single Apple Silicon runner can cross-compile x86_64, so this produces one
+# app that runs on both architectures — no need for two separate downloads.
+UNIVERSAL="${UNIVERSAL:-0}"
+ARCH_FLAGS=""
+if [ "$UNIVERSAL" = "1" ]; then
+  ARCH_FLAGS="--arch arm64 --arch x86_64"
+  echo "==> Building universal (arm64 + x86_64) release executable"
+else
+  echo "==> Building release executable (host architecture)"
+fi
+swift build -c release $ARCH_FLAGS 2>&1 | tail -40
+BIN_SRC="$(swift build -c release $ARCH_FLAGS --show-bin-path | tr -d '[:space:]')"
 popd >/dev/null
 
 if [ ! -x "$BIN_SRC/$APP" ]; then
@@ -30,6 +40,12 @@ rm -rf "$APP_BUNDLE"
 mkdir -p "$FRI" "$RES" "$APP_BUNDLE/Contents/MacOS"
 
 cp "$BIN_SRC/$APP" "$BIN"
+
+# When building universal, confirm the binary actually contains both slices.
+if [ "$UNIVERSAL" = "1" ]; then
+  echo "==> Verifying universal binary"
+  lipo -info "$BIN" 2>/dev/null || true
+fi
 
 # App icon (regenerate with: swift scripts/make_icon.swift && iconutil -c icns /tmp/AppIcon.iconset -o build/AppIcon.icns)
 if [ -f "$BUILD/AppIcon.icns" ]; then

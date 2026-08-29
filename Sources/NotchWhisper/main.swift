@@ -18,7 +18,7 @@ if let flagIdx = CommandLine.arguments.firstIndex(of: "--type-test"),
     }
     if delay > 0 { Thread.sleep(forTimeInterval: delay) }
     MainActor.assumeIsolated {
-        AutoTyper.type(text)
+        _ = AutoTyper.type(text)
     }
     exit(0)
 }

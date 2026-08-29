@@ -5,6 +5,14 @@ enum NotchMode: Equatable {
     case idle
     case recording
     case transcribing
+    /// Live dictation: a continuous session that types as you speak (Settings →
+    /// General → "Live dictation"). Rendered like recording, plus the live partial
+    /// transcript in the notch ribbon.
+    case dictating
+    /// Local LLM post-processing of a finished transcription (Settings →
+    /// Local LLM). The notch shows the "Improving…" state so dictation and
+    /// processing read as one continuous action.
+    case improving
     case done
     case error
 }
@@ -30,12 +38,77 @@ enum NotchMode: Equatable {
     @Published var isDownloading = false
     @Published var downloadProgress: Double = 0
     @Published var downloadLabel: String = ""
+    /// Model id currently being downloaded (nil when idle). Lets the UI tell
+    /// "this model's download" apart from any other download in progress.
+    @Published var downloadingModelId: String? = nil
+    /// Byte-accurate download stats sampled from disk while downloading.
+    @Published var downloadBytesDone: Int64 = 0
+    /// Total bytes of the current download (0 = unknown).
+    @Published var downloadBytesTotal: Int64 = 0
+    /// Smoothed bytes/second (0 = not measured yet).
+    @Published var downloadSpeedBps: Double = 0
+    /// Estimated seconds remaining (0 = unknown).
+    @Published var downloadEtaSeconds: Double = 0
+
+    // MARK: Download stats helpers
+
+    /// Clears all per-download stats. Called when a new download starts.
+    func resetDownloadStats() {
+        downloadProgress = 0
+        downloadBytesDone = 0
+        downloadBytesTotal = 0
+        downloadSpeedBps = 0
+        downloadEtaSeconds = 0
+    }
+
+    /// Best-available progress fraction: byte-accurate when a total is known,
+    /// otherwise WhisperKit's (file-count based) fraction. The byte fraction
+    /// and the callback fraction are combined with `max` so a slightly small
+    /// total estimate can never show >100% or stall the bar below completion.
+    var displayProgress: Double {
+        let byteFraction = downloadBytesTotal > 0
+            ? min(1, Double(downloadBytesDone) / Double(downloadBytesTotal)) : 0
+        return max(downloadProgress, byteFraction)
+    }
+
+    /// One-line download summary, e.g.
+    /// "412 MB / 1.4 GB · 29% · 8.2 MB/s · ~2 min 10 s left".
+    var downloadDetailText: String {
+        var parts: [String] = []
+        if downloadBytesTotal > 0 {
+            parts.append("\(formatBytes(downloadBytesDone)) / \(formatBytes(downloadBytesTotal))")
+            parts.append("\(Int((displayProgress * 100).rounded()))%")
+        } else if downloadBytesDone > 0 {
+            parts.append(formatBytes(downloadBytesDone))
+        }
+        if downloadSpeedBps > 1024 {
+            parts.append("\(formatBytes(Int64(downloadSpeedBps)))/s")
+        }
+        if downloadEtaSeconds > 1, downloadBytesTotal > 0, downloadBytesDone < downloadBytesTotal {
+            parts.append("~\(formatEta(downloadEtaSeconds)) left")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    private func formatEta(_ seconds: Double) -> String {
+        let s = Int(seconds.rounded())
+        if s < 60 { return "\(s) s" }
+        if s < 3600 { return "\(s / 60) min \(s % 60) s" }
+        return "\(s / 3600) h \((s % 3600) / 60) min"
+    }
 
     // MARK: Live level meter (main window) — same data, read by both views.
     var levelArray: [Float] { levels }
 
     // MARK: Convenience accessors to stores
-    var busy: Bool { mode == .recording || mode == .transcribing || isDownloading }
+    var busy: Bool {
+        mode == .recording || mode == .transcribing || mode == .dictating
+            || mode == .improving || isDownloading
+    }
 
     func showToast(_ message: String) {
         statusMessage = message

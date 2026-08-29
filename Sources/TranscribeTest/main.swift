@@ -8,8 +8,37 @@ let wav = CommandLine.arguments[1]
 let modelDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     .appendingPathComponent("NotchWhisper/Models")
 
-let cfg = WhisperKitConfig(model: "whisper-base", downloadBase: modelDir, verbose: false, logLevel: .none, load: true)
-let wk = try await WhisperKit(cfg)
+// NW_MODE=offline mirrors the app's offline-first load path exactly
+// (Transcriber.loadFolder): load a fully downloaded model straight from its
+// on-disk folder with zero network access.
+let wk: WhisperKit
+let offline = ProcessInfo.processInfo.environment["NW_MODE"] == "offline"
+fputs("DEBUG: offline=\(offline)\n", stderr)
+if offline {
+    let folder = modelDir
+        .appendingPathComponent("models")
+        .appendingPathComponent("argmaxinc/whisperkit-coreml")
+        .appendingPathComponent(ProcessInfo.processInfo.environment["NW_FOLDER"] ?? "openai_whisper-tiny.en", isDirectory: true)
+    print("OFFLINE LOAD exists=\(FileManager.default.fileExists(atPath: folder.path)) from \(folder.path)")
+    fputs("DEBUG: offline branch, folder=\(folder.path)\n", stderr)
+    let cfg = WhisperKitConfig(
+        model: nil,
+        downloadBase: modelDir,
+        modelFolder: folder.path,
+        verbose: false,
+        logLevel: .none,
+        load: true,
+        download: false
+    )
+    print("cfg: model=\(cfg.model ?? "nil") modelFolder=\(cfg.modelFolder ?? "nil") download=\(String(describing: cfg.download)) load=\(String(describing: cfg.load))")
+    fflush(stdout)
+    wk = try await WhisperKit(cfg)
+} else {
+    let cfg = WhisperKitConfig(model: "whisper-base", downloadBase: modelDir, verbose: false, logLevel: .none, load: true)
+    wk = try await WhisperKit(cfg)
+}
+print("MODEL LOADED OK")
+fflush(stdout)
 
 // Load WAV as 16 kHz mono Float array, exactly like AudioRecorder would deliver.
 let url = URL(fileURLWithPath: wav)

@@ -1,0 +1,13 @@
+# SwiftPM build artifacts
+.build/
+
+# Packaged app bundle
+build/
+
+# Disk images
+*.dmg
+
+# Signing / credentials
+*.mobileprovision
+*.p12
+*.cer

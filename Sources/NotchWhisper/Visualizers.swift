@@ -85,7 +85,7 @@ struct AudioVisualizer: View {
         case .bar:
             LKBarVisualizer(state: state, heights: heights, tint: tint, t: t)
         case .wave:
-            LKWaveVisualizer(state: state, energy: energy, t: t)
+            LKWaveVisualizer(state: state, heights: heights, energy: energy, tint: tint, t: t)
         case .radial:
             LKRadialVisualizer(state: state, heights: heights, tint: tint, t: t)
                 .frame(width: 64, height: 64)
@@ -95,7 +95,7 @@ struct AudioVisualizer: View {
                 .frame(width: 64, height: 64)
                 .frame(maxWidth: .infinity)
         case .aura:
-            LKAuraVisualizer(state: state, energy: energy, t: t)
+            LKAuraVisualizer(state: state, heights: heights, energy: energy, tint: tint, t: t)
                 .frame(width: 64, height: 64)
                 .frame(maxWidth: .infinity)
         }
@@ -196,12 +196,18 @@ struct LKSequencer {
 
 @inline(__always)
 private func tintColor(_ tint: (r: Double, g: Double, b: Double)?) -> SwiftUI.Color {
-    guard let tint else { return .white }
+    // Explicit tint (voice-reactive glow heat) wins; otherwise every
+    // visualizer follows the app's theme accent instead of a hardcoded hue.
+    guard let tint else { return Tokens.Theme.current.accent }
     return SwiftUI.Color(red: tint.r, green: tint.g, blue: tint.b)
 }
 
-/// LiveKit cyan #1FD5F9 — the signature Wave/Aura color.
-private let lkCyan = SwiftUI.Color(red: 0.12, green: 0.84, blue: 0.98)
+/// RGB triple of the resolved visualizer color (theme accent or glow tint),
+/// for Canvas shaders that need channel math.
+private func colorTriple(_ tint: (r: Double, g: Double, b: Double)?) -> (r: Double, g: Double, b: Double) {
+    if let tint { return tint }
+    return Tokens.Theme.current.accentRGB
+}
 
 // MARK: - Bar (agent-audio-visualizer-bar)
 
@@ -426,12 +432,35 @@ private struct LKRadialVisualizer: View {
 /// amplitude is attenuated by a cos¹⁶ bell curve toward the edges, drawn
 /// through the same edge-fade mask (transparent 0–20%, opaque 20–80%,
 /// transparent 80–100%). State parameters are the exact values from
-/// use-agent-audio-visualizer-wave.ts; speaking maps volume → amplitude
-/// (0.015 + 0.4·v) and frequency (20 + 60·v).
+/// use-agent-audio-visualizer-wave.ts; speaking maps voice → amplitude
+/// (0.02 + 0.42·v), frequency (20 + 60·v), and opacity (0.25 + 0.75·v),
+/// with a constant travel rate — the line settles when silent because the
+/// gate flattens it.
+///
+/// Voice reactivity note: LiveKit's `volume` is a hot 0…1 signal, but our
+/// RMS `energy` tops out around 0.1–0.3 for normal speech after smoothing,
+/// which made the wave read as static. `voice` therefore derives from the
+/// spectral band heights (which fill 0.6–0.9 while speaking), blended with
+/// energy, and runs through a power curve so quiet speech stays visible.
 private struct LKWaveVisualizer: View {
     let state: VisualizerAgentState
+    let heights: [CGFloat]
     let energy: CGFloat
+    /// Explicit tint (glow heat) or nil → theme accent.
+    let tint: (r: Double, g: Double, b: Double)?
     let t: TimeInterval
+
+    /// Voice level 0…1 with the noise floor CUT OFF. Below ~10% mean band
+    /// energy counts as silence, so the visualizer genuinely settles when
+    /// you stop talking (LiveKit: "animating during speech, settling during
+    /// silence") instead of idling on the model's noise floor. The ×1.5
+    /// gain keeps normal speech in the upper half of the range — without
+    /// it the wave barely swells at conversational loudness.
+    private var voice: Double {
+        let mean = heights.isEmpty ? CGFloat(0) : heights.reduce(0, +) / CGFloat(heights.count)
+        let raw = Double(max(energy, mean * 1.5))
+        return min(1, max(0, (raw - 0.10) / 0.90))
+    }
 
     var body: some View {
         Canvas { context, size in
@@ -441,10 +470,17 @@ private struct LKWaveVisualizer: View {
             let opacity: Double
             switch state {
             case .speaking:
+                let v = pow(voice, 0.65)
+                // IMPORTANT: speed must stay CONSTANT. The phase is
+                // `t * speed` with t ≈ 7.8e8 s (timeIntervalSinceReferenceDate),
+                // so varying speed would jump the phase by t·Δspeed between
+                // frames — strobing. Voice modulates amplitude and opacity
+                // instead; the noise-floor gate flattens the line when silent,
+                // which makes the constant drift invisible anyway.
                 speed = 10
-                amplitude = 0.015 + 0.4 * Double(energy)
-                frequency = 20 + 60 * Double(energy)
-                opacity = 1
+                amplitude = 0.02 + 0.46 * v
+                frequency = 20 + 60 * v
+                opacity = 0.25 + 0.75 * v
             case .listening:
                 speed = 5; amplitude = 0.025; frequency = 10
                 opacity = 0.65 + 0.35 * sin(t * 2 * .pi / 1.5)   // 0.75 s mirror pulse
@@ -464,11 +500,12 @@ private struct LKWaveVisualizer: View {
                 if s == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
             }
 
+            let color = tintColor(tint)
             let stops: [Gradient.Stop] = [
-                .init(color: lkCyan.opacity(0), location: 0),
-                .init(color: lkCyan.opacity(opacity), location: 0.2),
-                .init(color: lkCyan.opacity(opacity), location: 0.8),
-                .init(color: lkCyan.opacity(0), location: 1),
+                .init(color: color.opacity(0), location: 0),
+                .init(color: color.opacity(opacity), location: 0.2),
+                .init(color: color.opacity(opacity), location: 0.8),
+                .init(color: color.opacity(0), location: 1),
             ]
             let shading = GraphicsContext.Shading.linearGradient(
                 Gradient(stops: stops),
@@ -486,6 +523,7 @@ private struct LKWaveVisualizer: View {
                            style: StrokeStyle(lineWidth: 2, lineCap: .round))
         }
         .animation(nil, value: energy)
+        .animation(nil, value: heights)
     }
 }
 
@@ -499,14 +537,53 @@ private struct LKWaveVisualizer: View {
 /// and iteration spacing — form the organic glowing field. State parameters
 /// (speed / scale / amplitude / frequency / brightness) are the exact
 /// values from use-agent-audio-visualizer-aura.ts, including the thinking
-/// brightness pulse (0.5↔2.5) and speaking scale (0.2 + 0.2·volume).
+/// brightness pulse (0.5↔2.5) and speaking scale (0.2 + 0.24·v, with
+/// amplitude and brightness also voice-reactive).
 private struct LKAuraVisualizer: View {
     let state: VisualizerAgentState
+    let heights: [CGFloat]
     let energy: CGFloat
+    /// Explicit tint (glow heat) or nil → theme accent.
+    let tint: (r: Double, g: Double, b: Double)?
     let t: TimeInterval
 
-    /// Hue-shifted companion of lkCyan for per-layer color variation.
-    private static let shifted = (r: 0.42, g: 0.55, b: 1.0)
+    /// Light, hue-drifted companion of the base color for per-layer
+    /// variation (was LiveKit's fixed cyan→blue pair; now theme-derived).
+    /// Pure RGB→HSV→RGB math — no AppKit color-space pitfalls.
+    private static func companion(_ c: (r: Double, g: Double, b: Double)) -> (r: Double, g: Double, b: Double) {
+        let mx = max(c.r, c.g, c.b), mn = min(c.r, c.g, c.b)
+        let d = mx - mn
+        var h: Double = 0
+        if d > 0 {
+            if mx == c.r { h = (c.g - c.b) / d + (c.g < c.b ? 6 : 0) }
+            else if mx == c.g { h = (c.b - c.r) / d + 2 }
+            else { h = (c.r - c.g) / d + 4 }
+            h /= 6
+        }
+        let s = mx == 0 ? 0 : d / mx
+        let v = min(1, mx + 0.1)                    // slightly lighter
+        let s2 = s * 0.8                            // slightly softer
+        let hue = (h + 0.06).truncatingRemainder(dividingBy: 1.0)
+        let i = Int(hue * 6) % 6
+        let f = hue * 6 - Double(Int(hue * 6))
+        let p = v * (1 - s2), q = v * (1 - f * s2), tt = v * (1 - (1 - f) * s2)
+        switch i {
+        case 0:  return (v, tt, p)
+        case 1:  return (q, v, p)
+        case 2:  return (p, v, tt)
+        case 3:  return (p, q, v)
+        case 4:  return (tt, p, v)
+        default: return (v, p, q)
+        }
+    }
+
+    /// Voice level 0…1 with the noise floor cut off — same rationale and
+    /// gain as the Wave: silence must settle, speech must fill the range.
+    private var voice: Double {
+        let mean = heights.isEmpty ? CGFloat(0) : heights.reduce(0, +) / CGFloat(heights.count)
+        let raw = Double(max(energy, mean * 1.5))
+        return min(1, max(0, (raw - 0.10) / 0.90))
+    }
 
     var body: some View {
         Canvas { context, size in
@@ -517,9 +594,17 @@ private struct LKAuraVisualizer: View {
             let brightness: Double
             switch state {
             case .speaking:
-                speed = 70
-                scale = 0.2 + 0.2 * Double(energy)
-                amp = 0.75; freq = 1.25; brightness = 1.5
+                // Voice-reactive: the field grows, brightens, and gets more
+                // turbulent as you speak louder. Speed stays CONSTANT (see
+                // the Wave note — a varying rate against absolute time
+                // strobes); voice drives size, turbulence, and brightness,
+                // and the noise-floor gate makes silence a slow, dim breath.
+                let v = pow(voice, 0.65)
+                speed = 25
+                scale = 0.2 + 0.26 * v
+                amp = 0.75 + 0.5 * v
+                freq = 1.25
+                brightness = 1.5 + 1.7 * v
             case .listening:
                 speed = 20; scale = 0.3; amp = 1.0; freq = 0.7
                 brightness = 1.75 + 0.25 * sin(t * 2 * .pi / 0.7)
@@ -536,6 +621,11 @@ private struct LKAuraVisualizer: View {
             let norm = max(0, brightness) / 2.5
             let layers = 26
 
+            // Theme-driven layer colors: the resolved accent (or glow heat)
+            // drifting toward a light, hue-shifted companion per layer.
+            let baseC = colorTriple(tint)
+            let shifted = Self.companion(baseC)
+
             context.blendMode = .plusLighter
 
             var bloom = context
@@ -550,11 +640,11 @@ private struct LKAuraVisualizer: View {
                     // Per-layer hue drift (shader uColorShift).
                     let mixV = (1 - iter) * 0.35
                     let col = SwiftUI.Color(
-                        red: 0.12 + (Self.shifted.r - 0.12) * mixV,
-                        green: 0.84 + (Self.shifted.g - 0.84) * mixV,
-                        blue: 0.98 + (Self.shifted.b - 0.98) * mixV
+                        red: baseC.r + (shifted.r - baseC.r) * mixV,
+                        green: baseC.g + (shifted.g - baseC.g) * mixV,
+                        blue: baseC.b + (shifted.b - baseC.b) * mixV
                     )
-                    let alpha = pass == 0 ? 0.05 + 0.10 * norm : 0.04 + 0.12 * norm
+                    let alpha = pass == 0 ? 0.04 + 0.16 * norm : 0.03 + 0.18 * norm
 
                     var ring = Path()
                     let steps = 64
@@ -588,11 +678,12 @@ private struct LKAuraVisualizer: View {
                 Path(ellipseIn: CGRect(x: center.x - glowR, y: center.y - glowR,
                                        width: glowR * 2, height: glowR * 2)),
                 with: .radialGradient(
-                    Gradient(colors: [lkCyan.opacity(0.04 + 0.10 * norm), .clear]),
+                    Gradient(colors: [tintColor(tint).opacity(0.04 + 0.10 * norm), .clear]),
                     center: center, startRadius: 0, endRadius: glowR
                 )
             )
         }
+        .animation(nil, value: heights)
     }
 }
 
@@ -606,20 +697,29 @@ struct VisualizerPreview: View {
     let style: VisualizerStyle
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            let frame = Self.simulatedFrame(t: t)
-            AudioVisualizer(
-                style: style,
-                state: .speaking,
-                heights: frame.heights,
-                energy: frame.energy,
-                tint: nil,
-                t: t
-            )
-            .padding(.horizontal, 28)
-            .padding(.vertical, 10)
+        // Reduce Motion: decorative auto-animation must not run unattended —
+        // render one static simulated frame instead of a looping TimelineView.
+        if Tokens.A11y.reduceMotion {
+            preview(t: 1.2)
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                preview(t: timeline.date.timeIntervalSinceReferenceDate)
+            }
         }
+    }
+
+    private func preview(t: TimeInterval) -> some View {
+        let frame = Self.simulatedFrame(t: t)
+        return AudioVisualizer(
+            style: style,
+            state: .speaking,
+            heights: frame.heights,
+            energy: frame.energy,
+            tint: nil,
+            t: t
+        )
+        .padding(.horizontal, 28)
+        .padding(.vertical, 10)
     }
 
     private static func simulatedFrame(t: TimeInterval) -> (heights: [CGFloat], energy: CGFloat) {

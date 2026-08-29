@@ -1,0 +1,39 @@
+name: Release
+
+# Build a universal (Intel + Apple Silicon) .dmg and attach it to a GitHub Release.
+# Trigger by pushing a version tag, e.g. `git tag v1.0.0 && git push origin v1.0.0`,
+# or run manually from the Actions tab.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-dmg:
+    runs-on: macos-latest   # Apple Silicon runner; cross-compiles the x86_64 slice
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build universal app
+        run: UNIVERSAL=1 ./build.sh
+
+      - name: Create DMG
+        run: ./make_dmg.sh
+
+      - name: Read version
+        id: ver
+        run: echo "version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/NotchWhisper.app/Contents/Info.plist)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: NotchWhisper ${{ steps.ver.outputs.version }}
+          files: NotchWhisper-${{ steps.ver.outputs.version }}.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

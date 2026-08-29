@@ -1,8 +1,17 @@
 import SwiftUI
+import WhisperKit
 
-/// Models browser: a responsive grid of cards (req 6) that open a detail page
-/// (req 7) with full accuracy/speed/language information so the user can pick
-/// the right local Whisper model for their Mac and workload.
+/// Models browser — the single place to manage models (merges the old grid
+/// and the former "Find Models" tab):
+///
+///   1. BUILT-IN section: the argmaxinc/whisperkit-coreml catalog as cards
+///      with accuracy/speed guidance, each opening a detail page.
+///   2. SEARCH HUGGING FACE section: live HF search (server-side filtered to
+///      automatic-speech-recognition + CoreML, so only voice-to-text-usable
+///      models appear). Expanding a repo lists its downloadable folders with
+///      EXACT sizes, downloads, likes, license and dates straight from the
+///      HF API. Downloading adds the model to the same list as built-ins
+///      (id = "<repoId>:<folder>").
 struct ModelsView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
@@ -15,39 +24,354 @@ struct ModelsView: View {
                 .environmentObject(state)
                 .environmentObject(settings)
         } else {
-            grid
+            ScrollView {
+                VStack(alignment: .leading, spacing: Tokens.Space.x5) {
+                    header
+                    HFSearchSection(onUse: { selected = $0 })
+                    builtInHeader
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 260, maximum: 320), spacing: Tokens.Space.x4)],
+                        spacing: Tokens.Space.x4
+                    ) {
+                        ForEach(WhisperModelOption.all) { m in
+                            // A real button, not a tap gesture: keyboard focus,
+                            // VoiceOver traits, and press feedback for free.
+                            Button {
+                                selected = m
+                            } label: {
+                                ModelCard(model: m, isActive: settings.modelId == m.id)
+                            }
+                            .buttonStyle(Pressable(scale: 0.98))
+                        }
+                    }
+                    .padding(.horizontal, Tokens.Space.x4)
+                }
+                .padding(.vertical, Tokens.Space.x4)
+            }
+            .background(Tokens.Color.bg)
         }
     }
 
-    private var grid: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Tokens.Space.x4) {
-                HStack(spacing: Tokens.Space.x2) {
-                    Image(systemName: "cpu.fill").foregroundStyle(Tokens.Color.accent)
-                    Text("Models")
-                        .font(Tokens.TypeScale.largeTitle)
-                        .foregroundStyle(Tokens.Color.text)
-                    Spacer()
-                    Text("Local · on-device · private")
-                        .font(Tokens.TypeScale.caption)
-                        .foregroundStyle(Tokens.Color.textTert)
-                }
-                .padding(.horizontal, Tokens.Space.x4)
+    private var header: some View {
+        HStack(spacing: Tokens.Space.x2) {
+            Image(systemName: "cpu.fill").foregroundStyle(Tokens.Color.accent)
+            Text("Models")
+                .font(Tokens.TypeScale.largeTitle)
+                .foregroundStyle(Tokens.Color.text)
+            Spacer()
+            Text("Local · on-device · private")
+                .font(Tokens.TypeScale.caption)
+                .foregroundStyle(Tokens.Color.textTert)
+        }
+        .padding(.horizontal, Tokens.Space.x4)
+    }
 
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 260, maximum: 320), spacing: Tokens.Space.x4)],
-                    spacing: Tokens.Space.x4
-                ) {
-                    ForEach(WhisperModelOption.all) { m in
-                        ModelCard(model: m, isActive: settings.modelId == m.id)
-                            .onTapGesture { selected = m }
+    private var builtInHeader: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
+            HStack(spacing: Tokens.Space.x2) {
+                Image(systemName: "shippingbox.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Tokens.Color.accent)
+                Text("Built-in catalog")
+                    .font(Tokens.TypeScale.title2)
+                    .foregroundStyle(Tokens.Color.text)
+                Spacer()
+                Text("argmaxinc/whisperkit-coreml")
+                    .font(Tokens.TypeScale.caption)
+                    .foregroundStyle(Tokens.Color.textTert)
+            }
+            .padding(.horizontal, Tokens.Space.x4)
+            Text("Tap a card for accuracy, speed, RAM and language details.")
+                .font(Tokens.TypeScale.caption)
+                .foregroundStyle(Tokens.Color.textTert)
+                .padding(.horizontal, Tokens.Space.x4)
+        }
+    }
+}
+
+// MARK: - HF search section (the merged "Find Models")
+
+/// Live Hugging Face search embedded at the top of the Models page. Only
+/// automatic-speech-recognition CoreML repos are returned by the API (the
+/// filter is server-side), and every repo expands to its downloadable model
+/// folders with exact sizes + full repo metadata from HF.
+struct HFSearchSection: View {
+    @EnvironmentObject private var state: AppState
+    @EnvironmentObject private var settings: Settings
+    /// Lets a downloaded custom model open the (enriched) detail page.
+    var onUse: (WhisperModelOption) -> Void
+
+    @State private var query = ""
+    @State private var results: [HFModelSearch.Repo] = []
+    @State private var isSearching = false
+    @State private var searchError: String?
+    @State private var expandedRepo: String?
+    @State private var folders: [String: [HFModelSearch.FolderInfo]] = [:]   // repoId → folders
+    @State private var loadingFolders = Set<String>()
+    @State private var folderErrors: [String: String] = [:]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+            HStack(spacing: Tokens.Space.x2) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Tokens.Color.accent)
+                Text("Search Hugging Face")
+                    .font(Tokens.TypeScale.title2)
+                    .foregroundStyle(Tokens.Color.text)
+                Spacer()
+                Text("any Whisper / CoreML speech model")
+                    .font(Tokens.TypeScale.caption)
+                    .foregroundStyle(Tokens.Color.textTert)
+            }
+            .padding(.horizontal, Tokens.Space.x4)
+
+            HStack(spacing: Tokens.Space.x2) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Tokens.Color.textTert)
+                TextField("e.g. whisper, distil-whisper, <org>/<model>", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(Tokens.TypeScale.body)
+                    .onSubmit { Task { await runSearch() } }
+                if isSearching {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button {
+                        Task { await runSearch() }
+                    } label: {
+                        Image(systemName: "arrow.right.circle.fill").font(.system(size: 20))
+                    }
+                    .buttonStyle(Pressable())
+                    .foregroundStyle(Tokens.Color.accent)
+                    .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .padding(Tokens.Space.x3)
+            .background(Tokens.Color.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous))
+            .padding(.horizontal, Tokens.Space.x4)
+
+            if let err = searchError {
+                Label(err, systemImage: "exclamationmark.triangle")
+                    .font(Tokens.TypeScale.caption)
+                    .foregroundStyle(Tokens.Color.danger)
+                    .padding(.horizontal, Tokens.Space.x4)
+            }
+
+            if !results.isEmpty {
+                Text("\(results.count) speech-recognition CoreML repos · press ⏎ to refresh")
+                    .font(Tokens.TypeScale.micro)
+                    .foregroundStyle(Tokens.Color.textTert)
+                    .padding(.horizontal, Tokens.Space.x4)
+            }
+
+            LazyVStack(alignment: .leading, spacing: Tokens.Space.x2) {
+                ForEach(results) { repo in
+                    repoRow(repo)
+                }
+            }
+            .padding(.horizontal, Tokens.Space.x4)
+        }
+    }
+
+    // MARK: Repo row (full HF metadata)
+
+    @ViewBuilder
+    private func repoRow(_ repo: HFModelSearch.Repo) -> some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
+            Button {
+                toggleExpand(repo)
+            } label: {
+                HStack(spacing: Tokens.Space.x2) {
+                    Image(systemName: expandedRepo == repo.repoId ? "chevron.down.circle.fill" : "chevron.right.circle.fill")
+                        .foregroundStyle(Tokens.Color.textTert)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(repo.repoId)
+                            .font(Tokens.TypeScale.headline)
+                            .foregroundStyle(Tokens.Color.text)
+                        // Full metadata line, straight from the HF API.
+                        HStack(spacing: Tokens.Space.x2) {
+                            Label("\(repo.downloads)", systemImage: "arrow.down.circle")
+                            Label("\(repo.likes)", systemImage: "heart")
+                            if !repo.lastModified.isEmpty { Text("· \(repo.lastModified)") }
+                            if let lib = repo.library { Text("· \(lib)") }
+                            if let lic = repo.license { Text("· \(lic)") }
+                            if repo.isGated { Text("· gated").foregroundStyle(Tokens.Color.record) }
+                        }
+                        .font(Tokens.TypeScale.micro)
+                        .foregroundStyle(Tokens.Color.textTert)
+                    }
+                    Spacer()
+                    Text("ASR · CoreML")
+                        .font(Tokens.TypeScale.micro)
+                        .foregroundStyle(Tokens.Color.success)
+                }
+                .padding(Tokens.Space.x3)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if expandedRepo == repo.repoId {
+                if loadingFolders.contains(repo.repoId) {
+                    HStack { ProgressView().controlSize(.small); Text("Loading models…").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert) }
+                        .padding(.leading, Tokens.Space.x4)
+                } else if let err = folderErrors[repo.repoId] {
+                    Label(err, systemImage: "exclamationmark.triangle")
+                        .font(Tokens.TypeScale.caption)
+                        .foregroundStyle(Tokens.Color.danger)
+                        .padding(.leading, Tokens.Space.x4)
+                } else if let list = folders[repo.repoId] {
+                    ForEach(list.filter { $0.hasWeights }) { f in
+                        folderRow(repoId: repo.repoId, folder: f)
+                    }
+                    if list.filter({ $0.hasWeights }).isEmpty {
+                        Text("No complete CoreML model folders in this repo (single-file or config-only repos can't be loaded).")
+                            .font(Tokens.TypeScale.caption)
+                            .foregroundStyle(Tokens.Color.textTert)
+                            .padding(.leading, Tokens.Space.x4)
                     }
                 }
-                .padding(.horizontal, Tokens.Space.x4)
             }
-            .padding(.vertical, Tokens.Space.x4)
         }
-        .background(Tokens.Color.bg)
+        .padding(.horizontal, Tokens.Space.x2)
+        .background(
+            RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
+                .fill(Tokens.Color.surface.opacity(0.6))
+        )
+    }
+
+    // MARK: Downloadable folder row inside an expanded repo
+
+    @ViewBuilder
+    private func folderRow(repoId: String, folder: HFModelSearch.FolderInfo) -> some View {
+        let modelId = "\(repoId):\(folder.name)"
+        let isDownloadingThis = state.downloadingModelId == modelId
+        let isLocal = !isDownloadingThis
+            && (AppDelegate.shared?.transcriberRef.hasLocalModelFolder(folder.name) ?? false)
+        let isActive = settings.modelId == modelId
+
+        HStack(spacing: Tokens.Space.x2) {
+            Image(systemName: isActive ? "checkmark.circle.fill" : (isLocal ? "circle.circle" : "arrow.down.circle"))
+                .foregroundStyle(isActive ? Tokens.Color.success : (isLocal ? Tokens.Color.textSec : Tokens.Color.accent))
+            Text(folder.name)
+                .font(Tokens.TypeScale.callout)
+                .foregroundStyle(Tokens.Color.text)
+            Text("· \(folder.sizeLabel)")                    // exact size from HF
+                .font(Tokens.TypeScale.micro)
+                .foregroundStyle(Tokens.Color.textTert)
+            Spacer()
+            if isActive {
+                Text("ACTIVE").font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.success)
+            } else if isDownloadingThis {
+                Text("Downloading… \(Int(state.displayProgress * 100))%")
+                    .font(Tokens.TypeScale.captionSB)
+                    .monospacedDigit()
+                    .foregroundStyle(Tokens.Color.accent)
+            } else if isLocal {
+                Button("Use") {
+                    settings.modelId = modelId
+                    NotificationCenter.default.post(name: .modelChanged, object: nil)
+                }
+                .buttonStyle(.borderless)
+                .font(Tokens.TypeScale.captionSB)
+            } else {
+                Button(state.isDownloading ? "…" : "Download") {
+                    Task { await downloadRepoModel(repoId: repoId, folder: folder) }
+                }
+                .buttonStyle(.borderless)
+                .font(Tokens.TypeScale.captionSB)
+                .foregroundStyle(Tokens.Color.accent)
+                .disabled(state.isDownloading)
+            }
+        }
+        .padding(.horizontal, Tokens.Space.x4)
+        .padding(.vertical, Tokens.Space.x1)
+    }
+
+    // MARK: Actions
+
+    private func runSearch() async {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return }
+        isSearching = true
+        searchError = nil
+        defer { isSearching = false }
+        do {
+            results = try await HFModelSearch.search(q, limit: 30)
+            if results.isEmpty { searchError = "No speech-recognition CoreML repos matched “\(q)”." }
+        } catch {
+            searchError = "Search failed: \(error.localizedDescription) — check your connection."
+        }
+    }
+
+    private func toggleExpand(_ repo: HFModelSearch.Repo) {
+        if expandedRepo == repo.repoId {
+            expandedRepo = nil
+            return
+        }
+        expandedRepo = repo.repoId
+        if folders[repo.repoId] != nil { return }   // cached
+        loadingFolders.insert(repo.repoId)
+        Task {
+            do {
+                let list = try await HFModelSearch.listModelFolders(repoId: repo.repoId)
+                folders[repo.repoId] = list
+                loadingFolders.remove(repo.repoId)
+            } catch {
+                folderErrors[repo.repoId] = "Couldn't list models: \(error.localizedDescription)"
+                loadingFolders.remove(repo.repoId)
+            }
+        }
+    }
+
+    private func downloadRepoModel(repoId: String, folder: HFModelSearch.FolderInfo) async {
+        // WhisperKit's bareId convention: strip the publisher prefix so the
+        // "*<variant>/*" glob resolves inside the custom repo.
+        let variant = folder.name
+            .replacingOccurrences(of: "openai_whisper-", with: "whisper-")
+            .replacingOccurrences(of: "distil-whisper_", with: "distil-")
+        let modelId = "\(repoId):\(folder.name)"
+        let transcriber = AppDelegate.shared?.transcriberRef
+        state.isDownloading = true
+        state.downloadingModelId = modelId
+        state.downloadProgress = 0
+        state.downloadLabel = "Downloading \(folder.name)…"
+        state.resetDownloadStats()
+        // Byte-accurate stats sampled from disk. The total comes straight
+        // from the HF API (FolderInfo.sizeBytes) so it is exact here.
+        let base = transcriber?.modelDir
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("NotchWhisper/Models")
+        let repoRoot = base
+            .appendingPathComponent("models", isDirectory: true)
+            .appendingPathComponent(repoId, isDirectory: true)
+        let sampler = transcriber?.startDownloadStatsSampler(
+            repoRoot: repoRoot,
+            folder: folder.name,
+            totalBytes: folder.sizeBytes
+        )
+        defer {
+            sampler?.cancel()
+            state.isDownloading = false
+            state.downloadingModelId = nil
+            state.downloadLabel = ""
+        }
+        do {
+            _ = try await WhisperKit.download(
+                variant: variant,
+                downloadBase: transcriber?.modelDir,
+                from: repoId,
+                token: Keychain.getToken()
+            ) { progress in
+                let f = progress.fractionCompleted
+                Task { @MainActor in
+                    let p = AppState.shared.downloadProgress
+                    if f > p { AppState.shared.downloadProgress = f }
+                }
+            }
+            state.showToast("Downloaded \(folder.name). Pick it in the model list above or in Settings.")
+        } catch {
+            state.showToast("Download failed: \(error.localizedDescription)")
+        }
     }
 }
 
@@ -55,10 +379,13 @@ struct ModelsView: View {
 struct ModelCard: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
+    @ObservedObject private var theme = Tokens.ThemeManager.shared
     let model: WhisperModelOption
     let isActive: Bool
+    @State private var hover = false
 
     var body: some View {
+        let _ = theme.theme   // card accent re-tints on theme change
         VStack(alignment: .leading, spacing: Tokens.Space.x3) {
             HStack(alignment: .top, spacing: Tokens.Space.x2) {
                 VStack(alignment: .leading, spacing: Tokens.Space.x1) {
@@ -73,6 +400,13 @@ struct ModelCard: View {
                                 .padding(.horizontal, Tokens.Space.x2)
                                 .padding(.vertical, Tokens.Space.x1)
                                 .background(Capsule().fill(Tokens.Color.success.opacity(0.16)))
+                        } else if state.downloadingModelId == model.id {
+                            Text("DOWNLOADING")
+                                .font(Tokens.TypeScale.micro)
+                                .foregroundStyle(Tokens.Color.accent)
+                                .padding(.horizontal, Tokens.Space.x2)
+                                .padding(.vertical, Tokens.Space.x1)
+                                .background(Capsule().fill(Tokens.Color.accent.opacity(0.16)))
                         }
                     }
                     Text(model.quality)
@@ -134,13 +468,20 @@ struct ModelCard: View {
                 .fill(Tokens.Color.surface)
                 .overlay(
                     RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
-                        .stroke(isActive ? Tokens.Color.accent.opacity(0.6) : Tokens.Color.separator,
-                                lineWidth: isActive ? 1.5 : Tokens.Border.hair)
+                        .stroke(isActive ? Tokens.Color.accent.opacity(0.6)
+                                         : (hover ? Tokens.Color.separator : Tokens.Color.separator.opacity(0.6)),
+                                lineWidth: isActive ? 1.5 : Tokens.Border.thin)
                 )
+                .shadow(color: .black.opacity(hover ? 0.12 : 0),
+                        radius: 8, y: 2)
         )
         .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous))
-        .scaleEffect(1.0)
+        .onHover { hover = $0 }
+        .animation(Tokens.Motion.hover, value: hover)
         .animation(Tokens.Motion.hover, value: isActive)
+        // VoiceOver: one coherent element naming the model, not a pile of text.
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Shows model details")
     }
 }
 
@@ -174,6 +515,9 @@ struct MetricBar: View {
                     }
             }
             .frame(height: 6)
+            // Values change when the active model switches — morph the fill
+            // instead of jumping (Reduce Motion: quick fade, no travel).
+            .animation(Tokens.Motion.quick(reduceMotion: Tokens.A11y.reduceMotion), value: value)
         }
     }
 
@@ -241,8 +585,14 @@ struct ModelDetailView: View {
     let onBack: () -> Void
 
     private var isActive: Bool { settings.modelId == model.id }
+    /// True while THIS model is the one being downloaded.
+    private var isDownloadingThis: Bool { state.downloadingModelId == model.id }
     private var isLocal: Bool {
-        (AppDelegate.shared?.transcriberRef.availableLocalModels() ?? []).contains(model.folderName)
+        // A model currently downloading is by definition not complete yet —
+        // never consult the disk check for it (its bundle directories appear
+        // long before its weights do).
+        guard !isDownloadingThis else { return false }
+        return (AppDelegate.shared?.transcriberRef.availableLocalModels() ?? []).contains(model.folderName)
     }
 
     var body: some View {
@@ -250,14 +600,15 @@ struct ModelDetailView: View {
             VStack(alignment: .leading, spacing: Tokens.Space.x5) {
                 // Header
                 HStack(spacing: Tokens.Space.x3) {
-                    Button { onBack() } label: {
-                        Image(systemName: "chevron.left")
+                    Button(action: onBack) {
+                        Label("Back to Models", systemImage: "chevron.left")
+                            .labelStyle(.iconOnly)
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(Tokens.Color.accent)
                             .frame(width: 32, height: 32)
                             .background(Circle().fill(Tokens.Color.fillQuiet))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(Pressable())
                     .help("Back to Models")
                     VStack(alignment: .leading, spacing: Tokens.Space.x1) {
                         HStack(spacing: Tokens.Space.x2) {
@@ -330,11 +681,19 @@ struct ModelDetailView: View {
                 actionButton
                     .padding(.horizontal, Tokens.Space.x4)
 
-                if state.isDownloading, settings.modelId == model.id {
-                    ProgressView(value: state.downloadProgress) {
-                        Text(state.downloadLabel).font(Tokens.TypeScale.caption)
+                if state.isDownloading, state.downloadingModelId == model.id {
+                    VStack(alignment: .leading, spacing: Tokens.Space.x1) {
+                        ProgressView(value: state.displayProgress) {
+                            Text(state.downloadLabel).font(Tokens.TypeScale.caption)
+                        }
+                        if !state.downloadDetailText.isEmpty {
+                            Text(state.downloadDetailText)
+                                .font(Tokens.TypeScale.micro)
+                                .monospacedDigit()
+                                .foregroundStyle(Tokens.Color.textTert)
+                        }
                     }
-                    .frame(width: 320)
+                    .frame(width: 360, alignment: .leading)
                     .padding(.horizontal, Tokens.Space.x4)
                 }
             }
@@ -343,13 +702,23 @@ struct ModelDetailView: View {
         .background(Tokens.Color.bg)
     }
 
+    @ViewBuilder
     private var statusBadge: some View {
-        Text(isLocal ? "Downloaded" : "Not downloaded")
-            .font(Tokens.TypeScale.caption)
-            .foregroundStyle(isLocal ? Tokens.Color.success : Tokens.Color.textTert)
-            .padding(.horizontal, Tokens.Space.x3)
-            .padding(.vertical, Tokens.Space.x1)
-            .background(Capsule().fill((isLocal ? Tokens.Color.success : Tokens.Color.textTert).opacity(0.14)))
+        if isDownloadingThis {
+            Text("Downloading…")
+                .font(Tokens.TypeScale.caption)
+                .foregroundStyle(Tokens.Color.accent)
+                .padding(.horizontal, Tokens.Space.x3)
+                .padding(.vertical, Tokens.Space.x1)
+                .background(Capsule().fill(Tokens.Color.accent.opacity(0.14)))
+        } else {
+            Text(isLocal ? "Downloaded" : "Not downloaded")
+                .font(Tokens.TypeScale.caption)
+                .foregroundStyle(isLocal ? Tokens.Color.success : Tokens.Color.textTert)
+                .padding(.horizontal, Tokens.Space.x3)
+                .padding(.vertical, Tokens.Space.x1)
+                .background(Capsule().fill((isLocal ? Tokens.Color.success : Tokens.Color.textTert).opacity(0.14)))
+        }
     }
 
     private var actionButton: some View {
@@ -364,22 +733,31 @@ struct ModelDetailView: View {
             }
         } label: {
             HStack(spacing: Tokens.Space.x2) {
-                Image(systemName: isActive && isLocal ? "checkmark.circle.fill"
-                                : (isLocal ? "checkmark.circle" : "arrow.down.circle.fill"))
-                Text(isActive && isLocal ? "Active"
-                        : (isLocal ? "Use this model" : "Download & use"))
-                    .font(Tokens.TypeScale.headline)
+                if isDownloadingThis {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Downloading… \(Int(state.displayProgress * 100))%")
+                        .font(Tokens.TypeScale.headline)
+                        .monospacedDigit()
+                } else {
+                    Image(systemName: isActive && isLocal ? "checkmark.circle.fill"
+                                    : (isLocal ? "checkmark.circle" : "arrow.down.circle.fill"))
+                    Text(isActive && isLocal ? "Active"
+                            : (isLocal ? "Use this model" : "Download & use"))
+                        .font(Tokens.TypeScale.headline)
+                }
             }
-            .foregroundStyle(isActive && isLocal ? Tokens.Color.success : Tokens.Color.textOnAccent)
+            .foregroundStyle(Tokens.Color.onAccent)
             .padding(.horizontal, Tokens.Space.x5)
             .padding(.vertical, Tokens.Space.x3)
             .frame(maxWidth: .infinity)
             .background(
-                (isActive && isLocal ? Tokens.Color.success.opacity(0.16) : Tokens.Color.accent),
+                (isDownloadingThis ? Tokens.Color.accent.opacity(0.6)
+                 : (isActive && isLocal ? Tokens.Color.success.opacity(0.16) : Tokens.Color.accent)),
                 in: Capsule()
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(Pressable())
         .disabled(state.isDownloading)
     }
 }

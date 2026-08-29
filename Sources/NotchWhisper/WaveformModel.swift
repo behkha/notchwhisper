@@ -133,8 +133,8 @@ final class WaveformModel: ObservableObject {
             energyTarget *= 0.80
         }
 
-        // Energy: rises quickly when you speak, decays slowly when you stop.
-        let eFactor: CGFloat = energyTarget > energyCurrent ? 0.34 : 0.07
+        // Energy: rises quickly when you speak, decays when you stop.
+        let eFactor: CGFloat = energyTarget > energyCurrent ? 0.50 : 0.12
         energyCurrent += (energyTarget - energyCurrent) * eFactor
 
         // Glow: a slower envelope over the same signal — the halo breathes.
@@ -143,11 +143,13 @@ final class WaveformModel: ObservableObject {
 
         // Bars: each one eases toward its own band target. Fast attack,
         // smooth release. No horizontal coupling between bars.
+        // (0.65/0.25: snappy onsets — the old 0.50/0.14 trailed syllables
+        // by hundreds of ms and made the Wave/Aura feel laggy.)
         var heights = current
         for i in 0..<Self.barCount {
             let target = bandTargets[i]
             let c = current[i]
-            let factor: CGFloat = target > c ? 0.50 : 0.14
+            let factor: CGFloat = target > c ? 0.65 : 0.25
             heights[i] = max(0.03, c + (target - c) * factor)
         }
         current = heights

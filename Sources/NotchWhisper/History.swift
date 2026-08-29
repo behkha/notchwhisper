@@ -11,10 +11,13 @@ struct TranscriptRecord: Identifiable, Codable, Hashable {
     var finalText: String        // after the correction pass
     var corrections: [CorrectionChange]
     var source: Source           // how it was captured
+    /// Which LLM mode processed this transcript (nil = no LLM post-processing).
+    var llmMode: LLMMode? = nil
 
     enum Source: String, Codable { case hotkey, button }
 
     var corrected: Bool { !corrections.isEmpty }
+    var processed: Bool { llmMode != nil && llmMode != .original }
 }
 
 @MainActor final class HistoryStore: ObservableObject {
@@ -31,11 +34,11 @@ struct TranscriptRecord: Identifiable, Codable, Hashable {
 
     private init() { load() }
 
-    func add(raw: String, final: String, corrections: [CorrectionChange], source: TranscriptRecord.Source) {
+    func add(raw: String, final: String, corrections: [CorrectionChange], source: TranscriptRecord.Source, llmMode: LLMMode? = nil) {
         let rec = TranscriptRecord(
             id: UUID(), createdAt: Date(),
             rawText: raw, finalText: final,
-            corrections: corrections, source: source
+            corrections: corrections, source: source, llmMode: llmMode
         )
         records.insert(rec, at: 0)
         if records.count > 500 { records = Array(records.prefix(500)) }
@@ -47,15 +50,28 @@ struct TranscriptRecord: Identifiable, Codable, Hashable {
         persist()
     }
 
+    /// Deletes only the records matching the current search — clearing a
+    /// filtered view used to wipe the entire archive.
+    func clearFiltered() {
+        records.removeAll { matchesSearch($0) }
+        persist()
+    }
+
     func clear() { records = []; persist() }
 
     func filtered() -> [TranscriptRecord] {
+        guard hasSearch else { return records }
+        return records.filter(matchesSearch)
+    }
+
+    private var hasSearch: Bool {
+        !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func matchesSearch(_ rec: TranscriptRecord) -> Bool {
         let q = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return records }
-        return records.filter {
-            $0.finalText.localizedCaseInsensitiveContains(q) ||
-            $0.rawText.localizedCaseInsensitiveContains(q)
-        }
+        return rec.finalText.localizedCaseInsensitiveContains(q) ||
+               rec.rawText.localizedCaseInsensitiveContains(q)
     }
 
     private func persist() {

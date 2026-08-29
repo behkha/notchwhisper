@@ -7,6 +7,9 @@ import AVFoundation
 struct MainView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
+    // Observe the theme so the sidebar (and every accent-colored child)
+    // re-renders when it changes.
+    @ObservedObject private var theme = Tokens.ThemeManager.shared
 
     @State private var nav: Nav? = .home
 
@@ -32,6 +35,7 @@ struct MainView: View {
     }
 
     var body: some View {
+        let _ = theme.theme   // register theme dependency → re-render on change
         NavigationSplitView {
             sidebar
         } detail: {
@@ -40,6 +44,8 @@ struct MainView: View {
         .frame(minWidth: Tokens.Layout.minWinW, maxWidth: Tokens.Layout.maxWinW,
                minHeight: Tokens.Layout.minWinH, maxHeight: Tokens.Layout.maxWinH)
         .background(Tokens.Color.bg)
+        // Ember tint for every system control (toggles, pickers, focus).
+        .tint(Tokens.Color.accent)
     }
 
     // MARK: - Sidebar
@@ -55,6 +61,14 @@ struct MainView: View {
             }
             .listStyle(.sidebar)
             .scrollDisabled(true)
+            // macOS backs the sidebar List with an NSTableView whose cells
+            // cache their appearance: when the theme changes, the body re-runs
+            // but the already-materialized rows keep the OLD tint until the
+            // list is rebuilt (i.e. app relaunch). Re-keying the List on the
+            // active theme forces the rows to rebuild with the new tint the
+            // instant it changes. Selection persists — `nav` is @State on
+            // MainView, outside this List.
+            .id(theme.theme)
 
             Divider().foregroundStyle(Tokens.Color.separator)
 
@@ -67,7 +81,7 @@ struct MainView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(Pressable())
             .padding(.horizontal, Tokens.Space.x4)
             .padding(.vertical, Tokens.Space.x3)
             .help("Open Settings (⌘,)")
@@ -79,13 +93,20 @@ struct MainView: View {
     // MARK: - Detail
     @ViewBuilder
     private var detailView: some View {
-        switch nav {
-        case .home:       HomeView(nav: $nav).environmentObject(state).environmentObject(settings)
-        case .transcripts: TranscriptsView().environmentObject(state).environmentObject(settings)
-        case .dictionary:  DictView().environmentObject(state).environmentObject(settings)
-        case .models:      ModelsView().environmentObject(state).environmentObject(settings)
-        case .none:        HomeView(nav: $nav).environmentObject(state).environmentObject(settings)
+        Group {
+            switch nav {
+            case .home:       HomeView(nav: $nav).environmentObject(state).environmentObject(settings)
+            case .transcripts: TranscriptsView().environmentObject(state).environmentObject(settings)
+            case .dictionary:  DictView().environmentObject(state).environmentObject(settings)
+            case .models:      ModelsView().environmentObject(state).environmentObject(settings)
+            case .none:        HomeView(nav: $nav).environmentObject(state).environmentObject(settings)
+            }
         }
+        // NOTE: no `.id(nav)` / `.transition(.opacity)` / `.animation(value:)`
+        // here. A cross-fade driven by transition+animation left the incoming
+        // tab stuck at opacity 0 when the switch was triggered by a real List
+        // click (the AppKit click path strips the animation transaction).
+        // Instant switches are also the native macOS sidebar behavior.
     }
 }
 
@@ -94,12 +115,14 @@ struct MainView: View {
 struct HomeView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
+    @ObservedObject private var theme = Tokens.ThemeManager.shared
     @ObservedObject private var history = HistoryStore.shared
     @Binding var nav: MainView.Nav?
 
     @State private var copiedID: UUID?
 
     var body: some View {
+        let _ = theme.theme   // header + record control re-tint on theme change
         ScrollView {
             VStack(alignment: .leading, spacing: Tokens.Space.x6) {
                 header
@@ -124,7 +147,7 @@ struct HomeView: View {
                             .font(Tokens.TypeScale.callout)
                             .foregroundStyle(Tokens.Color.textSec)
                     }
-                    if state.mode == .recording, let start = state.recordingStart {
+                    if state.mode == .recording || state.mode == .dictating, let start = state.recordingStart {
                         Text("Recording \(fmt(Date().timeIntervalSince(start)))")
                             .font(Tokens.TypeScale.caption)
                             .foregroundStyle(Tokens.Color.textTert)
@@ -138,7 +161,9 @@ struct HomeView: View {
                 Spacer(minLength: Tokens.Space.x4)
                 RecordButton(action: toggleRecord)
             }
-            Text("Hold \(settings.hotkeyDisplay) anywhere to talk — or tap Record.")
+            Text(settings.liveDictation
+                ? "Press \(settings.hotkeyDisplay) to start dictation — press again to stop. Your speech is typed as you speak."
+                : "Hold \(settings.hotkeyDisplay) anywhere to talk — or tap Record.")
                 .font(Tokens.TypeScale.callout)
                 .foregroundStyle(Tokens.Color.accent)
                 .padding(.top, Tokens.Space.x1)
@@ -152,7 +177,8 @@ struct HomeView: View {
                 Button { nav = MainView.Nav.models } label: {
                     Text("Change").font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.accent)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(Pressable(scale: 0.97))
+                .help("Choose a different model")
                 Spacer(minLength: 0)
             }
             .padding(.top, Tokens.Space.x1)
@@ -162,7 +188,24 @@ struct HomeView: View {
                 .padding(.top, Tokens.Space.x1)
         }
         .padding(Tokens.Space.x4)
-        .background(Tokens.Color.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous))
+        // Hero panel: an ember-tinted gradient wash over the surface with a
+        // hairline border — the app's warm signature, echoed by the record
+        // pill and the sidebar selection.
+        .background(
+            RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
+                .fill(Tokens.Color.surface)
+                .overlay(
+                    LinearGradient(
+                        colors: [Tokens.Color.accent.opacity(0.16), .clear],
+                        startPoint: .topLeading, endPoint: .bottom
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
+                        .strokeBorder(Tokens.Color.accent.opacity(0.22), lineWidth: Tokens.Border.hair)
+                )
+        )
     }
 
     /// Compact status chips: model ready, microphone permission, dictionary active.
@@ -188,16 +231,32 @@ struct HomeView: View {
     }
 
     private var statusDot: some View {
-        Circle()
-            .fill(dotColor)
-            .frame(width: 9, height: 9)
-            .animation(Tokens.Motion.quick, value: dotColor)
+        // Idle renders as a hollow ring and active states as filled dots, so
+        // status is distinguishable beyond color alone; the recording dot gets
+        // a matching glow. (Differentiate Without Color + contrast.)
+        Group {
+            if state.mode == .idle {
+                Circle()
+                    .strokeBorder(Tokens.Color.textSec, lineWidth: 1.5)
+            } else {
+                Circle()
+                    .fill(dotColor)
+                    .shadow(color: state.mode == .recording || state.mode == .dictating
+                            ? Tokens.Color.record.opacity(0.5)
+                            : SwiftUI.Color.clear,
+                            radius: 3)
+            }
+        }
+        .frame(width: 9, height: 9)
+        .animation(Tokens.Motion.quick(reduceMotion: Tokens.A11y.reduceMotion), value: state.mode)
     }
     private var dotColor: SwiftUI.Color {
         switch state.mode {
         case .idle:        return Tokens.Color.textTert
         case .recording:   return Tokens.Color.record
+        case .dictating:   return Tokens.Color.record
         case .transcribing: return Tokens.Color.warn
+        case .improving:   return Tokens.Color.warn
         case .done:        return Tokens.Color.success
         case .error:       return Tokens.Color.danger
         }
@@ -216,7 +275,10 @@ struct HomeView: View {
             case .unknown: return "Starting…"
             }
         case .recording:    return "Recording"
+        case .dictating:    return "Dictating"
         case .transcribing: return "Transcribing…"
+        case .improving:
+            return state.statusMessage.isEmpty ? "Improving…" : state.statusMessage
         case .done:         return "Done"
         case .error:        return state.statusMessage.isEmpty ? "Error" : state.statusMessage
         }
@@ -242,7 +304,9 @@ struct HomeView: View {
                 .font(Tokens.TypeScale.title2)
                 .foregroundStyle(Tokens.Color.text)
             if history.records.isEmpty {
-                Text("No transcripts yet. Hold \(settings.hotkeyDisplay) and speak.")
+                Text(settings.liveDictation
+                ? "No transcripts yet. Press \(settings.hotkeyDisplay), speak, press again to stop."
+                : "No transcripts yet. Hold \(settings.hotkeyDisplay) and speak.")
                     .font(Tokens.TypeScale.callout)
                     .foregroundStyle(Tokens.Color.textTert)
                     .padding(Tokens.Space.x4)
@@ -251,7 +315,8 @@ struct HomeView: View {
             } else {
                 VStack(spacing: Tokens.Space.x2) {
                     ForEach(Array(history.records.prefix(5))) { rec in
-                        TranscriptRow(rec: rec, copied: copiedID == rec.id)
+                        TranscriptRow(rec: rec, copied: copiedID == rec.id,
+                                      copyAction: { copy(rec) })
                             .listRowBackground(Tokens.Color.surface)
                             .background(Tokens.Color.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
                             .contextMenu {
@@ -304,8 +369,10 @@ struct StatCard: View {
     let title: String
     let value: String
     let icon: String
+    @ObservedObject private var theme = Tokens.ThemeManager.shared
 
     var body: some View {
+        let _ = theme.theme   // re-render when the theme changes
         VStack(alignment: .leading, spacing: Tokens.Space.x2) {
             HStack {
                 Image(systemName: icon)
@@ -324,7 +391,14 @@ struct StatCard: View {
         }
         .padding(Tokens.Space.x4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Tokens.Color.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
+                .fill(Tokens.Color.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
+                        .strokeBorder(Tokens.Color.separator.opacity(0.6), lineWidth: Tokens.Border.hair)
+                )
+        )
     }
 }
 
@@ -335,6 +409,7 @@ struct TranscriptsView: View {
     @ObservedObject private var history = HistoryStore.shared
     @State private var selected: UUID?
     @State private var copiedID: UUID?
+    @State private var confirmClear = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -343,13 +418,29 @@ struct TranscriptsView: View {
                 TextField("Search transcripts", text: $history.search)
                     .textFieldStyle(.plain).font(Tokens.TypeScale.body)
                 if !history.search.isEmpty {
-                    Button { history.search = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(Tokens.Color.textTert)
-                    }.buttonStyle(.plain)
+                    Button {
+                        history.search = ""
+                    } label: {
+                        Label("Clear search", systemImage: "xmark.circle.fill")
+                            .labelStyle(.iconOnly)
+                            .foregroundStyle(Tokens.Color.textTert)
+                    }
+                    .buttonStyle(Pressable(scale: 0.92))
+                    .help("Clear search")
                 }
                 Spacer()
-                Button { history.clear() } label: { Text("Clear").font(Tokens.TypeScale.caption) }
-                    .buttonStyle(.plain).foregroundStyle(Tokens.Color.textSec)
+                if history.search.isEmpty {
+                    // Destructive: a wayward click must not wipe the whole
+                    // archive, so confirm first.
+                    Button("Clear All…", role: .destructive) { confirmClear = true }
+                        .buttonStyle(Pressable(scale: 0.97)).foregroundStyle(Tokens.Color.textSec)
+                        .font(Tokens.TypeScale.caption)
+                        .disabled(history.records.isEmpty)
+                } else {
+                    Button("Clear Matches") { history.clearFiltered() }
+                        .buttonStyle(Pressable(scale: 0.97)).foregroundStyle(Tokens.Color.textSec)
+                        .font(Tokens.TypeScale.caption)
+                }
             }
             .padding(.horizontal, Tokens.Space.x4).padding(.vertical, Tokens.Space.x2)
             Divider().foregroundStyle(Tokens.Color.separator)
@@ -359,7 +450,8 @@ struct TranscriptsView: View {
             } else {
                 List(selection: $selected) {
                     ForEach(history.filtered()) { rec in
-                        TranscriptRow(rec: rec, copied: copiedID == rec.id)
+                        TranscriptRow(rec: rec, copied: copiedID == rec.id,
+                                      copyAction: { copy(rec) })
                             .tag(rec.id)
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: Tokens.Space.x2, leading: Tokens.Space.x3,
@@ -371,11 +463,18 @@ struct TranscriptsView: View {
                                 Divider()
                                 Button("Delete", role: .destructive) { history.delete(rec) }
                             }
-                            .onTapGesture { selected = rec.id }
                     }
                 }
                 .listStyle(.plain).scrollContentBackground(.hidden).background(Tokens.Color.bg)
             }
+        }
+        .confirmationDialog("Clear all transcripts?",
+                            isPresented: $confirmClear,
+                            titleVisibility: .visible) {
+            Button("Clear All Transcripts", role: .destructive) { history.clear() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This permanently deletes all \(history.records.count) transcripts from history.")
         }
     }
 
@@ -388,6 +487,16 @@ struct TranscriptsView: View {
             Text(history.search.isEmpty ? "No transcripts yet." : "No matches for “\(history.search)”.")
                 .font(Tokens.TypeScale.callout)
                 .foregroundStyle(Tokens.Color.textTert)
+            // Give the empty state a way forward instead of a dead end.
+            if history.search.isEmpty {
+                Button("Start Recording") {
+                    NotificationCenter.default.post(name: .toggleRecord, object: nil)
+                }
+                .buttonStyle(Pressable())
+                .font(Tokens.TypeScale.callout)
+                .foregroundStyle(Tokens.Color.accent)
+                .padding(.top, Tokens.Space.x1)
+            }
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -423,18 +532,22 @@ struct DictView: View {
                     .textFieldStyle(.plain).font(Tokens.TypeScale.body)
                 if !dict.search.isEmpty {
                     Button { dict.search = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(Tokens.Color.textTert)
-                    }.buttonStyle(.plain)
+                        Label("Clear search", systemImage: "xmark.circle.fill")
+                            .labelStyle(.iconOnly)
+                            .foregroundStyle(Tokens.Color.textTert)
+                    }
+                    .buttonStyle(Pressable(scale: 0.92))
+                    .help("Clear search")
                 }
                 Spacer()
                 Button { addEntry() } label: {
                     Label("Add", systemImage: "plus").font(Tokens.TypeScale.captionSB)
                 }
-                .buttonStyle(.plain).foregroundStyle(Tokens.Color.accent)
+                .buttonStyle(Pressable(scale: 0.97)).foregroundStyle(Tokens.Color.accent)
             }
             .padding(.horizontal, Tokens.Space.x4).padding(.vertical, Tokens.Space.x2)
 
-            if !dict.warnings.isEmpty { warningsBanner }
+            if !dict.warnings.isEmpty { warningsBanner } // BISECT-1 restored
 
             Divider().foregroundStyle(Tokens.Color.separator)
 
@@ -486,10 +599,14 @@ struct DictView: View {
                     .font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.warn)
                 Spacer()
             }
-            ForEach(dict.warnings.prefix(2)) { w in
+            // NOTE: no `.fixedSize` here. A fixedSize Text in the fixed
+            // (non-scrolling) section of a NavigationSplitView detail column,
+            // directly above a List, triggers a macOS SwiftUI layout bug: the
+            // column loses its height proposal and the whole view is laid out
+            // centered far off-window (renders blank). Plain Text wraps fine.
+            ForEach(Array(dict.warnings.prefix(2))) { w in
                 Text("• " + w.message)
                     .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(Tokens.Space.x3)

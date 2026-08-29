@@ -68,14 +68,24 @@ struct NotchView: View {
 
     // MARK: - Phase
 
-    private var isActive: Bool { state.mode == .recording || state.mode == .transcribing }
+    // `.improving` (local LLM post-processing) belongs here too: the island
+    // must stay expanded through the whole Transcribing… → Improving… → Done
+    // sequence, otherwise the notch collapses while the LLM is processing.
+    private var isActive: Bool {
+        state.mode == .recording || state.mode == .transcribing
+            || state.mode == .dictating || state.mode == .improving
+    }
     private var isResult: Bool { state.mode == .done || state.mode == .error }
 
     private func sync(animated: Bool) {
         let target: Phase = isActive ? .active : (isResult ? .result : .compact)
         guard target != phase else { return }
         if animated {
-            withAnimation(target == .compact ? Tokens.Motion.closeMorph : Tokens.Motion.openMorph) {
+            // Respect Reduce Motion: same completion, no spring travel — a
+            // quick cross-fade communicates the state change without movement.
+            let rm = Tokens.A11y.reduceMotion
+            withAnimation(target == .compact ? Tokens.Motion.closeMorph(reduceMotion: rm)
+                                              : Tokens.Motion.openMorph(reduceMotion: rm)) {
                 phase = target
             }
         } else {
@@ -147,13 +157,37 @@ struct NotchView: View {
                 )
         }
         .frame(width: size.width, height: size.height)
+        // VoiceOver: the island is purely visual status — expose one concise,
+        // current summary instead of its raw contents.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(islandA11yLabel)
+    }
+
+    /// A spoken summary of the island's current state for VoiceOver.
+    private var islandA11yLabel: String {
+        switch state.mode {
+        case .recording:
+            return "Recording, \(elapsed)"
+        case .dictating:
+            return "Dictating, \(elapsed)"
+        case .transcribing:
+            return "Transcribing"
+        case .improving:
+            return "Improving transcription"
+        case .done:
+            return "Transcription done"
+        case .error:
+            return "Error: \(state.statusMessage.isEmpty ? "unknown" : state.statusMessage)"
+        case .idle:
+            return ""
+        }
     }
 
     /// Halo color by mode. Recording honors the voice-reactive toggle:
     /// on → heats amber→coral with the smoothed glow energy; off → static amber.
     private var haloFill: LinearGradient {
         switch state.mode {
-        case .recording:
+        case .recording, .dictating:
             let c = settings.reactiveGlow
                 ? Tokens.glow(for: waveform.frame.glow)
                 : Tokens.Color.glowQuiet
@@ -161,7 +195,7 @@ struct NotchView: View {
                 colors: [c, c.opacity(0.72)],
                 startPoint: .leading, endPoint: .trailing
             )
-        case .transcribing:
+        case .transcribing, .improving:
             return LinearGradient(
                 colors: [.white.opacity(0.9), SwiftUI.Color(red: 0.6, green: 0.82, blue: 1.0)],
                 startPoint: .leading, endPoint: .trailing
@@ -182,8 +216,9 @@ struct NotchView: View {
     }
 
     /// Halo blur breathes with the voice when reactive (wider bloom when loud).
+    /// Reduce Motion: fixed, calm radius.
     private var haloBlur: CGFloat {
-        if state.mode == .recording && settings.reactiveGlow {
+        if (state.mode == .recording || state.mode == .dictating) && settings.reactiveGlow && !Tokens.A11y.reduceMotion {
             return 20 + 14 * waveform.frame.glow
         }
         return 22
@@ -191,16 +226,24 @@ struct NotchView: View {
 
     private var haloOpacity: Double {
         switch state.mode {
-        case .recording:
+        case .recording, .dictating:
             // Reactive: the glow swells with the voice. Static: a fixed ember.
-            return settings.reactiveGlow
+            // Reduce Motion keeps the calm, static ember.
+            return settings.reactiveGlow && !Tokens.A11y.reduceMotion
                 ? 0.34 + 0.50 * Double(waveform.frame.glow)
                 : 0.38
-        case .transcribing: return 0.22
+        case .transcribing, .improving: return 0.22
         case .done:         return 0.20
         case .error:        return 0.24
         case .idle:         return 0
         }
+    }
+
+    /// Decorative pulse scale for the recording dot. Collapses to 1.0 (steady)
+    /// under Reduce Motion to avoid unnecessary movement.
+    private func recordDotScale(t: TimeInterval) -> CGFloat {
+        if Tokens.A11y.reduceMotion { return 1.0 }
+        return 1.0 + 0.25 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.2))
     }
 
     // MARK: - Content by mode
@@ -213,33 +256,80 @@ struct NotchView: View {
                 Circle()
                     .fill(Tokens.Color.record)
                     .frame(width: 7, height: 7)
-                    .scaleEffect(1.0 + 0.25 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.2)))
+                    // Decorative pulse — collapses to a steady dot under
+                    // Reduce Motion.
+                    .scaleEffect(recordDotScale(t: t))
                     .shadow(color: Tokens.Color.record.opacity(0.6), radius: 4)
                 AudioVisualizer(
                     style: settings.visualizerStyle,
                     state: .speaking,
                     heights: waveform.frame.heights,
                     energy: waveform.frame.energy,
-                    tint: settings.reactiveGlow
+                    tint: settings.reactiveGlow && !Tokens.A11y.reduceMotion
                         ? Tokens.glowRGB(for: waveform.frame.glow)
                         : nil,
                     t: t
                 )
                 .frame(height: 64)
                 Text(elapsed)
-                    .font(Tokens.TypeScale.micro.monospacedDigit())
+                    .font(Tokens.TypeScale.notchLabel.monospacedDigit())
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
             }
             .padding(.horizontal, 24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-        case .transcribing:
+        case .dictating:
+            // Same active island as recording, plus a live transcript line that
+            // shows what is being recognized + typed right now (truncated to
+            // the middle dynamic-island style — the newest words stay visible).
+            VStack(spacing: 6) {
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(Tokens.Color.record)
+                        .frame(width: 7, height: 7)
+                        .scaleEffect(recordDotScale(t: t))
+                        .shadow(color: Tokens.Color.record.opacity(0.6), radius: 4)
+                    Text(state.partialText.isEmpty ? "Listening…" : state.partialText)
+                        .font(Tokens.TypeScale.notchLabel)
+                        .foregroundStyle(.white.opacity(0.92))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(elapsed)
+                        .font(Tokens.TypeScale.notchLabel.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(1)
+                }
+                AudioVisualizer(
+                    style: settings.visualizerStyle,
+                    state: .speaking,
+                    heights: waveform.frame.heights,
+                    energy: waveform.frame.energy,
+                    tint: settings.reactiveGlow && !Tokens.A11y.reduceMotion
+                        ? Tokens.glowRGB(for: waveform.frame.glow)
+                        : nil,
+                    t: t
+                )
+                .frame(height: 34)
+            }
+            .padding(.horizontal, 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+        case .transcribing, .improving:
+            // The label makes transcription and LLM post-processing read as one
+            // continuous action: Transcribing… → Improving… → Done.
             HStack(spacing: 10) {
                 ProgressView()
                     .controlSize(.small)
                     .tint(.white.opacity(0.9))
                     .frame(width: 14, height: 14)
+                Text(state.mode == .improving
+                     ? (state.statusMessage.isEmpty ? "Improving…" : state.statusMessage)
+                     : "Transcribing…")
+                    .font(Tokens.TypeScale.callout)
+                    .foregroundStyle(.white.opacity(0.92))
+                    .lineLimit(1)
                 AudioVisualizer(
                     style: settings.visualizerStyle,
                     state: .thinking,

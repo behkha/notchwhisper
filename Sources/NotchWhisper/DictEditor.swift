@@ -30,7 +30,7 @@ struct DictEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x4) {
-            Text(entry.id == entry.id && isNew ? "Add Dictionary Entry" : "Edit Entry")
+            Text(isNew ? "Add Dictionary Entry" : "Edit Entry")
                 .font(Tokens.TypeScale.title2)
                 .foregroundStyle(Tokens.Color.text)
 
@@ -70,12 +70,12 @@ struct DictEditor: View {
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { onCancel() }
-                    .buttonStyle(.plain)
+                    .buttonStyle(Pressable(scale: 0.97))
                     .foregroundStyle(Tokens.Color.textSec)
                     .padding(.trailing, Tokens.Space.x2)
                 Button(action: save) {
                     Text("Save").font(Tokens.TypeScale.headline)
-                        .foregroundStyle(Tokens.Color.textOnAccent)
+                        .foregroundStyle(Tokens.Color.onAccent)
                         .padding(.horizontal, Tokens.Space.x4)
                         .padding(.vertical, Tokens.Space.x2)
                         .background(Tokens.Color.accent, in: Capsule())

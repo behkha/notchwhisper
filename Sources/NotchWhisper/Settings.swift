@@ -15,12 +15,20 @@ import ServiceManagement
         static let hotkeyMods     = "hotkeyModifiers"
         static let autoType       = "autoTypeEnabled"
         static let insertNewline  = "insertNewline"
+        static let liveDictation  = "liveDictation"
         static let language       = "language"        // nil = auto-detect
         static let task           = "task"            // "transcribe" | "translate"
         static let launchAtLogin  = "launchAtLogin"
         static let haptic         = "hapticEnabled"
         static let reactiveGlow   = "reactiveGlow"
         static let visualizer     = "visualizerStyle"
+        static let themeColor     = Tokens.Theme.defaultsKey
+        // Local LLM post-processing
+        static let llmEnabled      = "llmEnabled"
+        static let llmMode         = "llmMode"            // LLMMode raw
+        static let llmCustomPrompt = "llmCustomPrompt"
+        static let llmEndpoint     = "llmServerEndpoint"
+        static let llmServerModel  = "llmServerModel"
     }
 
     // MARK: - Model
@@ -47,6 +55,12 @@ import ServiceManagement
     @Published var insertNewline: Bool {
         didSet { defaults.set(insertNewline, forKey: Key.insertNewline) }
     }
+    /// Live dictation — transcribe continuously and type into the focused field
+    /// *as you speak*. While ON the hotkey / Record button becomes a toggle
+    /// (press to start, press again to stop) instead of hold-to-talk.
+    @Published var liveDictation: Bool {
+        didSet { defaults.set(liveDictation, forKey: Key.liveDictation) }
+    }
     @Published var language: String? {   // nil = auto-detect
         didSet { defaults.set(language, forKey: Key.language) }
     }
@@ -68,6 +82,44 @@ import ServiceManagement
     /// transcribing (Bar / Wave / Radial / Grid / Aura — LiveKit Agents-UI).
     @Published var visualizerStyle: VisualizerStyle {
         didSet { defaults.set(visualizerStyle.rawValue, forKey: Key.visualizer) }
+    }
+    /// Accent theme (Settings → Appearance). Recolors the whole app — UI
+    /// accent, notch glow, and the Wave/Aura visualizer colors.
+    @Published var themeColor: Tokens.Theme {
+        didSet {
+            defaults.set(themeColor.rawValue, forKey: Key.themeColor)
+            Tokens.ThemeManager.shared.theme = themeColor
+        }
+    }
+
+    // MARK: - Local LLM post-processing
+    /// Master switch. When OFF the pipeline is exactly as before:
+    /// Voice → Transcribe → Insert at cursor.
+    @Published var llmEnabled: Bool {
+        didSet { defaults.set(llmEnabled, forKey: Key.llmEnabled) }
+    }
+    /// Default processing mode (quick switch from the menu bar overrides it
+    /// for a single dictation).
+    @Published var llmMode: LLMMode {
+        didSet { defaults.set(llmMode.rawValue, forKey: Key.llmMode) }
+    }
+    /// Custom instruction shown when Custom mode is selected.
+    @Published var customPrompt: String {
+        didSet { defaults.set(customPrompt, forKey: Key.llmCustomPrompt) }
+    }
+    /// Server base URL, e.g. `http://localhost:11434/v1` or
+    /// `http://127.0.0.1:1234/v1`. Empty until the user configures one.
+    @Published var llmServerEndpoint: String {
+        didSet { defaults.set(llmServerEndpoint, forKey: Key.llmEndpoint) }
+    }
+    /// Model served by that endpoint (name only; no path).
+    @Published var llmServerModel: String {
+        didSet { defaults.set(llmServerModel, forKey: Key.llmServerModel) }
+    }
+    /// Convenience: the transcript is processed only when LLM processing is
+    /// enabled AND the active mode is not passthrough.
+    var llmActiveForCurrentMode: Bool {
+        llmEnabled && !llmMode.isPassthrough
     }
 
     // MARK: - Launch at login (SMAppService, macOS 13+)
@@ -108,12 +160,21 @@ import ServiceManagement
         self.hotkeyModifiers = mods
         self.autoTypeEnabled = d.object(forKey: Key.autoType) != nil ? d.bool(forKey: Key.autoType) : true
         self.insertNewline   = d.bool(forKey: Key.insertNewline)
+        self.liveDictation   = d.object(forKey: Key.liveDictation) != nil ? d.bool(forKey: Key.liveDictation) : false
         self.language        = d.string(forKey: Key.language)
         self.task            = d.string(forKey: Key.task) ?? "transcribe"
         self.launchAtLogin   = d.object(forKey: Key.launchAtLogin) != nil ? d.bool(forKey: Key.launchAtLogin) : true
         self.hapticEnabled   = d.object(forKey: Key.haptic) != nil ? d.bool(forKey: Key.haptic) : true
         self.reactiveGlow    = d.object(forKey: Key.reactiveGlow) != nil ? d.bool(forKey: Key.reactiveGlow) : true
         self.visualizerStyle = VisualizerStyle(raw: d.string(forKey: Key.visualizer))
+        self.themeColor      = Tokens.Theme(rawValue: d.string(forKey: Key.themeColor) ?? "") ?? .ember
+        // Local LLM (all defaults OFF / passthrough so the app works exactly
+        // as before until the user enables post-processing).
+        self.llmEnabled      = d.object(forKey: Key.llmEnabled) != nil ? d.bool(forKey: Key.llmEnabled) : false
+        self.llmMode         = LLMMode(rawValue: d.string(forKey: Key.llmMode) ?? "") ?? .cleanup
+        self.customPrompt      = d.string(forKey: Key.llmCustomPrompt) ?? ""
+        self.llmServerEndpoint = d.string(forKey: Key.llmEndpoint) ?? ""
+        self.llmServerModel    = d.string(forKey: Key.llmServerModel) ?? ""
     }
 
     // MARK: - Helpers

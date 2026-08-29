@@ -134,10 +134,10 @@ final class NotchController: ObservableObject {
         hideWorkItem?.cancel()
         hideWorkItem = nil
         switch mode {
-        case .recording:
+        case .recording, .dictating:
             waveform.start()
             show()
-        case .transcribing:
+        case .transcribing, .improving:
             waveform.setLevels([])   // let the bars decay smoothly to the floor
             show()
         case .done, .error:
