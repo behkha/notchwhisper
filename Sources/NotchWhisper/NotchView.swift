@@ -157,6 +157,10 @@ struct NotchView: View {
                 )
         }
         .frame(width: size.width, height: size.height)
+        // macOS 26 Liquid Glass: the island picks up the system's refractive
+        // depth. The black silhouette underneath keeps the compact phase
+        // invisible against the physical notch; older releases skip this.
+        .glassIsland(in: IslandShape(radius: radius))
         // VoiceOver: the island is purely visual status — expose one concise,
         // current summary instead of its raw contents.
         .accessibilityElement(children: .ignore)

@@ -29,64 +29,58 @@ struct DictEditor: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x4) {
-            Text(isNew ? "Add Dictionary Entry" : "Edit Entry")
-                .font(Tokens.TypeScale.title2)
-                .foregroundStyle(Tokens.Color.text)
+        VStack(spacing: 0) {
+            Form {
+                Section(isNew ? "Add Dictionary Entry" : "Edit Entry") {
+                    Picker("Type", selection: $kind) {
+                        Text("Word / phrase").tag(DictEntryKind.term)
+                        Text("Correction").tag(DictEntryKind.correction)
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: kind) { _, _ in validate() }
 
-            Picker("Type", selection: $kind) {
-                Text("Word / phrase").tag(DictEntryKind.term)
-                Text("Correction").tag(DictEntryKind.correction)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .onChange(of: kind) { _, _ in validate() }
+                    if kind == .correction {
+                        TextField("When you hear", text: $phrase, prompt: Text("cloud code"))
+                        TextField("Write instead", text: $replacement, prompt: Text("Claude Code"))
+                    } else {
+                        TextField("Word / phrase", text: $phrase, prompt: Text("Anthropic"))
+                    }
 
-            if kind == .correction {
-                field("When you hear", text: $phrase, placeholder: "cloud code")
-                field("Write instead", text: $replacement, placeholder: "Claude Code")
-            } else {
-                field("Word / phrase", text: $phrase, placeholder: "Anthropic")
-            }
+                    TextField("Note (optional)", text: $note, prompt: Text("who/what this is"))
+                }
 
-            field("Note (optional)", text: $note, placeholder: "who/what this is")
-
-            if !localWarnings.isEmpty {
-                VStack(alignment: .leading, spacing: Tokens.Space.x1) {
-                    ForEach(localWarnings, id: \.self) { w in
-                        HStack(alignment: .top, spacing: Tokens.Space.x2) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(Tokens.Color.warn).font(.system(size: 12))
-                            Text(w).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
-                                .fixedSize(horizontal: false, vertical: true)
+                if !localWarnings.isEmpty {
+                    Section {
+                        ForEach(localWarnings, id: \.self) { w in
+                            Label {
+                                Text(w).font(Tokens.TypeScale.caption)
+                                    .foregroundStyle(Tokens.Color.textSec)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(Tokens.Color.warn)
+                                    .font(.system(size: 12))
+                            }
                         }
                     }
                 }
-                .padding(Tokens.Space.x3)
-                .background(Tokens.Color.warn.opacity(0.12),
-                            in: RoundedRectangle(cornerRadius: Tokens.Radius.md))
             }
+            .formStyle(.grouped)
+            // Let the sheet's glass surface show through.
+            .scrollContentBackground(.hidden)
 
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { onCancel() }
-                    .buttonStyle(Pressable(scale: 0.97))
-                    .foregroundStyle(Tokens.Color.textSec)
-                    .padding(.trailing, Tokens.Space.x2)
-                Button(action: save) {
-                    Text("Save").font(Tokens.TypeScale.headline)
-                        .foregroundStyle(Tokens.Color.onAccent)
-                        .padding(.horizontal, Tokens.Space.x4)
-                        .padding(.vertical, Tokens.Space.x2)
-                        .background(Tokens.Color.accent, in: Capsule())
-                }
-                .buttonStyle(Pressable())
-                .disabled(!canSave)
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") { save() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canSave)
             }
+            .padding(.horizontal, Tokens.Space.x5)
+            .padding(.vertical, Tokens.Space.x4)
         }
-        .padding(Tokens.Space.x6)
         .frame(width: 460)
-        .background(Tokens.Color.bg)
         .onAppear { validate() }
         .onChange(of: phrase) { _, _ in validate() }
         .onChange(of: replacement) { _, _ in validate() }
@@ -94,15 +88,6 @@ struct DictEditor: View {
 
     private var isNew: Bool {
         !dict.entries.contains { $0.id == entry.id }
-    }
-
-    private func field(_ label: String, text: Binding<String>, placeholder: String) -> some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x1) {
-            Text(label).font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.textSec)
-            TextField(placeholder, text: text)
-                .textFieldStyle(.roundedBorder)
-                .font(Tokens.TypeScale.body)
-        }
     }
 
     private var canSave: Bool {

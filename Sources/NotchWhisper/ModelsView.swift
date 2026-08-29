@@ -48,7 +48,6 @@ struct ModelsView: View {
                 }
                 .padding(.vertical, Tokens.Space.x4)
             }
-            .background(Tokens.Color.bg)
         }
     }
 
@@ -147,7 +146,8 @@ struct HFSearchSection: View {
                 }
             }
             .padding(Tokens.Space.x3)
-            .background(Tokens.Color.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous))
+            // Glass search bar on the window's glass surface.
+            .glassRow(cornerRadius: Tokens.Radius.lg)
             .padding(.horizontal, Tokens.Space.x4)
 
             if let err = searchError {
@@ -233,10 +233,9 @@ struct HFSearchSection: View {
             }
         }
         .padding(.horizontal, Tokens.Space.x2)
-        .background(
-            RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-                .fill(Tokens.Color.surface.opacity(0.6))
-        )
+        // Liquid Glass row — tappable, so it gets the system's interactive
+        // pointer response on macOS 26.
+        .glassRow()
     }
 
     // MARK: Downloadable folder row inside an expanded repo
@@ -382,7 +381,6 @@ struct ModelCard: View {
     @ObservedObject private var theme = Tokens.ThemeManager.shared
     let model: WhisperModelOption
     let isActive: Bool
-    @State private var hover = false
 
     var body: some View {
         let _ = theme.theme   // card accent re-tints on theme change
@@ -463,22 +461,11 @@ struct ModelCard: View {
         }
         .padding(Tokens.Space.x4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
-                .fill(Tokens.Color.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
-                        .stroke(isActive ? Tokens.Color.accent.opacity(0.6)
-                                         : (hover ? Tokens.Color.separator : Tokens.Color.separator.opacity(0.6)),
-                                lineWidth: isActive ? 1.5 : Tokens.Border.thin)
-                )
-                .shadow(color: .black.opacity(hover ? 0.12 : 0),
-                        radius: 8, y: 2)
-        )
+        // Liquid Glass card — the system's own hover/press response and depth
+        // replace the hand-drawn border + hover shadow. Interactive glass
+        // degrades to a plain frosted panel on macOS 14/15.
+        .glassSurface(interactive: true)
         .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous))
-        .onHover { hover = $0 }
-        .animation(Tokens.Motion.hover, value: hover)
-        .animation(Tokens.Motion.hover, value: isActive)
         // VoiceOver: one coherent element naming the model, not a pile of text.
         .accessibilityElement(children: .combine)
         .accessibilityHint("Shows model details")
@@ -602,13 +589,7 @@ struct ModelDetailView: View {
                 HStack(spacing: Tokens.Space.x3) {
                     Button(action: onBack) {
                         Label("Back to Models", systemImage: "chevron.left")
-                            .labelStyle(.iconOnly)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Tokens.Color.accent)
-                            .frame(width: 32, height: 32)
-                            .background(Circle().fill(Tokens.Color.fillQuiet))
                     }
-                    .buttonStyle(Pressable())
                     .help("Back to Models")
                     VStack(alignment: .leading, spacing: Tokens.Space.x1) {
                         HStack(spacing: Tokens.Space.x2) {
@@ -722,6 +703,9 @@ struct ModelDetailView: View {
     }
 
     private var actionButton: some View {
+        // Native prominent button — Liquid Glass on macOS 26 (tinted by the
+        // theme), borderedProminent on older releases. The system styles the
+        // label; no custom capsule or on-accent color math needed.
         Button {
             if isActive, isLocal {
                 // already active + local: nothing to do
@@ -737,27 +721,18 @@ struct ModelDetailView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text("Downloading… \(Int(state.displayProgress * 100))%")
-                        .font(Tokens.TypeScale.headline)
                         .monospacedDigit()
                 } else {
                     Image(systemName: isActive && isLocal ? "checkmark.circle.fill"
                                     : (isLocal ? "checkmark.circle" : "arrow.down.circle.fill"))
                     Text(isActive && isLocal ? "Active"
                             : (isLocal ? "Use this model" : "Download & use"))
-                        .font(Tokens.TypeScale.headline)
                 }
             }
-            .foregroundStyle(Tokens.Color.onAccent)
-            .padding(.horizontal, Tokens.Space.x5)
-            .padding(.vertical, Tokens.Space.x3)
-            .frame(maxWidth: .infinity)
-            .background(
-                (isDownloadingThis ? Tokens.Color.accent.opacity(0.6)
-                 : (isActive && isLocal ? Tokens.Color.success.opacity(0.16) : Tokens.Color.accent)),
-                in: Capsule()
-            )
         }
-        .buttonStyle(Pressable())
+        .glassButton(prominent: true)
+        .tint(isActive && isLocal ? Tokens.Color.success : Tokens.Color.accent)
+        .controlSize(.large)
         .disabled(state.isDownloading)
     }
 }
@@ -778,6 +753,7 @@ struct SpecTile: View {
         }
         .padding(Tokens.Space.x4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Tokens.Color.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
+        // Spec tile on the window's glass: a whisper of fill, no opaque card.
+        .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
     }
 }

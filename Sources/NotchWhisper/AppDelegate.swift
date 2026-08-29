@@ -179,10 +179,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(settings)
             .frame(minWidth: Tokens.Layout.minWinW, maxWidth: Tokens.Layout.maxWinW,
                    minHeight: Tokens.Layout.minWinH, maxHeight: Tokens.Layout.maxWinH)
-        let vc = NSHostingController(rootView: root)
-        let win = NSWindow(contentViewController: vc)
+
+        // Host the SwiftUI view inside an NSVisualEffectView so the whole
+        // window — toolbar included — is a frosted, refractive glass surface
+        // (the macOS 26 Liquid Glass look).
+        let effect = NSVisualEffectView()
+        let hosting = NSHostingView(rootView: root)
+        hosting.wantsLayer = true
+        hosting.layer?.backgroundColor = .clear
+        hosting.autoresizingMask = [.width, .height]
+        effect.addSubview(hosting)
+
+        let win = NSWindow(contentRect: NSRect(x: 0, y: 0,
+                                               width: Tokens.Layout.minWinW + 80,
+                                               height: Tokens.Layout.minWinH + 40),
+                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                           backing: .buffered, defer: false)
         win.title = "NotchWhisper"
-        win.styleMask = NSWindow.StyleMask([.titled, .closable, .miniaturizable, .resizable])
+        win.contentView = effect
+        effect.autoresizingMask = [.width, .height]
+        win.applyGlassAppearance()
         win.setContentSize(NSSize(width: Tokens.Layout.minWinW + 80, height: Tokens.Layout.minWinH + 40))
         win.minSize = NSSize(width: Tokens.Layout.minWinW, height: Tokens.Layout.minWinH)
         win.center()
@@ -195,10 +211,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let root = SettingsView()
             .environmentObject(state)
             .environmentObject(settings)
-        let vc = NSHostingController(rootView: root)
-        let win = NSWindow(contentViewController: vc)
+
+        let effect = NSVisualEffectView()
+        let hosting = NSHostingView(rootView: root)
+        hosting.wantsLayer = true
+        hosting.layer?.backgroundColor = .clear
+        hosting.autoresizingMask = [.width, .height]
+        effect.addSubview(hosting)
+
+        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 640),
+                           styleMask: [.titled, .closable, .resizable],
+                           backing: .buffered, defer: false)
         win.title = "Settings"
-        win.styleMask = NSWindow.StyleMask([.titled, .closable, .resizable])
+        win.contentView = effect
+        effect.autoresizingMask = [.width, .height]
+        win.applyGlassAppearance()
         win.setContentSize(NSSize(width: 560, height: 640))
         win.minSize = NSSize(width: 480, height: 500)
         win.isReleasedWhenClosed = false

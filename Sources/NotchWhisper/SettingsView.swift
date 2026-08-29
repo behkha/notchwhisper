@@ -19,30 +19,25 @@ struct SettingsView: View {
     @State private var connectionTestResult: String? = nil
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Tokens.Space.x6) {
-                generalSection
-                Divider().foregroundStyle(Tokens.Color.separator)
-                appearanceSection
-                Divider().foregroundStyle(Tokens.Color.separator)
-                hotkeySection
-                Divider().foregroundStyle(Tokens.Color.separator)
-                modelSection
-                Divider().foregroundStyle(Tokens.Color.separator)
-                llmSection
-            }
-            .padding(Tokens.Space.x6)
-            .frame(width: 520)
+        Form {
+            Section("General") { generalSection }
+            Section("Appearance") { appearanceSection }
+            Section("Hotkey") { hotkeySection }
+            Section("Model") { modelSection }
+            Section("Local LLM") { llmSection }
         }
-        .background(Tokens.Color.bg)
+        .formStyle(.grouped)   // the native System Settings look
+        // Let the window's glass surface show through instead of an opaque
+        // form background.
+        .scrollContentBackground(.hidden)
+        .frame(width: 560)
         .tint(Tokens.Color.accent)
     }
 
     // MARK: General
+    @ViewBuilder
     private var generalSection: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            sectionTitle("General")
-            Toggle(isOn: $settings.liveDictation) {
+        Toggle(isOn: $settings.liveDictation) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Live dictation")
                         .font(Tokens.TypeScale.body)
@@ -75,15 +70,13 @@ struct SettingsView: View {
             .onChange(of: settings.launchAtLogin) { _, _ in
                 settings.applyLaunchAtLogin()
             }
-        }
     }
 
     // MARK: Appearance
+    @ViewBuilder
     private var appearanceSection: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            sectionTitle("Appearance")
-            themePicker
-            Toggle(isOn: $settings.reactiveGlow) {
+        themePicker
+        Toggle(isOn: $settings.reactiveGlow) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Voice-reactive notch glow")
                         .font(Tokens.TypeScale.body)
@@ -98,7 +91,6 @@ struct SettingsView: View {
             .controlSize(.small)
 
             visualizerPicker
-        }
     }
 
     // MARK: Theme color (Settings → Appearance)
@@ -181,10 +173,9 @@ struct SettingsView: View {
     }
 
     // MARK: Hotkey
+    @ViewBuilder
     private var hotkeySection: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            sectionTitle("Hotkey")
-            Text(settings.liveDictation
+        Text(settings.liveDictation
                 ? "Press this key anywhere to start live dictation; press again to stop — your speech is typed as you speak."
                 : "Press and hold this key anywhere to record; release to transcribe and type.")
                 .font(Tokens.TypeScale.caption)
@@ -217,15 +208,13 @@ struct SettingsView: View {
 
                 Spacer()
             }
-        }
-        .onDisappear { cancelCapture() }
+            .onDisappear { cancelCapture() }
     }
 
     // MARK: Model
+    @ViewBuilder
     private var modelSection: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            sectionTitle("Model")
-            Text("Local Whisper models are downloaded from Hugging Face and run on-device. Larger models are more accurate but slower.")
+        Text("Local Whisper models are downloaded from Hugging Face and run on-device. Larger models are more accurate but slower.")
                 .font(Tokens.TypeScale.caption)
                 .foregroundStyle(Tokens.Color.textTert)
                 .fixedSize(horizontal: false, vertical: true)
@@ -275,7 +264,6 @@ struct SettingsView: View {
                     .help("Download or reload the selected model")
                 }
             }
-        }
     }
 
     @State private var currentFolder: String = ""
@@ -286,17 +274,15 @@ struct SettingsView: View {
         return "On disk: " + local.map { WhisperModelOption.find(id: $0).display }.joined(separator: ", ")
     }
 
-        // MARK: - Local LLM
+    // MARK: - Local LLM
 
+    @ViewBuilder
     private var llmSection: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            sectionTitle("Local LLM")
+        if !settings.llmEnabled {
+            llmFirstTimeGuidance
+        }
 
-            if !settings.llmEnabled {
-                llmFirstTimeGuidance
-            }
-
-            Toggle(isOn: $settings.llmEnabled) {
+        Toggle(isOn: $settings.llmEnabled) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Enable text processing")
                         .font(Tokens.TypeScale.body)
@@ -313,7 +299,6 @@ struct SettingsView: View {
             if settings.llmEnabled {
                 llmSourceSection
             }
-        }
     }
 
     // MARK: First-time guidance
@@ -328,8 +313,7 @@ struct SettingsView: View {
                 .foregroundStyle(Tokens.Color.textTert)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(Tokens.Space.x4)
-        .background(Tokens.Color.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous))
+        .padding(.vertical, Tokens.Space.x1)
     }
 
     // MARK: Server config
@@ -510,19 +494,13 @@ struct SettingsView: View {
             TextEditor(text: $settings.customPrompt)
                 .font(.system(.body).monospaced())
                 .frame(height: 120)
-                .background(Tokens.Color.elevated, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md).stroke(Tokens.Color.separator, lineWidth: 1))
+                .scrollContentBackground(.hidden)
+                .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
             Text("Write the instruction that should be applied to the transcription. Example: \"Rewrite this as a concise professional email.\"")
                 .font(Tokens.TypeScale.caption)
                 .foregroundStyle(Tokens.Color.textTert)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-
-    private func sectionTitle(_ t: String) -> some View {
-        Text(t)
-            .font(Tokens.TypeScale.title2)
-            .foregroundStyle(Tokens.Color.text)
     }
 
     // MARK: Hotkey capture (local monitor while armed)

@@ -47,29 +47,19 @@ struct RecordButton: View {
     var body: some View {
         let _ = theme.theme   // re-tint on theme change
         Button(action: action) {
-            HStack(spacing: Tokens.Space.x2) {
-                Image(systemName: isActive ? "stop.fill" : "mic.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .symbolFeedback(value: state.mode)
-                Text(isActive ? "Stop" : "Record")
-                    .font(Tokens.TypeScale.headline)
-                    .contentTransition(.opacity)
-            }
-            .foregroundStyle(isActive ? Tokens.Color.textOnAccent : Tokens.Color.onAccent)
-            .padding(.horizontal, Tokens.Space.x4)
-            .padding(.vertical, Tokens.Space.x2)
-            .background(
-                isActive
-                    ? AnyShapeStyle(Tokens.Color.record)
-                    : AnyShapeStyle(LinearGradient(
-                        colors: [Tokens.Color.accent, Tokens.Color.accent.opacity(0.82)],
-                        startPoint: .bottom, endPoint: .top)),
-                in: Capsule()
-            )
-            // Record⇄Stop reads as one control changing, not two controls.
-            .animation(Tokens.Motion.quick(reduceMotion: Tokens.A11y.reduceMotion), value: state.mode)
+            Label(isActive ? "Stop" : "Record",
+                  systemImage: isActive ? "stop.fill" : "mic.fill")
+                .font(Tokens.TypeScale.headline)
+                .contentTransition(.opacity)
+                // Record⇄Stop reads as one control changing, not two controls.
+                .symbolFeedback(value: state.mode)
         }
-        .buttonStyle(Pressable(scale: 0.96))
+        // Native Liquid Glass prominent button on macOS 26 (the tint colors
+        // the glass); native borderedProminent elsewhere. No custom capsule.
+        .glassButton(prominent: true)
+        .tint(isActive ? Tokens.Color.record : Tokens.Color.accent)
+        .controlSize(.large)
+        .animation(Tokens.Motion.quick(reduceMotion: Tokens.A11y.reduceMotion), value: state.mode)
         .help(isActive ? "Stop" : "Start")
     }
 }

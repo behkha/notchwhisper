@@ -40,11 +40,14 @@ struct MainView: View {
             sidebar
         } detail: {
             detailView
+                // Native window subtitle per section — the split-view detail
+                // column drives the (glass) titlebar title on macOS.
+                .navigationTitle(nav?.label ?? "Home")
         }
         .frame(minWidth: Tokens.Layout.minWinW, maxWidth: Tokens.Layout.maxWinW,
                minHeight: Tokens.Layout.minWinH, maxHeight: Tokens.Layout.maxWinH)
-        .background(Tokens.Color.bg)
-        // Ember tint for every system control (toggles, pickers, focus).
+        // No opaque background — the window itself is a frosted glass surface
+        // (set up in AppDelegate), so the sidebar + detail sit on real glass.
         .tint(Tokens.Color.accent)
     }
 
@@ -87,7 +90,6 @@ struct MainView: View {
             .help("Open Settings (⌘,)")
         }
         .frame(width: Tokens.Layout.sidebarW)
-        .background(Tokens.Color.bg)
     }
 
     // MARK: - Detail
@@ -124,14 +126,13 @@ struct HomeView: View {
     var body: some View {
         let _ = theme.theme   // header + record control re-tint on theme change
         ScrollView {
-            VStack(alignment: .leading, spacing: Tokens.Space.x6) {
+            GlassStack(spacing: Tokens.Space.x6) {
                 header
                 statsGrid
                 recentSection
             }
             .padding(Tokens.Space.x6)
         }
-        .background(Tokens.Color.bg)
     }
 
     // MARK: Record control
@@ -188,24 +189,11 @@ struct HomeView: View {
                 .padding(.top, Tokens.Space.x1)
         }
         .padding(Tokens.Space.x4)
-        // Hero panel: an ember-tinted gradient wash over the surface with a
-        // hairline border — the app's warm signature, echoed by the record
-        // pill and the sidebar selection.
-        .background(
-            RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
-                .fill(Tokens.Color.surface)
-                .overlay(
-                    LinearGradient(
-                        colors: [Tokens.Color.accent.opacity(0.16), .clear],
-                        startPoint: .topLeading, endPoint: .bottom
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
-                        .strokeBorder(Tokens.Color.accent.opacity(0.22), lineWidth: Tokens.Border.hair)
-                )
-        )
+        // Hero panel: pure Liquid Glass — no drawn border. Glass carries its
+        // own highlight edge; a hairline stroke on top reads as a sticker.
+        // On macOS 26 this is true system glass; earlier macOS gets a frosted
+        // vibrancy panel (see Glass.swift).
+        .glassSurface()
     }
 
     /// Compact status chips: model ready, microphone permission, dictionary active.
@@ -311,14 +299,13 @@ struct HomeView: View {
                     .foregroundStyle(Tokens.Color.textTert)
                     .padding(Tokens.Space.x4)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Tokens.Color.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
+                    .glassRow()
             } else {
                 VStack(spacing: Tokens.Space.x2) {
                     ForEach(Array(history.records.prefix(5))) { rec in
                         TranscriptRow(rec: rec, copied: copiedID == rec.id,
                                       copyAction: { copy(rec) })
-                            .listRowBackground(Tokens.Color.surface)
-                            .background(Tokens.Color.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
+                            .glassRow()
                             .contextMenu {
                                 Button("Copy") { copy(rec) }
                                 Button("Copy Raw") { copyRaw(rec) }
@@ -391,14 +378,7 @@ struct StatCard: View {
         }
         .padding(Tokens.Space.x4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
-                .fill(Tokens.Color.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
-                        .strokeBorder(Tokens.Color.separator.opacity(0.6), lineWidth: Tokens.Border.hair)
-                )
-        )
+        .glassSurface()
     }
 }
 
@@ -412,39 +392,7 @@ struct TranscriptsView: View {
     @State private var confirmClear = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: Tokens.Space.x2) {
-                Image(systemName: "magnifyingglass").foregroundStyle(Tokens.Color.textTert)
-                TextField("Search transcripts", text: $history.search)
-                    .textFieldStyle(.plain).font(Tokens.TypeScale.body)
-                if !history.search.isEmpty {
-                    Button {
-                        history.search = ""
-                    } label: {
-                        Label("Clear search", systemImage: "xmark.circle.fill")
-                            .labelStyle(.iconOnly)
-                            .foregroundStyle(Tokens.Color.textTert)
-                    }
-                    .buttonStyle(Pressable(scale: 0.92))
-                    .help("Clear search")
-                }
-                Spacer()
-                if history.search.isEmpty {
-                    // Destructive: a wayward click must not wipe the whole
-                    // archive, so confirm first.
-                    Button("Clear All…", role: .destructive) { confirmClear = true }
-                        .buttonStyle(Pressable(scale: 0.97)).foregroundStyle(Tokens.Color.textSec)
-                        .font(Tokens.TypeScale.caption)
-                        .disabled(history.records.isEmpty)
-                } else {
-                    Button("Clear Matches") { history.clearFiltered() }
-                        .buttonStyle(Pressable(scale: 0.97)).foregroundStyle(Tokens.Color.textSec)
-                        .font(Tokens.TypeScale.caption)
-                }
-            }
-            .padding(.horizontal, Tokens.Space.x4).padding(.vertical, Tokens.Space.x2)
-            Divider().foregroundStyle(Tokens.Color.separator)
-
+        Group {
             if history.filtered().isEmpty {
                 emptyState
             } else {
@@ -456,7 +404,6 @@ struct TranscriptsView: View {
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: Tokens.Space.x2, leading: Tokens.Space.x3,
                                                       bottom: Tokens.Space.x2, trailing: Tokens.Space.x3))
-                            .listRowBackground(Tokens.Color.surface)
                             .contextMenu {
                                 Button("Copy") { copy(rec) }
                                 Button("Copy Raw") { copyRaw(rec) }
@@ -465,7 +412,25 @@ struct TranscriptsView: View {
                             }
                     }
                 }
-                .listStyle(.plain).scrollContentBackground(.hidden).background(Tokens.Color.bg)
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+            }
+        }
+        // Native toolbar search field + actions — the window toolbar renders
+        // as Liquid Glass on macOS 26, so this replaces the old hand-drawn
+        // header row. No opaque backgrounds: the window itself is glass.
+        .searchable(text: $history.search, placement: .toolbar,
+                    prompt: "Search transcripts")
+        .toolbar {
+            ToolbarItem {
+                if history.search.isEmpty {
+                    // Destructive: a wayward click must not wipe the whole
+                    // archive, so confirm first.
+                    Button("Clear All…", role: .destructive) { confirmClear = true }
+                        .disabled(history.records.isEmpty)
+                } else {
+                    Button("Clear Matches") { history.clearFiltered() }
+                }
             }
         }
         .confirmationDialog("Clear all transcripts?",
@@ -492,15 +457,11 @@ struct TranscriptsView: View {
                 Button("Start Recording") {
                     NotificationCenter.default.post(name: .toggleRecord, object: nil)
                 }
-                .buttonStyle(Pressable())
-                .font(Tokens.TypeScale.callout)
-                .foregroundStyle(Tokens.Color.accent)
                 .padding(.top, Tokens.Space.x1)
             }
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Tokens.Color.bg)
     }
 
     private func copy(_ rec: TranscriptRecord) {
@@ -525,31 +486,8 @@ struct DictView: View {
     @State private var editingEntry: DictEntry?
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: Tokens.Space.x2) {
-                Image(systemName: "magnifyingglass").foregroundStyle(Tokens.Color.textTert)
-                TextField("Search dictionary", text: $dict.search)
-                    .textFieldStyle(.plain).font(Tokens.TypeScale.body)
-                if !dict.search.isEmpty {
-                    Button { dict.search = "" } label: {
-                        Label("Clear search", systemImage: "xmark.circle.fill")
-                            .labelStyle(.iconOnly)
-                            .foregroundStyle(Tokens.Color.textTert)
-                    }
-                    .buttonStyle(Pressable(scale: 0.92))
-                    .help("Clear search")
-                }
-                Spacer()
-                Button { addEntry() } label: {
-                    Label("Add", systemImage: "plus").font(Tokens.TypeScale.captionSB)
-                }
-                .buttonStyle(Pressable(scale: 0.97)).foregroundStyle(Tokens.Color.accent)
-            }
-            .padding(.horizontal, Tokens.Space.x4).padding(.vertical, Tokens.Space.x2)
-
-            if !dict.warnings.isEmpty { warningsBanner } // BISECT-1 restored
-
-            Divider().foregroundStyle(Tokens.Color.separator)
+        Group {
+            if !dict.warnings.isEmpty { warningsBanner }
 
             if dict.filtered().isEmpty {
                 VStack(spacing: Tokens.Space.x3) {
@@ -562,7 +500,6 @@ struct DictView: View {
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Tokens.Color.bg)
             } else {
                 List {
                     ForEach(dict.filtered()) { e in
@@ -570,7 +507,6 @@ struct DictView: View {
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: Tokens.Space.x2, leading: Tokens.Space.x3,
                                                       bottom: Tokens.Space.x2, trailing: Tokens.Space.x3))
-                            .listRowBackground(Tokens.Color.surface)
                             .contextMenu {
                                 Button("Edit") { editEntry(e) }
                                 Divider()
@@ -578,7 +514,22 @@ struct DictView: View {
                             }
                     }
                 }
-                .listStyle(.plain).scrollContentBackground(.hidden).background(Tokens.Color.bg)
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+            }
+        }
+        // Native toolbar search field + Add action — Liquid Glass toolbar on
+        // macOS 26; replaces the old hand-drawn header row. The warnings
+        // banner stays above the list (see the layout-bug note below).
+        .searchable(text: $dict.search, placement: .toolbar,
+                    prompt: "Search dictionary")
+        .toolbar {
+            ToolbarItem {
+                Button {
+                    addEntry()
+                } label: {
+                    Label("Add", systemImage: "plus")
+                }
             }
         }
         .sheet(isPresented: $showEditor) {
