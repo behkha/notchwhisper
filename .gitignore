@@ -11,3 +11,8 @@ build/
 *.mobileprovision
 *.p12
 *.cer
+
+# Agent / tooling metadata (local only)
+.agents/
+.claude/
+.workbuddy-ai/

@@ -1,10 +1,16 @@
 #!/bin/bash
 # Package build/NotchWhisper.app into a distributable .dmg.
 #
+# Usage: ./make_dmg.sh [arch]
+#   arch   optional architecture suffix appended to the filename and mounted
+#          volume name (e.g. arm64, x86_64, universal). Leave empty for a plain
+#          "NotchWhisper-<version>.dmg".
+#
 # Requires build/NotchWhisper.app to exist (run ./build.sh first). Uses only
 # Apple-native tools (hdiutil, PlistBuddy) — no Homebrew dependencies.
 set -euo pipefail
 
+ARCH="${1:-}"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 APP="$ROOT/build/NotchWhisper.app"
 
@@ -14,7 +20,17 @@ if [ ! -d "$APP" ]; then
 fi
 
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null || echo dev)"
-DMG_NAME="NotchWhisper-${VERSION}"
+
+# Build the asset name. With an arch suffix the file (and the mounted volume)
+# clearly advertise which Mac it is intended for.
+if [ -n "$ARCH" ]; then
+  DMG_NAME="NotchWhisper-${VERSION}-${ARCH}"
+  VOL_NAME="NotchWhisper ${VERSION} ${ARCH}"
+else
+  DMG_NAME="NotchWhisper-${VERSION}"
+  VOL_NAME="NotchWhisper ${VERSION}"
+fi
+
 STAGE="$(mktemp -d)"
 
 cleanup() { rm -rf "$STAGE"; }
@@ -27,7 +43,7 @@ ln -s /Applications "$STAGE/$DMG_NAME/Applications"
 
 echo "==> Creating $DMG_NAME.dmg"
 hdiutil create \
-  -volname "NotchWhisper $VERSION" \
+  -volname "$VOL_NAME" \
   -srcfolder "$STAGE/$DMG_NAME" \
   -ov -format UDZO \
   "$ROOT/$DMG_NAME.dmg"

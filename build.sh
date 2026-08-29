@@ -15,14 +15,23 @@ echo "==> Resolving dependencies (WhisperKit)"
 pushd "$ROOT" >/dev/null
 swift package resolve 2>&1 | tail -5
 
-# Universal (Intel x86_64 + Apple Silicon arm64) build when UNIVERSAL=1.
-# A single Apple Silicon runner can cross-compile x86_64, so this produces one
-# app that runs on both architectures — no need for two separate downloads.
+# Architecture selection.
+#   ARCH=arm64      -> Apple Silicon only
+#   ARCH=x86_64     -> Intel only
+#   ARCH=universal  -> both slices in one binary (or set UNIVERSAL=1)
+#   (unset)         -> host architecture (fast local dev)
 UNIVERSAL="${UNIVERSAL:-0}"
+ARCH="${ARCH:-}"
 ARCH_FLAGS=""
-if [ "$UNIVERSAL" = "1" ]; then
+if [ "$ARCH" = "universal" ] || [ "$UNIVERSAL" = "1" ]; then
   ARCH_FLAGS="--arch arm64 --arch x86_64"
   echo "==> Building universal (arm64 + x86_64) release executable"
+elif [ "$ARCH" = "arm64" ]; then
+  ARCH_FLAGS="--arch arm64"
+  echo "==> Building arm64 (Apple Silicon) release executable"
+elif [ "$ARCH" = "x86_64" ]; then
+  ARCH_FLAGS="--arch x86_64"
+  echo "==> Building x86_64 (Intel) release executable"
 else
   echo "==> Building release executable (host architecture)"
 fi
@@ -41,9 +50,9 @@ mkdir -p "$FRI" "$RES" "$APP_BUNDLE/Contents/MacOS"
 
 cp "$BIN_SRC/$APP" "$BIN"
 
-# When building universal, confirm the binary actually contains both slices.
-if [ "$UNIVERSAL" = "1" ]; then
-  echo "==> Verifying universal binary"
+# When building for specific architectures, confirm the binary contains them.
+if [ -n "$ARCH_FLAGS" ]; then
+  echo "==> Verifying binary architectures"
   lipo -info "$BIN" 2>/dev/null || true
 fi
 

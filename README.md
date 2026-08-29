@@ -254,30 +254,43 @@ Because the app is ad-hoc signed (no paid Developer ID), macOS may ask you to al
 
 ## Releasing a .dmg (GitHub Releases)
 
-A single **universal** build runs on both Apple Silicon and Intel Macs, so you only need one download. `build.sh` can produce a universal binary, and `make_dmg.sh` packages it into a distributable disk image.
+Each release ships **three** `.dmg` files so the user can pick the one matching their Mac:
 
-**Locally**
+| Asset | For |
+| --- | --- |
+| `NotchWhisper-<version>-arm64.dmg` | Apple Silicon Macs (M1/M2/M3/M4) |
+| `NotchWhisper-<version>-x86_64.dmg` | Intel Macs |
+| `NotchWhisper-<version>-universal.dmg` | Either — contains both slices in one binary |
+
+`build.sh` accepts an `ARCH` variable (`arm64` / `x86_64` / `universal`, or unset for host arch) and `make_dmg.sh` takes the matching suffix to name the disk image.
+
+**Locally (build one at a time)**
+
+Build and package each variant separately — `build.sh` overwrites `build/NotchWhisper.app`, so create the `.dmg` immediately after each build:
 
 ```bash
-UNIVERSAL=1 ./build.sh     # builds arm64 + x86_64 into build/NotchWhisper.app
-./make_dmg.sh             # -> NotchWhisper-<version>.dmg
+ARCH=arm64 ./build.sh && ./make_dmg.sh arm64         # -> NotchWhisper-<version>-arm64.dmg
+ARCH=x86_64 ./build.sh && ./make_dmg.sh x86_64       # -> NotchWhisper-<version>-x86_64.dmg
+ARCH=universal ./build.sh && ./make_dmg.sh universal  # -> NotchWhisper-<version>-universal.dmg
 ```
+
+(Legacy form `UNIVERSAL=1 ./build.sh` is still accepted and equals `ARCH=universal`.)
 
 **Via GitHub Actions (automatic)**
 
-Push a version tag (or run the workflow manually) and a macOS runner builds the universal `.dmg` and attaches it to a GitHub Release:
+Push a version tag (or run the workflow manually) and a single macOS runner builds all three variants and attaches them to one GitHub Release:
 
 ```bash
 git tag v1.0.0
 git push origin v1.0.0
 ```
 
-The workflow lives at `.github/workflows/release.yml` and uses only Apple-native tools — no extra dependencies.
+The workflow lives at `.github/workflows/release.yml` and uses only Apple-native tools — no extra dependencies. The Apple Silicon runner cross-compiles the Intel slice, so no second machine is required.
 
 > Notes:
-> - The first CI build compiles WhisperKit and its dependencies and can take 20–40+ minutes.
+> - The first CI run compiles WhisperKit and its dependencies and can take 20–40+ minutes; subsequent architecture builds reuse SwiftPM's cache, so the full three-variant run is well within the 6-hour timeout.
 > - Binaries are ad-hoc / self-signed, so users may need to right-click → **Open** on first launch. For a smoother install, sign with a Developer ID and notarize.
-> - Models download on demand from Hugging Face, so the `.dmg` stays small.
+> - Models download on demand from Hugging Face, so each `.dmg` stays small.
 
 ---
 

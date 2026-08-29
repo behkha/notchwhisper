@@ -1,6 +1,8 @@
 name: Release
 
-# Build a universal (Intel + Apple Silicon) .dmg and attach it to a GitHub Release.
+# Build three .dmg variants (Apple Silicon, Intel, Universal) and attach them
+# to a GitHub Release. The user picks the one matching their Mac.
+#
 # Trigger by pushing a version tag, e.g. `git tag v1.0.0 && git push origin v1.0.0`,
 # or run manually from the Actions tab.
 on:
@@ -20,11 +22,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build universal app
-        run: UNIVERSAL=1 ./build.sh
+      - name: Build Apple Silicon (arm64) app + DMG
+        run: ARCH=arm64 bash ./build.sh && bash ./make_dmg.sh arm64
 
-      - name: Create DMG
-        run: ./make_dmg.sh
+      - name: Build Intel (x86_64) app + DMG
+        run: ARCH=x86_64 bash ./build.sh && bash ./make_dmg.sh x86_64
+
+      - name: Build Universal (arm64 + x86_64) app + DMG
+        run: ARCH=universal bash ./build.sh && bash ./make_dmg.sh universal
 
       - name: Read version
         id: ver
@@ -34,6 +39,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: NotchWhisper ${{ steps.ver.outputs.version }}
-          files: NotchWhisper-${{ steps.ver.outputs.version }}.dmg
+          files: |
+            NotchWhisper-${{ steps.ver.outputs.version }}-arm64.dmg
+            NotchWhisper-${{ steps.ver.outputs.version }}-x86_64.dmg
+            NotchWhisper-${{ steps.ver.outputs.version }}-universal.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
