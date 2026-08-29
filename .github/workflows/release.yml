@@ -20,7 +20,13 @@ jobs:
     timeout-minutes: 360
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Show toolchain versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
 
       - name: Build Apple Silicon (arm64) app + DMG
         run: ARCH=arm64 bash ./build.sh && bash ./make_dmg.sh arm64
