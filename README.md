@@ -239,7 +239,7 @@ Two helper SwiftPM targets, `TranscribeTest` and `LiveRepro`, exercise transcrip
 
 ## Building & installing
 
-`build.sh` resolves WhisperKit via SwiftPM, compiles a release executable, packages it as an ad-hoc- or self-signed `.app` in `build/`, and strips the quarantine flag so it launches without Gatekeeper complaints.
+`build.sh` resolves WhisperKit via SwiftPM, compiles a release executable, packages it as an ad-hoc- or self-signed `.app` in `build/`, and strips the *local* quarantine flag. Note: ad-hoc/self-signed builds are not trusted by Gatekeeper on other Macs — see Permissions & code signing for shipping a notarized release.
 
 ```bash
 ./build.sh
@@ -305,6 +305,8 @@ macOS binds TCC grants (Accessibility, Input Monitoring, Microphone) to the app'
 - `./setup_signing_identity.sh` — one-time setup; creates the **NotchWhisper Dev** code-signing certificate in the login keychain (valid 10 years).
 - `./build.sh` signs with it automatically and falls back to ad-hoc with a loud warning if the identity is missing.
 
+**Distributing the .dmg (GitHub Releases).** The self-signed "NotchWhisper Dev" identity and ad-hoc signing are local-only — they are *not* trusted by Gatekeeper on another Mac, so anyone who downloads the `.dmg` sees the "Apple could not verify … is free of malware" warning. To ship a warning-free release, sign the app with an Apple **Developer ID Application** certificate and **notarize** it: submit the built app (or `.dmg`) to Apple's notary service with `xcrun notarytool submit`, then staple the ticket with `xcrun stapler staple`. The release workflow can perform Developer ID signing + notarization automatically if you supply the certificate and notarization credentials as repository secrets.
+
 If the permission prompt ever reappears after a rebuild:
 
 1. `security find-identity -v -p codesigning` — confirm `NotchWhisper Dev` is listed and valid. If not, re-run `./setup_signing_identity.sh`.
@@ -347,6 +349,7 @@ This project **does not currently ship a `LICENSE` file**. Until one is added, t
 ## Troubleshooting
 
 - **"Why isn't it typing?"** — Enable **Accessibility** for NotchWhisper in System Settings → Privacy & Security. Terminals (Terminal.app, iTerm, Warp) ignore Accessibility value writes, so NotchWhisper posts synthetic keystrokes there instead — that path needs **Input Monitoring** (or Accessibility) too.
+- **"Apple could not verify NotchWhisper.app is free of malware" on first launch** — This is a *signing* warning, not malware. The releases are signed ad-hoc (or with the local self-signed "NotchWhisper Dev" identity, which exists only on the build machine), so Gatekeeper on another Mac has no trusted signature to verify. To open it anyway: right-click the app → **Open** → click **Open** in the dialog (approves just this app), or run `xattr -dr com.apple.quarantine /Applications/NotchWhisper.app` in Terminal. For a clean, warning-free install for others, sign with an Apple **Developer ID Application** cert and **notarize** (see Permissions & code signing).
 - **Hotkey doesn't fire / permission prompt reappears after a rebuild** — this is the ad-hoc signing issue above. Run `./setup_signing_identity.sh` once, rebuild, and re-grant permissions.
 - **Local LLM says "can't connect"** — make sure your Ollama/LM Studio/Unsloth server is running and the **Endpoint** in Settings → Local LLM points at its `…/v1` address. Use **Test connection** to verify. Your text is sent only to that local endpoint.
 - **Wrong word keeps appearing** — add it as a **Term** (to bias recognition) and/or a **Correction** (to fix the typed output) in the Dictionary tab.
