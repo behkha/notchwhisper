@@ -4,12 +4,18 @@ name: Release
 # to a GitHub Release. The user picks the one matching their Mac.
 #
 # Trigger by pushing a version tag, e.g. `git tag v1.0.0 && git push origin v1.0.0`,
-# or run manually from the Actions tab.
+# or run manually from the Actions tab. A manual run derives its release tag from
+# the app's version, or you can pass an explicit one via the "tag" workflow input.
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, e.g. v1.0.0. Leave empty to derive from the app version.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -44,10 +50,14 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # Use an explicit tag if given, else the pushed tag, else derive one
+          # from the app version (so manual runs don't fail with "requires a tag").
+          tag_name: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || format('v{0}', steps.ver.outputs.version) }}
           name: NotchWhisper ${{ steps.ver.outputs.version }}
           files: |
             NotchWhisper-${{ steps.ver.outputs.version }}-arm64.dmg
             NotchWhisper-${{ steps.ver.outputs.version }}-x86_64.dmg
             NotchWhisper-${{ steps.ver.outputs.version }}-universal.dmg
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

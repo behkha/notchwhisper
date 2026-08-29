@@ -287,6 +287,8 @@ git push origin v1.0.0
 
 The workflow lives at `.github/workflows/release.yml` and uses only Apple-native tools — no extra dependencies. The Apple Silicon runner cross-compiles the Intel slice, so no second machine is required.
 
+A **manual** run (**Actions → Release → Run workflow**) derives its release tag from the app's version (e.g. `v1.0`); you can also pass an explicit tag via the workflow's **tag** input. A tag-push run uses the pushed tag directly.
+
 > Notes:
 > - The first CI run compiles WhisperKit and its dependencies and can take 20–40+ minutes; subsequent architecture builds reuse SwiftPM's cache, so the full three-variant run is well within the 6-hour timeout.
 > - Binaries are ad-hoc / self-signed, so users may need to right-click → **Open** on first launch. For a smoother install, sign with a Developer ID and notarize.
