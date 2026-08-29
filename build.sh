@@ -20,23 +20,67 @@ swift package resolve 2>&1 | tail -5
 #   ARCH=x86_64     -> Intel only
 #   ARCH=universal  -> both slices in one binary (or set UNIVERSAL=1)
 #   (unset)         -> host architecture (fast local dev)
+#
+# Important: we deliberately do NOT pass `--arch arm64 --arch x86_64` together
+# to a single `swift build`. SwiftPM throws "duplicate key found:
+# ID(moduleName: "ArgmaxCLI", packageIdentity: whisperkit)" for packages that
+# ship an executable target (WhisperKit's CLI) when both slices are requested
+# at once. For `universal` we therefore build each slice separately and merge
+# them with `lipo -create`, which yields a genuine universal binary.
 UNIVERSAL="${UNIVERSAL:-0}"
 ARCH="${ARCH:-}"
 ARCH_FLAGS=""
+DO_UNIVERSAL=0
+VERIFY=0
 if [ "$ARCH" = "universal" ] || [ "$UNIVERSAL" = "1" ]; then
-  ARCH_FLAGS="--arch arm64 --arch x86_64"
+  DO_UNIVERSAL=1
+  VERIFY=1
   echo "==> Building universal (arm64 + x86_64) release executable"
 elif [ "$ARCH" = "arm64" ]; then
   ARCH_FLAGS="--arch arm64"
+  VERIFY=1
   echo "==> Building arm64 (Apple Silicon) release executable"
 elif [ "$ARCH" = "x86_64" ]; then
   ARCH_FLAGS="--arch x86_64"
+  VERIFY=1
   echo "==> Building x86_64 (Intel) release executable"
 else
   echo "==> Building release executable (host architecture)"
 fi
-swift build -c release $ARCH_FLAGS 2>&1 | tail -40
-BIN_SRC="$(swift build -c release $ARCH_FLAGS --show-bin-path | tr -d '[:space:]')"
+
+if [ "$DO_UNIVERSAL" = "1" ]; then
+  TMP="$(mktemp -d)"
+  # arm64 slice
+  swift build -c release --arch arm64 2>&1 | tail -40
+  SRC_ARM="$(swift build -c release --arch arm64 --show-bin-path | tr -d '[:space:]')"
+  mkdir -p "$TMP/arm64" && cp -R "$SRC_ARM/." "$TMP/arm64/"
+  # x86_64 slice
+  swift build -c release --arch x86_64 2>&1 | tail -40
+  SRC_X86="$(swift build -c release --arch x86_64 --show-bin-path | tr -d '[:space:]')"
+  mkdir -p "$TMP/x86_64" && cp -R "$SRC_X86/." "$TMP/x86_64/"
+  # Merge the main executable (fall back to whichever slice exists).
+  if [ -e "$TMP/arm64/$APP" ] && [ -e "$TMP/x86_64/$APP" ]; then
+    lipo -create -output "$TMP/$APP" "$TMP/arm64/$APP" "$TMP/x86_64/$APP"
+  elif [ -e "$TMP/arm64/$APP" ]; then
+    cp "$TMP/arm64/$APP" "$TMP/$APP"
+  else
+    cp "$TMP/x86_64/$APP" "$TMP/$APP"
+  fi
+  # Merge any dylibs SwiftPM emitted so the Frameworks dir is universal too.
+  for dylib in "$TMP"/arm64/*.dylib; do
+    [ -e "$dylib" ] || continue
+    name="$(basename "$dylib")"
+    if [ -e "$TMP/x86_64/$name" ]; then
+      lipo -create -output "$TMP/$name" "$TMP/arm64/$name" "$TMP/x86_64/$name"
+    else
+      cp "$TMP/arm64/$name" "$TMP/$name"
+    fi
+  done
+  BIN_SRC="$TMP"
+else
+  swift build -c release $ARCH_FLAGS 2>&1 | tail -40
+  BIN_SRC="$(swift build -c release $ARCH_FLAGS --show-bin-path | tr -d '[:space:]')"
+fi
 popd >/dev/null
 
 if [ ! -x "$BIN_SRC/$APP" ]; then
@@ -50,8 +94,9 @@ mkdir -p "$FRI" "$RES" "$APP_BUNDLE/Contents/MacOS"
 
 cp "$BIN_SRC/$APP" "$BIN"
 
-# When building for specific architectures, confirm the binary contains them.
-if [ -n "$ARCH_FLAGS" ]; then
+# When building for a specific architecture (or universal), confirm the binary
+# contains the expected slice(s).
+if [ "$VERIFY" = "1" ]; then
   echo "==> Verifying binary architectures"
   lipo -info "$BIN" 2>/dev/null || true
 fi
