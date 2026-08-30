@@ -1,446 +1,396 @@
 import SwiftUI
 import Carbon
 
-/// Settings window content. Holds the hotkey capture and the model picker /
-/// download — exactly the two things the user asked to live here. A small
-/// behavior section (auto-type, language, translate) is included because it is
-/// cheap and useful, but hotkey + model are the primary controls.
+/// Settings — a scroll of grouped glass cards on the Aurora canvas (Raycast /
+/// Wispr-Flow style), not a system `Form`. All behaviour is unchanged; only
+/// the presentation was rebuilt.
 struct SettingsView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
+    @ObservedObject private var theme = Tokens.ThemeManager.shared
 
     @State private var capturing = false
     @State private var captureLabel = "Press a key…"
 
-    // Local LLM section state
     @State private var showingAPIKey = false
     @State private var apiKeyInput = ""
     @State private var isTestingConnection = false
-    @State private var connectionTestResult: String? = nil
+    @State private var connectionTestResult: String?
+    @State private var showAllModes = false
 
     var body: some View {
-        Form {
-            Section("General") { generalSection }
-            Section("Appearance") { appearanceSection }
-            Section("Hotkey") { hotkeySection }
-            Section("Model") { modelSection }
-            Section("Local LLM") { llmSection }
+        let _ = theme.theme
+        ScrollView {
+            VStack(alignment: .leading, spacing: Tokens.Space.x6) {
+                SectionHeader("Settings", eyebrow: "NotchWhisper")
+
+                dictationGroup
+                appearanceGroup
+                hotkeyGroup
+                modelGroup
+                llmGroup
+            }
+            .padding(Tokens.Space.x8)
+            .frame(maxWidth: 620, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
-        .formStyle(.grouped)   // the native System Settings look
-        // Let the window's glass surface show through instead of an opaque
-        // form background.
-        .scrollContentBackground(.hidden)
-        .frame(width: 560)
+        .scrollIndicators(.never)
+        .background(AuroraBackground())
+        .environment(\.colorScheme, .dark)
         .tint(Tokens.Color.accent)
+        .focusEffectDisabled()
+        .onDisappear { cancelCapture() }
     }
 
-    // MARK: General
-    @ViewBuilder
-    private var generalSection: some View {
-        Toggle(isOn: $settings.liveDictation) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Live dictation")
-                        .font(Tokens.TypeScale.body)
-                        .foregroundStyle(Tokens.Color.text)
-                    Text("Transcribe continuously and type into the focused text field as you speak. The hotkey becomes a toggle: press once to start, press again to stop. Turn off to keep hold-to-talk.")
-                        .font(Tokens.TypeScale.caption)
-                        .foregroundStyle(Tokens.Color.textTert)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .onChange(of: settings.liveDictation) { _, _ in
-                NotificationCenter.default.post(name: .dictationChanged, object: nil)
-            }
+    // MARK: General / dictation
 
-            Toggle(isOn: $settings.launchAtLogin) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Launch at login")
-                        .font(Tokens.TypeScale.body)
-                        .foregroundStyle(Tokens.Color.text)
-                    Text("Start NotchWhisper automatically when you log in. It lives quietly in the menu bar until you hold the hotkey.")
-                        .font(Tokens.TypeScale.caption)
-                        .foregroundStyle(Tokens.Color.textTert)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+    private var dictationGroup: some View {
+        SettingsGroup(title: "Dictation") {
+            SettingRow(icon: "dot.radiowaves.left.and.right", title: "Live dictation",
+                       subtitle: "Type into the focused field as you speak. The hotkey becomes press-to-start / press-to-stop.") {
+                Toggle("", isOn: $settings.liveDictation)
+                    .labelsHidden().toggleStyle(.switch)
+                    .onChange(of: settings.liveDictation) { _, _ in
+                        NotificationCenter.default.post(name: .dictationChanged, object: nil)
+                    }
             }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .onChange(of: settings.launchAtLogin) { _, _ in
-                settings.applyLaunchAtLogin()
+            SettingRow(icon: "return", title: "New line after each dictation",
+                       subtitle: "Press Return once the transcript is inserted.") {
+                Toggle("", isOn: $settings.insertNewline).labelsHidden().toggleStyle(.switch)
             }
+            SettingRow(icon: "power", title: "Launch at login",
+                       subtitle: "Start quietly in the menu bar when you log in.") {
+                Toggle("", isOn: $settings.launchAtLogin).labelsHidden().toggleStyle(.switch)
+                    .onChange(of: settings.launchAtLogin) { _, _ in settings.applyLaunchAtLogin() }
+            }
+            SettingRow(icon: "hand.tap", title: "Haptic feedback",
+                       subtitle: "A tap when recording starts (Force Touch trackpads).") {
+                Toggle("", isOn: $settings.hapticEnabled).labelsHidden().toggleStyle(.switch)
+            }
+        }
     }
 
     // MARK: Appearance
-    @ViewBuilder
-    private var appearanceSection: some View {
-        themePicker
-        Toggle(isOn: $settings.reactiveGlow) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Voice-reactive notch glow")
-                        .font(Tokens.TypeScale.body)
-                        .foregroundStyle(Tokens.Color.text)
-                    Text("While recording, the notch's ambient glow breathes and heats up with your voice. Turn off for a calm, static glow.")
-                        .font(Tokens.TypeScale.caption)
-                        .foregroundStyle(Tokens.Color.textTert)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
 
-            visualizerPicker
-    }
-
-    // MARK: Theme color (Settings → Appearance)
-    /// A row of swatch buttons — one per theme. Selecting one recolors the
-    /// whole app live: UI accent, notch glow, and the Wave/Aura visualizers.
-    private var themePicker: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
-            Text("Theme color")
-                .font(Tokens.TypeScale.body)
-                .foregroundStyle(Tokens.Color.text)
-            HStack(spacing: Tokens.Space.x3) {
-                ForEach(Tokens.Theme.allCases) { theme in
-                    let isSelected = settings.themeColor == theme
-                    Button {
-                        settings.themeColor = theme
-                    } label: {
-                        Circle()
-                            .fill(theme.accent)
-                            .frame(width: 26, height: 26)
-                            .overlay(
-                                // Selection ring, offset outward so it reads
-                                // even against a same-colored background.
-                                Circle()
-                                    .strokeBorder(isSelected ? Tokens.Color.text : .clear,
-                                                  lineWidth: 1.5)
-                                    .frame(width: 32, height: 32)
-                            )
-                            .overlay(
-                                Circle().strokeBorder(Tokens.Color.separator,
-                                                      lineWidth: Tokens.Border.hair)
-                            )
+    private var appearanceGroup: some View {
+        SettingsGroup(title: "Appearance") {
+            VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+                Text("Accent theme")
+                    .font(Tokens.TypeScale.body.weight(.medium))
+                    .foregroundStyle(Tokens.Color.text)
+                HStack(spacing: Tokens.Space.x3) {
+                    ForEach(Tokens.Theme.allCases) { t in
+                        let sel = settings.themeColor == t
+                        Button { settings.themeColor = t } label: {
+                            Circle().fill(t.accent).frame(width: 26, height: 26)
+                                .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: sel ? 2 : 0).padding(-3))
+                                .overlay(Circle().strokeBorder(.white.opacity(0.15), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .help(t.displayName)
                     }
-                    .buttonStyle(Pressable(scale: 0.85))
-                    .help("Theme: \(theme.displayName)")
-                    .accessibilityLabel("Theme color \(theme.displayName)")
-                    .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+                    Spacer()
                 }
-                Spacer()
+                Text("Recolors the app, the notch glow and the visualizers.")
+                    .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
             }
-            Text("\(settings.themeColor.displayName) — recolors the app, the notch glow, and the visualizers.")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textTert)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
+            .padding(.horizontal, Tokens.Space.x4)
+            .padding(.vertical, Tokens.Space.x3)
 
-    // MARK: Visualizer style (LiveKit Agents-UI family)
-    private var visualizerPicker: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
-            Text("Notch visualizer")
-                .font(Tokens.TypeScale.body)
-                .foregroundStyle(Tokens.Color.text)
+            SettingRow(icon: "sparkles", title: "Voice-reactive notch glow",
+                       subtitle: "The notch halo breathes and heats with your voice.") {
+                Toggle("", isOn: $settings.reactiveGlow).labelsHidden().toggleStyle(.switch)
+            }
 
-            Picker("Notch visualizer", selection: $settings.visualizerStyle) {
-                ForEach(VisualizerStyle.allCases) { style in
-                    Text(style.display).tag(style)
+            VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+                Text("Notch visualizer")
+                    .font(Tokens.TypeScale.body.weight(.medium))
+                    .foregroundStyle(Tokens.Color.text)
+                Picker("", selection: $settings.visualizerStyle) {
+                    ForEach(VisualizerStyle.allCases) { Text($0.display).tag($0) }
                 }
+                .pickerStyle(.segmented).labelsHidden()
+                Text(settings.visualizerStyle.blurb)
+                    .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
+                VisualizerPreview(style: settings.visualizerStyle)
+                    .frame(height: 64)
+                    .frame(maxWidth: .infinity)
+                    .background(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous).fill(.black))
+                    .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous).strokeBorder(Tokens.Color.hairline, lineWidth: 1))
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-
-            Text(settings.visualizerStyle.blurb)
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textTert)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // Live preview on a black island strip, driven by a simulated voice.
-            VisualizerPreview(style: settings.visualizerStyle)
-                .frame(height: 64)
-                .frame(maxWidth: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-                        .fill(.black)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-                        .strokeBorder(Tokens.Color.separator, lineWidth: Tokens.Border.hair)
-                )
+            .padding(.horizontal, Tokens.Space.x4)
+            .padding(.vertical, Tokens.Space.x3)
         }
     }
 
     // MARK: Hotkey
-    @ViewBuilder
-    private var hotkeySection: some View {
-        Text(settings.liveDictation
-                ? "Press this key anywhere to start live dictation; press again to stop — your speech is typed as you speak."
-                : "Press and hold this key anywhere to record; release to transcribe and type.")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textTert)
-                .fixedSize(horizontal: false, vertical: true)
 
+    private var hotkeyGroup: some View {
+        SettingsGroup(title: "Hotkey",
+                      footnote: settings.liveDictation
+                        ? "Press this key anywhere to start live dictation; press again to stop."
+                        : "Hold this key anywhere to record; release to transcribe and type.") {
             HStack(spacing: Tokens.Space.x3) {
-                Button {
-                    armCapture()
-                } label: {
+                IconTile("keyboard", tint: Tokens.Color.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Trigger key").font(Tokens.TypeScale.body.weight(.medium)).foregroundStyle(Tokens.Color.text)
+                    Text(capturing ? "Listening for a key…" : "Click the key cap to change")
+                        .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
+                }
+                Spacer()
+                Button { armCapture() } label: {
                     Text(capturing ? captureLabel : settings.hotkeyDisplay)
                         .font(Tokens.TypeScale.title2)
-                        .frame(minWidth: 120, minHeight: 44)
                         .foregroundStyle(capturing ? Tokens.Color.record : Tokens.Color.text)
-                        .background(
-                            RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-                                .fill(capturing ? Tokens.Color.record.opacity(0.12) : Tokens.Color.fillQuiet)
-                        )
+                        .frame(minWidth: 96, minHeight: 40)
+                        .background(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
+                            .fill(capturing ? Tokens.Color.record.opacity(0.14) : Tokens.Color.fillQuiet))
+                        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
+                            .strokeBorder(Tokens.Color.hairline, lineWidth: 1))
                 }
-                .buttonStyle(Pressable(scale: 0.97))
-
-                Button("Reset to Right ⌥") {
-                    settings.hotkeyCode = 61
-                    settings.hotkeyModifiers = 0
+                .buttonStyle(.plain)
+                Button {
+                    settings.hotkeyCode = 61; settings.hotkeyModifiers = 0
                     NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
-                }
-                .buttonStyle(Pressable(scale: 0.97))
+                } label: { Image(systemName: "arrow.counterclockwise") }
+                .buttonStyle(.plain)
                 .foregroundStyle(Tokens.Color.textSec)
-                .font(Tokens.TypeScale.callout)
-
-                Spacer()
+                .help("Reset to Right ⌥")
             }
-            .onDisappear { cancelCapture() }
+            .padding(.horizontal, Tokens.Space.x4)
+            .padding(.vertical, Tokens.Space.x3)
+        }
     }
 
     // MARK: Model
-    @ViewBuilder
-    private var modelSection: some View {
-        Text("Local Whisper models are downloaded from Hugging Face and run on-device. Larger models are more accurate but slower.")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textTert)
-                .fixedSize(horizontal: false, vertical: true)
 
-            Picker("Active model", selection: $settings.modelId) {
-                ForEach(WhisperModelOption.all) { m in
-                    Text("\(m.display)  ·  \(m.size)  ·  \(m.quality)")
-                        .tag(m.id)
+    private var modelGroup: some View {
+        let downloaded = downloadedModelIds
+        return SettingsGroup(title: "Model",
+                             footnote: "Manage the full catalog — with a compatibility check for this Mac — on the Models page.") {
+            SettingRow(icon: "cpu", title: "Active model",
+                       subtitle: "\(WhisperModelOption.find(id: settings.modelId).lang) · \(ModelCatalog.shared.sizeLabel(for: WhisperModelOption.find(id: settings.modelId)))") {
+                Picker("", selection: $settings.modelId) {
+                    ForEach(downloaded, id: \.self) { id in
+                        Text(WhisperModelOption.find(id: id).display).tag(id)
+                    }
+                    if !downloaded.contains(settings.modelId) {
+                        Text("\(WhisperModelOption.find(id: settings.modelId).display) · not downloaded").tag(settings.modelId)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 180)
+                .disabled(state.isDownloading || state.isLoadingModel)
+                .onChange(of: settings.modelId) { _, _ in
+                    NotificationCenter.default.post(name: .modelChanged, object: nil)
                 }
             }
-            .pickerStyle(.menu)
-            .onChange(of: settings.modelId) { _, _ in
-                NotificationCenter.default.post(name: .modelChanged, object: nil)
-            }
 
-            // Downloaded models + download action.
-            HStack(spacing: Tokens.Space.x2) {
-                Text(downloadedSummary)
-                    .font(Tokens.TypeScale.caption)
-                    .foregroundStyle(Tokens.Color.textSec)
-                Spacer()
-                if state.isDownloading {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ProgressView(value: state.displayProgress) {
-                            Text(state.downloadLabel)
-                                .font(Tokens.TypeScale.caption)
-                        }
-                        if !state.downloadDetailText.isEmpty {
-                            Text(state.downloadDetailText)
-                                .font(Tokens.TypeScale.micro)
-                                .monospacedDigit()
-                                .foregroundStyle(Tokens.Color.textTert)
-                                .lineLimit(1)
-                        }
+            if state.isDownloading || state.isLoadingModel {
+                VStack(alignment: .leading, spacing: Tokens.Space.x1) {
+                    HStack {
+                        Text(state.isDownloading
+                             ? (state.downloadLabel.isEmpty ? "Downloading…" : state.downloadLabel)
+                             : (state.modelLoadPhase.isEmpty ? "Loading…" : state.modelLoadPhase))
+                            .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
+                        Spacer()
+                        Text("\(Int(((state.isDownloading ? state.displayProgress : state.modelLoadProgress) * 100).rounded()))%")
+                            .font(Tokens.TypeScale.caption).monospacedDigit().foregroundStyle(Tokens.Color.textTert)
                     }
-                    .frame(width: 240)
-                } else {
-                    Button {
+                    ProgressView(value: max(state.isDownloading ? state.displayProgress : state.modelLoadProgress, 0.02))
+                        .tint(Tokens.Color.accent)
+                    if state.isDownloading, !state.downloadDetailText.isEmpty {
+                        Text(state.downloadDetailText).font(Tokens.TypeScale.micro).monospacedDigit()
+                            .foregroundStyle(Tokens.Color.textTert)
+                    }
+                }
+                .padding(.horizontal, Tokens.Space.x4)
+                .padding(.vertical, Tokens.Space.x3)
+            } else {
+                HStack {
+                    Text(downloadedSummary).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
+                    Spacer()
+                    Button(downloaded.contains(settings.modelId) ? "Reload" : "Download") {
                         AppDelegate.shared?.requestDownload(modelId: settings.modelId)
-                    } label: {
-                        Text(WhisperModelOption.find(id: settings.modelId).folderName == currentFolder
-                             ? "Reload" : "Download")
-                        .font(Tokens.TypeScale.captionSB)
                     }
-                    .buttonStyle(Pressable(scale: 0.97))
+                    .buttonStyle(.plain)
+                    .font(Tokens.TypeScale.captionSB)
                     .foregroundStyle(Tokens.Color.accent)
-                    .help("Download or reload the selected model")
                 }
+                .padding(.horizontal, Tokens.Space.x4)
+                .padding(.vertical, Tokens.Space.x3)
             }
+        }
     }
 
-    @State private var currentFolder: String = ""
-
+    private var downloadedModelIds: [String] {
+        let folders = AppDelegate.shared?.transcriberRef.availableLocalModels() ?? []
+        var ids = folders.map { WhisperModelOption.bareId($0) }
+        if !ids.contains(WhisperModelOption.default.id) { ids.append(WhisperModelOption.default.id) }
+        return Array(Set(ids)).sorted {
+            WhisperModelOption.find(id: $0).englishWERValue < WhisperModelOption.find(id: $1).englishWERValue
+        }
+    }
     private var downloadedSummary: String {
         let local = AppDelegate.shared?.transcriberRef.availableLocalModels() ?? []
         if local.isEmpty { return "No models downloaded yet." }
         return "On disk: " + local.map { WhisperModelOption.find(id: $0).display }.joined(separator: ", ")
     }
 
-    // MARK: - Local LLM
+    // MARK: Local LLM
 
     @ViewBuilder
-    private var llmSection: some View {
-        if !settings.llmEnabled {
-            llmFirstTimeGuidance
-        }
-
-        Toggle(isOn: $settings.llmEnabled) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Enable text processing")
-                        .font(Tokens.TypeScale.body)
-                        .foregroundStyle(Tokens.Color.text)
-                    Text("Process transcribed text with a local AI model before inserting it. Turn this on to start.")
-                        .font(Tokens.TypeScale.caption)
-                        .foregroundStyle(Tokens.Color.textTert)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+    private var llmGroup: some View {
+        SettingsGroup(title: "Text processing",
+                      footnote: settings.llmEnabled ? nil
+                        : "Optionally clean up, format, rewrite or summarize transcripts with a local model (Ollama, LM Studio, Unsloth…). Text never leaves your Mac.") {
+            SettingRow(icon: "wand.and.stars", title: "Process with a local AI model",
+                       subtitle: "Runs after transcription, before the text is inserted.") {
+                Toggle("", isOn: $settings.llmEnabled).labelsHidden().toggleStyle(.switch)
             }
-            .toggleStyle(.switch)
-            .controlSize(.small)
 
             if settings.llmEnabled {
-                llmSourceSection
-            }
-    }
-
-    // MARK: First-time guidance
-
-    private var llmFirstTimeGuidance: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
-            Text("Improve your transcriptions with a local AI model")
-                .font(Tokens.TypeScale.headline)
-                .foregroundStyle(Tokens.Color.text)
-            Text("NotchWhisper can optionally clean up, format, rewrite, or summarize your transcriptions using a language model running on your Mac. Connect NotchWhisper to an existing local LLM application with an OpenAI-compatible API — such as Ollama, LM Studio, or Unsloth — and your text never has to leave your machine.")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textTert)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.vertical, Tokens.Space.x1)
-    }
-
-    // MARK: Server config
-
-    @ViewBuilder
-    private var llmSourceSection: some View {
-        llmServerSource
-
-        llmModePicker
-
-        if settings.llmMode == .custom {
-            llmCustomInstruction
-        }
-    }
-
-
-    // MARK: Server source
-
-    private var llmServerSource: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            Text("Model")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textSec)
-            TextField("e.g. llama3", text: $settings.llmServerModel)
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.small)
-                .textCase(.lowercase)
-
-            Text("Endpoint")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textSec)
-            TextField("e.g. http://localhost:11434/v1", text: $settings.llmServerEndpoint)
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.small)
-
-            llmAPIKeyRow
-
-            llmActiveModelInfo
-
-            Text("Text is sent to the configured local endpoint — not to the cloud.")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textTert)
-                .fixedSize(horizontal: false, vertical: true)
-
-            llmTestConnectionButton
-
-            if let result = connectionTestResult {
-                Text(result)
-                    .font(Tokens.TypeScale.caption)
-                    .foregroundStyle(result.contains("Connected") ? Tokens.Color.success : Tokens.Color.danger)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private var llmAPIKeyRow: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("API key")
-                    .font(Tokens.TypeScale.caption)
-                    .foregroundStyle(Tokens.Color.textSec)
-                Button {
-                    showingAPIKey.toggle()
-                    if showingAPIKey {
-                        apiKeyInput = Keychain.get(account: ServerKeychainAccount.llmAPIKey) ?? ""
+                VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+                    labeledField("Model name", text: $settings.llmServerModel, placeholder: "llama3")
+                    labeledField("Endpoint", text: $settings.llmServerEndpoint, placeholder: "http://localhost:11434/v1")
+                    apiKeyRow
+                    HStack(spacing: Tokens.Space.x3) {
+                        Button { Task { await llmTestConnection() } } label: {
+                            HStack(spacing: 6) {
+                                if isTestingConnection { ProgressView().controlSize(.small) }
+                                Text(isTestingConnection ? "Testing…" : "Test connection")
+                            }
+                        }
+                        .secondaryAction()
+                        .disabled(settings.llmServerEndpoint.isEmpty || isTestingConnection)
+                        if let r = connectionTestResult {
+                            Label(r, systemImage: r.contains("Connected") ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                .font(Tokens.TypeScale.caption)
+                                .foregroundStyle(r.contains("Connected") ? Tokens.Color.success : Tokens.Color.danger)
+                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        }
                     }
-                } label: {
-                    Text(showingAPIKey ? "Apply" : "Change")
-                        .font(Tokens.TypeScale.captionSB)
                 }
-                .buttonStyle(Pressable(scale: 0.97))
-                .foregroundStyle(Tokens.Color.accent)
+                .padding(.horizontal, Tokens.Space.x4)
+                .padding(.vertical, Tokens.Space.x3)
+
+                modePickerRow
+            }
+        }
+    }
+
+    private func labeledField(_ label: String, text: Binding<String>, placeholder: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
+            TextField(placeholder, text: text)
+                .textFieldStyle(.plain)
+                .font(Tokens.TypeScale.body)
+                .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 8)
+                .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous).strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+        }
+    }
+
+    private var apiKeyRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("API key").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
+                Spacer()
+                Button(showingAPIKey ? "Done" : "Change") {
+                    showingAPIKey.toggle()
+                    if showingAPIKey { apiKeyInput = Keychain.get(account: ServerKeychainAccount.llmAPIKey) ?? "" }
+                }
+                .buttonStyle(.plain).font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.accent)
             }
             if showingAPIKey {
                 HStack {
-                    SecureField("Enter API key (leave empty if not required)", text: $apiKeyInput)
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.small)
+                    SecureField("Leave empty if not required", text: $apiKeyInput)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 8)
+                        .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
                     Button("Save") {
-                        if apiKeyInput.isEmpty {
-                            Keychain.set(nil, for: ServerKeychainAccount.llmAPIKey)
-                        } else {
-                            Keychain.set(apiKeyInput, for: ServerKeychainAccount.llmAPIKey)
-                        }
+                        Keychain.set(apiKeyInput.isEmpty ? nil : apiKeyInput, for: ServerKeychainAccount.llmAPIKey)
                         showingAPIKey = false
                     }
-                    .buttonStyle(Pressable(scale: 0.97))
-                    .foregroundStyle(Tokens.Color.accent)
+                    .buttonStyle(.plain).foregroundStyle(Tokens.Color.accent)
                 }
             }
         }
     }
 
-    private var llmActiveModelInfo: some View {
-        HStack(spacing: Tokens.Space.x2) {
-            Image(systemName: "checkmark.circle")
-                .foregroundStyle(Tokens.Color.success)
-            Text("Active model: \(settings.llmServerModel.isEmpty ? "(not set)" : settings.llmServerModel)")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textSec)
-            if !settings.llmServerEndpoint.isEmpty {
-                Text("at \(settings.llmServerEndpoint)")
-                    .font(Tokens.TypeScale.caption)
-                    .foregroundStyle(Tokens.Color.textSec)
+    private var modePickerRow: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+            Text("Processing mode").font(Tokens.TypeScale.body.weight(.medium)).foregroundStyle(Tokens.Color.text)
+            Picker("", selection: $settings.llmMode) {
+                ForEach(LLMMode.allCases) { Text($0.displayName).tag($0) }
+            }
+            .labelsHidden().pickerStyle(.menu)
+
+            VStack(alignment: .leading, spacing: Tokens.Space.x2) {
+                HStack(spacing: Tokens.Space.x2) {
+                    Image(systemName: settings.llmMode.symbolName).font(.system(size: 12)).foregroundStyle(Tokens.Color.accent)
+                    Text(settings.llmMode.displayName).font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.text)
+                }
+                Text(settings.llmMode.explanation)
+                    .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let ex = settings.llmMode.example {
+                    VStack(alignment: .leading, spacing: 3) {
+                        exampleLine("mic", Tokens.Color.textTert, ex.before)
+                        exampleLine("arrow.turn.down.right", Tokens.Color.accent, ex.after)
+                    }
+                    .padding(Tokens.Space.x2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Tokens.Color.fillQuieter, in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
+                }
+            }
+            .padding(Tokens.Space.x3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
+
+            Button(showAllModes ? "Hide mode reference" : "How the modes work") {
+                withAnimation(Tokens.Motion.ease) { showAllModes.toggle() }
+            }
+            .buttonStyle(.plain).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.accent)
+
+            if showAllModes {
+                VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+                    ForEach(LLMMode.allCases) { m in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Label(m.displayName, systemImage: m.symbolName)
+                                .font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.text)
+                            Text(m.explanation).font(Tokens.TypeScale.caption)
+                                .foregroundStyle(Tokens.Color.textTert)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+
+            if settings.llmMode == .custom {
+                Text("Custom instruction").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
+                TextEditor(text: $settings.customPrompt)
+                    .font(.system(.body).monospaced())
+                    .frame(height: 110)
+                    .scrollContentBackground(.hidden)
+                    .padding(Tokens.Space.x2)
+                    .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous).strokeBorder(Tokens.Color.hairline, lineWidth: 1))
             }
         }
-        .padding(.top, Tokens.Space.x1)
+        .padding(.horizontal, Tokens.Space.x4)
+        .padding(.vertical, Tokens.Space.x3)
     }
 
-    private var llmTestConnectionButton: some View {
-        Button {
-            Task { await llmTestConnection() }
-        } label: {
-            HStack {
-                if isTestingConnection {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle())
-                        .controlSize(.small)
-                }
-                Text(isTestingConnection ? "Testing…" : "Test connection")
-                    .font(Tokens.TypeScale.captionSB)
-            }
+    private func exampleLine(_ icon: String, _ tint: SwiftUI.Color, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: Tokens.Space.x2) {
+            Image(systemName: icon).font(.system(size: 9)).foregroundStyle(tint).padding(.top, 2)
+            Text(text).font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(Tokens.Color.textSec).fixedSize(horizontal: false, vertical: true)
         }
-        .buttonStyle(Pressable(scale: 0.97))
-        .foregroundStyle(Tokens.Color.accent)
-        .disabled(settings.llmServerEndpoint.isEmpty || isTestingConnection)
     }
+
+    // MARK: Logic (unchanged)
 
     private func llmTestConnection() async {
         isTestingConnection = true
@@ -449,69 +399,17 @@ struct SettingsView: View {
         let apiKey = Keychain.get(account: ServerKeychainAccount.llmAPIKey)
         do {
             try await LLMServerClient.testConnection(endpoint: endpoint, apiKey: apiKey)
-            await MainActor.run {
-                connectionTestResult = "Connected successfully"
-            }
+            connectionTestResult = "Connected successfully"
         } catch {
-            await MainActor.run {
-                connectionTestResult = "Unable to connect. Check that your local LLM application is running and that the address is correct."
-            }
+            connectionTestResult = "Unable to connect. Check that your local LLM app is running and the address is correct."
         }
         isTestingConnection = false
     }
 
-    // MARK: Mode picker
-
-    private var llmModePicker: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
-            Text("Processing mode")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textSec)
-
-            Picker(selection: $settings.llmMode) {
-                ForEach(LLMMode.allCases) { mode in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(mode.displayName).foregroundStyle(Tokens.Color.text)
-                        Text(mode.blurb).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
-                    }
-                    .tag(mode)
-                }
-            } label: {
-                Text("Processing mode")
-            }
-            .pickerStyle(.menu)
-            .controlSize(.small)
-        }
-    }
-
-    // MARK: Custom instruction
-
-    private var llmCustomInstruction: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
-            Text("Custom instruction")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textSec)
-            TextEditor(text: $settings.customPrompt)
-                .font(.system(.body).monospaced())
-                .frame(height: 120)
-                .scrollContentBackground(.hidden)
-                .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
-            Text("Write the instruction that should be applied to the transcription. Example: \"Rewrite this as a concise professional email.\"")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textTert)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    // MARK: Hotkey capture (local monitor while armed)
     private func armCapture() {
         capturing = true
         captureLabel = "Press a key…"
         var monitor: Any?
-        // Keycodes for the dedicated modifier keys. When the user presses one of
-        // these alone we register it as a standalone hotkey (mods 0) — e.g. the
-        // right-Option key (61) fires on its own press, and must NOT also carry
-        // the `optionKey` mask (which would require "option + right-option").
         let modifierKeyCodes: Set<Int> = [58, 61, 55, 54, 56, 60, 59, 57]
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
             let code = Int(event.keyCode)
@@ -526,11 +424,9 @@ struct SettingsView: View {
             NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
             if let m = monitor { NSEvent.removeMonitor(m) }
             capturing = false
-            return nil // swallow the key
+            return nil
         }
     }
 
-    private func cancelCapture() {
-        capturing = false
-    }
+    private func cancelCapture() { capturing = false }
 }

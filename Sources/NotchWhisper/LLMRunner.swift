@@ -56,7 +56,10 @@ enum LLMProcessResult: Equatable {
         }
 
         let system = LLMPrompts.systemPrompt(for: mode, custom: settings.customPrompt)
-        let chunks = TextChunker.chunks(of: transcript, budget: 12_000)
+        // Conservative chunk size: Ollama defaults `num_ctx` to 4096 tokens, so
+        // a chunk + system prompt + the model's own reply must fit well under
+        // that. ~6000 chars ≈ 1800 tokens leaves room for the response.
+        let chunks = TextChunker.chunks(of: transcript, budget: 6_000)
         var outputs: [String] = []
         let total = chunks.count
         for (index, chunk) in chunks.enumerated() {
@@ -67,7 +70,9 @@ enum LLMProcessResult: Equatable {
             ]
             do {
                 let completion = try await LLMServerClient.chat(
-                    endpoint: endpoint, model: model, messages: messages, apiKey: apiKey
+                    endpoint: endpoint, model: model, messages: messages, apiKey: apiKey,
+                    temperature: mode.temperature,
+                    maxTokens: maxTokens(forInputChars: chunk.count)
                 )
                 let text = completion.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !text.isEmpty {
@@ -87,7 +92,42 @@ enum LLMProcessResult: Equatable {
         if outputs.isEmpty {
             return .failed("The server returned an empty response. The original transcription was kept.")
         }
+        if outputs.count == 1 {
+            return .processed(outputs[0])
+        }
+        // Multi-chunk: summarize / actions / structured must be RE-REDUCED into
+        // one document, not concatenated (otherwise a long memo yields N
+        // disjoint summaries). Prose modes concatenate in order.
+        if mode.reducesAcrossChunks {
+            state.statusMessage = "Combining \(total) parts…"
+            let messages = [
+                LLMServerClient.ChatMessage(
+                    role: "system",
+                    content: LLMPrompts.reduceSystemPrompt(for: mode, custom: settings.customPrompt)),
+                LLMServerClient.ChatMessage(
+                    role: "user", content: LLMPrompts.reduceUserMessage(for: outputs)),
+            ]
+            if let completion = try? await LLMServerClient.chat(
+                endpoint: endpoint, model: model, messages: messages, apiKey: apiKey,
+                temperature: mode.temperature,
+                maxTokens: maxTokens(forInputChars: outputs.joined().count)
+            ), !completion.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                state.statusMessage = ""
+                return .processed(completion.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            // Reduce pass failed — fall back to the ordered join rather than
+            // losing everything.
+        }
+        state.statusMessage = ""
         return .processed(stitchedOutput(outputs, mode: mode))
+    }
+
+    /// Output token budget: roughly the input size (these tasks never need to
+    /// produce much more than they consume) plus headroom, clamped so a stray
+    /// runaway generation can't hang for minutes.
+    private func maxTokens(forInputChars chars: Int) -> Int {
+        let approxInputTokens = chars / 4
+        return min(8192, max(1024, approxInputTokens + 512))
     }
 
     // MARK: - Helpers

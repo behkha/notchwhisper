@@ -1,314 +1,398 @@
 import SwiftUI
 import AVFoundation
 
-/// The main application window. A sidebar navigates between Home, Transcripts,
-/// Dictionary and Models; a Settings button at the bottom of the sidebar opens
-/// the Settings window. Everything reads from Tokens.
+/// The main window shell — a bespoke sidebar + detail layout on the Aurora
+/// canvas (no `NavigationSplitView`, no system list chrome). Nav lives in a
+/// custom rail with a sliding selection pill; each screen is a scroll of glass
+/// cards.
 struct MainView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
-    // Observe the theme so the sidebar (and every accent-colored child)
-    // re-renders when it changes.
     @ObservedObject private var theme = Tokens.ThemeManager.shared
 
-    @State private var nav: Nav? = .home
+    @State private var nav: Nav = .home
+    @Namespace private var pill
 
     enum Nav: String, CaseIterable, Identifiable {
         case home, transcripts, dictionary, models
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .home:       return "Home"
+            case .home: return "Home"
             case .transcripts: return "Transcripts"
-            case .dictionary:  return "Dictionary"
-            case .models:      return "Models"
+            case .dictionary: return "Dictionary"
+            case .models: return "Models"
             }
         }
         var icon: String {
             switch self {
-            case .home:       return "house.fill"
-            case .transcripts: return "doc.text.fill"
-            case .dictionary:  return "book.closed.fill"
-            case .models:      return "cpu.fill"
+            case .home: return "house.fill"
+            case .transcripts: return "text.line.first.and.arrowtriangle.forward"
+            case .dictionary: return "character.book.closed.fill"
+            case .models: return "cpu.fill"
             }
         }
     }
 
     var body: some View {
-        let _ = theme.theme   // register theme dependency → re-render on change
-        NavigationSplitView {
+        let _ = theme.theme
+        HStack(spacing: 0) {
             sidebar
-        } detail: {
-            detailView
-                // Native window subtitle per section — the split-view detail
-                // column drives the (glass) titlebar title on macOS.
-                .navigationTitle(nav?.label ?? "Home")
+            Rectangle().fill(Tokens.Color.hairline).frame(width: 1).ignoresSafeArea()
+            detail
         }
         .frame(minWidth: Tokens.Layout.minWinW, maxWidth: Tokens.Layout.maxWinW,
                minHeight: Tokens.Layout.minWinH, maxHeight: Tokens.Layout.maxWinH)
-        // No opaque background — the window itself is a frosted glass surface
-        // (set up in AppDelegate), so the sidebar + detail sit on real glass.
+        .background(AuroraBackground())
         .tint(Tokens.Color.accent)
+        .environment(\.colorScheme, .dark)
+        .focusEffectDisabled()
     }
 
-    // MARK: - Sidebar
+    // MARK: Sidebar
+
     private var sidebar: some View {
-        VStack(spacing: 0) {
-            List(selection: $nav) {
+        VStack(alignment: .leading, spacing: 0) {
+            // Wordmark
+            HStack(spacing: Tokens.Space.x2) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Tokens.Color.accentGradient)
+                        .frame(width: 26, height: 26)
+                    Image(systemName: "waveform")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Tokens.Color.onAccent)
+                }
+                Text("NotchWhisper")
+                    .font(Tokens.TypeScale.title2)
+                    .foregroundStyle(Tokens.Color.text)
+            }
+            .padding(.horizontal, Tokens.Space.x4)
+            .padding(.top, Tokens.Space.x4)
+            .padding(.bottom, Tokens.Space.x6)
+
+            // Nav
+            VStack(spacing: 2) {
                 ForEach(Nav.allCases) { item in
-                    Label(item.label, systemImage: item.icon)
-                        .font(Tokens.TypeScale.headline)
-                        .tag(item)
-                        .listItemTint(Tokens.Color.accent)
+                    navItem(item)
                 }
             }
-            .listStyle(.sidebar)
-            .scrollDisabled(true)
-            // macOS backs the sidebar List with an NSTableView whose cells
-            // cache their appearance: when the theme changes, the body re-runs
-            // but the already-materialized rows keep the OLD tint until the
-            // list is rebuilt (i.e. app relaunch). Re-keying the List on the
-            // active theme forces the rows to rebuild with the new tint the
-            // instant it changes. Selection persists — `nav` is @State on
-            // MainView, outside this List.
-            .id(theme.theme)
+            .padding(.horizontal, Tokens.Space.x3)
 
-            Divider().foregroundStyle(Tokens.Color.separator)
+            Spacer()
 
-            // Settings button (req 4)
+            healthCard
+                .padding(.horizontal, Tokens.Space.x3)
+                .padding(.bottom, Tokens.Space.x2)
+
             Button {
                 AppDelegate.shared?.showSettings()
             } label: {
-                Label("Settings", systemImage: "gearshape.fill")
-                    .font(Tokens.TypeScale.headline)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                HStack(spacing: Tokens.Space.x3) {
+                    IconTile("gearshape.fill", tint: Tokens.Color.textSec, size: 24)
+                    Text("Settings")
+                        .font(Tokens.TypeScale.body.weight(.medium))
+                        .foregroundStyle(Tokens.Color.text)
+                    Spacer()
+                    Text("⌘,").font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
+                }
+                .padding(.horizontal, Tokens.Space.x3)
+                .padding(.vertical, Tokens.Space.x2)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(Pressable())
-            .padding(.horizontal, Tokens.Space.x4)
-            .padding(.vertical, Tokens.Space.x3)
-            .help("Open Settings (⌘,)")
+            .buttonStyle(.plain)
+            .padding(.horizontal, Tokens.Space.x3)
+            .padding(.bottom, Tokens.Space.x4)
         }
         .frame(width: Tokens.Layout.sidebarW)
     }
 
-    // MARK: - Detail
+    private func navItem(_ item: Nav) -> some View {
+        let selected = nav == item
+        return Button {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) { nav = item }
+        } label: {
+            HStack(spacing: Tokens.Space.x3) {
+                Image(systemName: item.icon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(selected ? Tokens.Color.accent : Tokens.Color.textSec)
+                    .frame(width: 22)
+                Text(item.label)
+                    .font(Tokens.TypeScale.body.weight(selected ? .semibold : .medium))
+                    .foregroundStyle(selected ? Tokens.Color.text : Tokens.Color.textSec)
+                Spacer()
+            }
+            .padding(.horizontal, Tokens.Space.x3)
+            .padding(.vertical, 9)
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
+                        .fill(Tokens.Color.accent.opacity(0.14))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
+                                .strokeBorder(Tokens.Color.accent.opacity(0.2), lineWidth: 1)
+                        )
+                        .matchedGeometryEffect(id: "navpill", in: pill)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+    }
+
+    private var healthCard: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
+            healthLine(ok: state.modelStatus == .ready,
+                       label: state.modelStatus == .ready ? "Model ready" : "Model loading")
+            healthLine(ok: AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
+                       label: AVCaptureDevice.authorizationStatus(for: .audio) == .authorized ? "Microphone" : "Mic blocked")
+            healthLine(ok: AutoTyper.isTrusted, label: AutoTyper.isTrusted ? "Accessibility" : "Accessibility off")
+        }
+        .padding(Tokens.Space.x3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card(radius: Tokens.Radius.md, padding: nil, elevated: false)
+    }
+
+    private func healthLine(ok: Bool, label: String) -> some View {
+        HStack(spacing: Tokens.Space.x2) {
+            Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(ok ? Tokens.Color.success : Tokens.Color.warn)
+            Text(label)
+                .font(Tokens.TypeScale.micro)
+                .foregroundStyle(Tokens.Color.textSec)
+            Spacer(minLength: 0)
+        }
+    }
+
+    // MARK: Detail
+
     @ViewBuilder
-    private var detailView: some View {
+    private var detail: some View {
         Group {
             switch nav {
-            case .home:       HomeView(nav: $nav).environmentObject(state).environmentObject(settings)
-            case .transcripts: TranscriptsView().environmentObject(state).environmentObject(settings)
-            case .dictionary:  DictView().environmentObject(state).environmentObject(settings)
-            case .models:      ModelsView().environmentObject(state).environmentObject(settings)
-            case .none:        HomeView(nav: $nav).environmentObject(state).environmentObject(settings)
+            case .home:        HomeView(nav: $nav)
+            case .transcripts: TranscriptsView()
+            case .dictionary:  DictView()
+            case .models:      ModelsView()
             }
         }
-        // NOTE: no `.id(nav)` / `.transition(.opacity)` / `.animation(value:)`
-        // here. A cross-fade driven by transition+animation left the incoming
-        // tab stuck at opacity 0 when the switch was triggered by a real List
-        // click (the AppKit click path strips the animation transaction).
-        // Instant switches are also the native macOS sidebar behavior.
+        .environmentObject(state)
+        .environmentObject(settings)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
-// MARK: - Home (req 5)
-/// Default landing page: live record control, usage statistics, and recent history.
+// MARK: - Home
+
 struct HomeView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
     @ObservedObject private var theme = Tokens.ThemeManager.shared
     @ObservedObject private var history = HistoryStore.shared
-    @Binding var nav: MainView.Nav?
+    @Binding var nav: MainView.Nav
 
     @State private var copiedID: UUID?
 
     var body: some View {
-        let _ = theme.theme   // header + record control re-tint on theme change
+        let _ = theme.theme
         ScrollView {
-            GlassStack(spacing: Tokens.Space.x6) {
-                header
-                statsGrid
+            VStack(alignment: .leading, spacing: Tokens.Space.x6) {
+                SectionHeader("Speak, and it types.", eyebrow: greeting) {
+                    Chip(text: state.modelStatus == .ready ? "Ready" : "Loading",
+                         tint: state.modelStatus == .ready ? Tokens.Color.success : Tokens.Color.warn)
+                }
+
+                heroCard
+
+                if state.isDownloading || state.isLoadingModel { modelProgressCard }
+
+                statsStrip
+
                 recentSection
             }
-            .padding(Tokens.Space.x6)
+            .padding(Tokens.Space.x8)
+            .frame(maxWidth: 940, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollIndicators(.never)
+    }
+
+    private var greeting: String {
+        let h = Calendar.current.component(.hour, from: Date())
+        switch h {
+        case 5..<12: return "Good morning"
+        case 12..<17: return "Good afternoon"
+        case 17..<22: return "Good evening"
+        default: return "Working late"
         }
     }
 
-    // MARK: Record control
-    private var header: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x4) {
-            HStack(alignment: .center, spacing: Tokens.Space.x4) {
-                LevelsMeter(height: 44)
-                    .frame(width: Tokens.Layout.meterW)
-                VStack(alignment: .leading, spacing: Tokens.Space.x1) {
+    // MARK: Hero
+
+    private var heroCard: some View {
+        VStack(spacing: Tokens.Space.x5) {
+            HStack(alignment: .center, spacing: Tokens.Space.x5) {
+                VStack(alignment: .leading, spacing: Tokens.Space.x2) {
                     HStack(spacing: Tokens.Space.x2) {
                         statusDot
                         Text(statusText)
-                            .font(Tokens.TypeScale.callout)
-                            .foregroundStyle(Tokens.Color.textSec)
+                            .font(Tokens.TypeScale.title2)
+                            .foregroundStyle(Tokens.Color.text)
                     }
-                    if state.mode == .recording || state.mode == .dictating, let start = state.recordingStart {
-                        Text("Recording \(fmt(Date().timeIntervalSince(start)))")
-                            .font(Tokens.TypeScale.caption)
-                            .foregroundStyle(Tokens.Color.textTert)
-                            .monospacedDigit()
-                    } else if state.mode == .transcribing {
-                        Text("Transcribing…")
-                            .font(Tokens.TypeScale.caption)
-                            .foregroundStyle(Tokens.Color.textTert)
+                    Text(settings.liveDictation
+                         ? "Press \(settings.hotkeyDisplay) to start live dictation — press again to stop. Words appear as you speak."
+                         : "Hold \(settings.hotkeyDisplay) anywhere and talk. Release to transcribe and type.")
+                        .font(Tokens.TypeScale.callout)
+                        .foregroundStyle(Tokens.Color.textSec)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: Tokens.Space.x2) {
+                        Chip(text: WhisperModelOption.find(id: settings.modelId).display,
+                             systemImage: "cpu", tint: Tokens.Color.accent)
+                        Chip(text: settings.liveDictation ? "Live dictation" : "Hold to talk",
+                             systemImage: settings.liveDictation ? "dot.radiowaves.left.and.right" : "hand.tap",
+                             tint: Tokens.Color.textSec, filled: false)
+                        Button {
+                            AppDelegate.shared?.showSettings()
+                        } label: {
+                            Text("Change").font(Tokens.TypeScale.micro)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Tokens.Color.accent)
                     }
+                    .padding(.top, 2)
                 }
                 Spacer(minLength: Tokens.Space.x4)
                 RecordButton(action: toggleRecord)
             }
-            Text(settings.liveDictation
-                ? "Press \(settings.hotkeyDisplay) to start dictation — press again to stop. Your speech is typed as you speak."
-                : "Hold \(settings.hotkeyDisplay) anywhere to talk — or tap Record.")
-                .font(Tokens.TypeScale.callout)
-                .foregroundStyle(Tokens.Color.accent)
-                .padding(.top, Tokens.Space.x1)
 
-            // One-click current model + language (ChatGPT rec)
-            HStack(spacing: Tokens.Space.x2) {
-                Image(systemName: "cpu")
-                    .font(.system(size: 12)).foregroundStyle(Tokens.Color.textTert)
-                Text("\(WhisperModelOption.find(id: settings.modelId).display) · \(WhisperModelOption.find(id: settings.modelId).lang)")
-                    .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
-                Button { nav = MainView.Nav.models } label: {
-                    Text("Change").font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.accent)
-                }
-                .buttonStyle(Pressable(scale: 0.97))
-                .help("Choose a different model")
-                Spacer(minLength: 0)
-            }
-            .padding(.top, Tokens.Space.x1)
-
-            // Health row (ChatGPT rec): model / mic / dictionary
-            healthRow
-                .padding(.top, Tokens.Space.x1)
+            LevelsMeter(height: 56)
         }
-        .padding(Tokens.Space.x4)
-        // Hero panel: pure Liquid Glass — no drawn border. Glass carries its
-        // own highlight edge; a hairline stroke on top reads as a sticker.
-        // On macOS 26 this is true system glass; earlier macOS gets a frosted
-        // vibrancy panel (see Glass.swift).
-        .glassSurface()
-    }
-
-    /// Compact status chips: model ready, microphone permission, dictionary active.
-    private var healthRow: some View {
-        HStack(spacing: Tokens.Space.x3) {
-            healthChip(ok: state.modelStatus == .ready,
-                       okLabel: "Model ready", pendingLabel: "Model loading…")
-            healthChip(ok: micAuthorized,
-                       okLabel: "Mic allowed", pendingLabel: "Mic blocked")
-            healthChip(ok: !DictionaryStore.shared.entries.isEmpty,
-                       okLabel: "Dictionary on", pendingLabel: "No dictionary")
-            Spacer(minLength: 0)
-        }
-    }
-
-    private func healthChip(ok: Bool, okLabel: String, pendingLabel: String) -> some View {
-        HStack(spacing: Tokens.Space.x1) {
-            Circle().fill(ok ? Tokens.Color.success : Tokens.Color.warn)
-                .frame(width: 7, height: 7)
-            Text(ok ? okLabel : pendingLabel)
-                .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
-        }
+        .card()
     }
 
     private var statusDot: some View {
-        // Idle renders as a hollow ring and active states as filled dots, so
-        // status is distinguishable beyond color alone; the recording dot gets
-        // a matching glow. (Differentiate Without Color + contrast.)
-        Group {
-            if state.mode == .idle {
-                Circle()
-                    .strokeBorder(Tokens.Color.textSec, lineWidth: 1.5)
-            } else {
-                Circle()
-                    .fill(dotColor)
-                    .shadow(color: state.mode == .recording || state.mode == .dictating
-                            ? Tokens.Color.record.opacity(0.5)
-                            : SwiftUI.Color.clear,
-                            radius: 3)
-            }
-        }
-        .frame(width: 9, height: 9)
-        .animation(Tokens.Motion.quick(reduceMotion: Tokens.A11y.reduceMotion), value: state.mode)
+        Circle()
+            .fill(dotColor)
+            .frame(width: 9, height: 9)
+            .shadow(color: (state.mode == .recording || state.mode == .dictating)
+                    ? Tokens.Color.record.opacity(0.7) : .clear, radius: 4)
+            .overlay(
+                Circle().stroke(dotColor.opacity(0.35), lineWidth: 4)
+                    .scaleEffect(state.mode == .recording ? 1.8 : 1)
+                    .opacity(state.mode == .recording ? 0 : 0)
+            )
+            .animation(Tokens.Motion.quick(reduceMotion: Tokens.A11y.reduceMotion), value: state.mode)
     }
     private var dotColor: SwiftUI.Color {
         switch state.mode {
-        case .idle:        return Tokens.Color.textTert
-        case .recording:   return Tokens.Color.record
-        case .dictating:   return Tokens.Color.record
-        case .transcribing: return Tokens.Color.warn
-        case .improving:   return Tokens.Color.warn
-        case .done:        return Tokens.Color.success
-        case .error:       return Tokens.Color.danger
+        case .idle: return Tokens.Color.textTert
+        case .recording, .dictating: return Tokens.Color.record
+        case .transcribing, .improving: return Tokens.Color.warn
+        case .done: return Tokens.Color.success
+        case .error: return Tokens.Color.danger
         }
     }
-    private var micAuthorized: Bool {
-        AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-    }
-
     private var statusText: String {
         switch state.mode {
         case .idle:
             switch state.modelStatus {
-            case .ready: return "Ready"
-            case .loading, .downloading: return "Loading model…"
+            case .ready: return "Ready when you are"
+            case .loading, .downloading: return "Getting the model ready…"
             case .error(let e): return "Model error: \(e)"
-            case .unknown: return "Starting…"
+            case .unknown: return "Starting up…"
             }
-        case .recording:    return "Recording"
-        case .dictating:    return "Dictating"
+        case .recording: return "Listening…"
+        case .dictating: return "Dictating…"
         case .transcribing: return "Transcribing…"
-        case .improving:
-            return state.statusMessage.isEmpty ? "Improving…" : state.statusMessage
-        case .done:         return "Done"
-        case .error:        return state.statusMessage.isEmpty ? "Error" : state.statusMessage
+        case .improving: return state.statusMessage.isEmpty ? "Improving…" : state.statusMessage
+        case .done: return "Done — text inserted"
+        case .error: return state.statusMessage.isEmpty ? "Something went wrong" : state.statusMessage
         }
     }
 
-    // MARK: Statistics
-    private var statsGrid: some View {
-        let stats = computeStats()
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: Tokens.Space.x4)], spacing: Tokens.Space.x4) {
-            StatCard(title: "Transcripts", value: "\(stats.total)", icon: "doc.text.fill")
-            StatCard(title: "Today", value: "\(stats.today)", icon: "calendar")
-            StatCard(title: "Words", value: stats.words, icon: "character.book.closed")
-            StatCard(title: "Dictionary fixes", value: "\(stats.corrections)", icon: "wand.and.stars")
-            StatCard(title: "Active model", value: WhisperModelOption.find(id: settings.modelId).display, icon: "cpu")
-            StatCard(title: "This week", value: "\(stats.week)", icon: "chart.bar.fill")
+    private var modelProgressCard: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
+            HStack(spacing: Tokens.Space.x2) {
+                ProgressView().controlSize(.small)
+                Text(state.isDownloading
+                     ? (state.downloadLabel.isEmpty ? "Downloading model…" : state.downloadLabel)
+                     : (state.modelLoadPhase.isEmpty ? "Loading model…" : state.modelLoadPhase))
+                    .font(Tokens.TypeScale.callout)
+                    .foregroundStyle(Tokens.Color.textSec)
+                Spacer(minLength: 0)
+                Text("\(Int(((state.isDownloading ? state.displayProgress : state.modelLoadProgress) * 100).rounded()))%")
+                    .font(Tokens.TypeScale.callout).monospacedDigit()
+                    .foregroundStyle(Tokens.Color.textTert)
+            }
+            ProgressView(value: max(state.isDownloading ? state.displayProgress : state.modelLoadProgress, 0.02))
+                .tint(Tokens.Color.accent)
+            if state.isDownloading, !state.downloadDetailText.isEmpty {
+                Text(state.downloadDetailText)
+                    .font(Tokens.TypeScale.caption).monospacedDigit()
+                    .foregroundStyle(Tokens.Color.textTert)
+            }
+        }
+        .card(radius: Tokens.Radius.md)
+    }
+
+    // MARK: Stats
+
+    private var statsStrip: some View {
+        let s = computeStats()
+        return VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+            Text("YOUR ACTIVITY")
+                .font(Tokens.TypeScale.eyebrow).tracking(1.2)
+                .foregroundStyle(Tokens.Color.textTert)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: Tokens.Space.x3)],
+                      spacing: Tokens.Space.x3) {
+                StatCard(title: "Transcripts", value: "\(s.total)", icon: "text.quote")
+                StatCard(title: "Today", value: "\(s.today)", icon: "sun.max")
+                StatCard(title: "This week", value: "\(s.week)", icon: "calendar")
+                StatCard(title: "Words dictated", value: s.words, icon: "textformat.abc")
+                StatCard(title: "Dictionary fixes", value: "\(s.corrections)", icon: "wand.and.sparkles")
+                StatCard(title: "Active model", value: WhisperModelOption.find(id: settings.modelId).display, icon: "cpu")
+            }
         }
     }
 
-    // MARK: Recent transcripts
+    // MARK: Recent
+
     private var recentSection: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            Text("Recent")
-                .font(Tokens.TypeScale.title2)
-                .foregroundStyle(Tokens.Color.text)
-            if history.records.isEmpty {
-                Text(settings.liveDictation
-                ? "No transcripts yet. Press \(settings.hotkeyDisplay), speak, press again to stop."
-                : "No transcripts yet. Hold \(settings.hotkeyDisplay) and speak.")
-                    .font(Tokens.TypeScale.callout)
+            HStack {
+                Text("RECENT")
+                    .font(Tokens.TypeScale.eyebrow).tracking(1.2)
                     .foregroundStyle(Tokens.Color.textTert)
-                    .padding(Tokens.Space.x4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .glassRow()
+                Spacer()
+                if !history.records.isEmpty {
+                    Button("See all") { nav = .transcripts }
+                        .buttonStyle(.plain)
+                        .font(Tokens.TypeScale.micro)
+                        .foregroundStyle(Tokens.Color.accent)
+                }
+            }
+            if history.records.isEmpty {
+                EmptyStateView(
+                    icon: "waveform",
+                    title: "No transcripts yet",
+                    message: settings.liveDictation
+                        ? "Press \(settings.hotkeyDisplay), speak, then press again to stop."
+                        : "Hold \(settings.hotkeyDisplay) anywhere and start talking."
+                )
+                .frame(height: 220)
+                .card(padding: nil)
             } else {
                 VStack(spacing: Tokens.Space.x2) {
-                    ForEach(Array(history.records.prefix(5))) { rec in
-                        TranscriptRow(rec: rec, copied: copiedID == rec.id,
-                                      copyAction: { copy(rec) })
-                            .glassRow()
+                    ForEach(Array(history.records.prefix(4))) { rec in
+                        TranscriptRow(rec: rec, copied: copiedID == rec.id, copyAction: { copy(rec) })
+                            .padding(Tokens.Space.x3)
+                            .card(radius: Tokens.Radius.md, padding: nil, elevated: false)
                             .contextMenu {
                                 Button("Copy") { copy(rec) }
-                                Button("Copy Raw") { copyRaw(rec) }
+                                Button("Copy raw") { copyRaw(rec) }
                                 Divider()
                                 Button("Delete", role: .destructive) { history.delete(rec) }
                             }
@@ -318,32 +402,25 @@ struct HomeView: View {
         }
     }
 
-    // MARK: Stats computation
     private func computeStats() -> (total: Int, today: Int, week: Int, words: String, corrections: Int) {
         let recs = history.records
-        let total = recs.count
         let cal = Calendar.current
         let now = Date()
         let startOfToday = cal.startOfDay(for: now)
-        let startOfWeek = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now))!
+        let startOfWeek = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)) ?? startOfToday
         let today = recs.filter { $0.createdAt >= startOfToday }.count
         let week = recs.filter { $0.createdAt >= startOfWeek }.count
         let wordCount = recs.reduce(0) { $0 + $1.finalText.split(whereSeparator: { $0.isWhitespace }).count }
         let corrections = recs.reduce(0) { $0 + $1.corrections.count }
-        return (total, today, week, wordCount.formatted(), corrections)
+        return (recs.count, today, week, wordCount.formatted(), corrections)
     }
 
-    // MARK: Actions
-    private func toggleRecord() {
-        NotificationCenter.default.post(name: .toggleRecord, object: nil)
-    }
+    private func toggleRecord() { NotificationCenter.default.post(name: .toggleRecord, object: nil) }
     private func copy(_ rec: TranscriptRecord) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(rec.finalText, forType: .string)
         copiedID = rec.id
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            if copiedID == rec.id { copiedID = nil }
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { if copiedID == rec.id { copiedID = nil } }
     }
     private func copyRaw(_ rec: TranscriptRecord) {
         NSPasteboard.general.clearContents()
@@ -351,7 +428,7 @@ struct HomeView: View {
     }
 }
 
-/// A small statistic tile for the Home page.
+/// A minimal stat cell.
 struct StatCard: View {
     let title: String
     let value: String
@@ -359,109 +436,87 @@ struct StatCard: View {
     @ObservedObject private var theme = Tokens.ThemeManager.shared
 
     var body: some View {
-        let _ = theme.theme   // re-render when the theme changes
+        let _ = theme.theme
         VStack(alignment: .leading, spacing: Tokens.Space.x2) {
-            HStack {
-                Image(systemName: icon)
-                    .font(.system(size: 14))
-                    .foregroundStyle(Tokens.Color.accent)
-                Spacer(minLength: 0)
-            }
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Tokens.Color.accent)
             Text(value)
                 .font(Tokens.TypeScale.title1)
                 .foregroundStyle(Tokens.Color.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                .lineLimit(1).minimumScaleFactor(0.5)
             Text(title)
                 .font(Tokens.TypeScale.caption)
                 .foregroundStyle(Tokens.Color.textTert)
         }
         .padding(Tokens.Space.x4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassSurface()
+        .card(radius: Tokens.Radius.md, padding: nil, elevated: false)
     }
 }
 
-// MARK: - Transcripts (moved to sidebar, req 3)
+// MARK: - Transcripts
+
 struct TranscriptsView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
     @ObservedObject private var history = HistoryStore.shared
-    @State private var selected: UUID?
     @State private var copiedID: UUID?
     @State private var confirmClear = false
 
     var body: some View {
-        Group {
-            if history.filtered().isEmpty {
-                emptyState
-            } else {
-                List(selection: $selected) {
-                    ForEach(history.filtered()) { rec in
-                        TranscriptRow(rec: rec, copied: copiedID == rec.id,
-                                      copyAction: { copy(rec) })
-                            .tag(rec.id)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: Tokens.Space.x2, leading: Tokens.Space.x3,
-                                                      bottom: Tokens.Space.x2, trailing: Tokens.Space.x3))
-                            .contextMenu {
-                                Button("Copy") { copy(rec) }
-                                Button("Copy Raw") { copyRaw(rec) }
-                                Divider()
-                                Button("Delete", role: .destructive) { history.delete(rec) }
-                            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: Tokens.Space.x5) {
+                SectionHeader("Transcripts",
+                              eyebrow: "\(history.records.count) saved",
+                              subtitle: "Every dictation, with its raw text and dictionary fixes.") {
+                    if !history.records.isEmpty {
+                        Button(role: .destructive) { confirmClear = true } label: {
+                            Label("Clear all", systemImage: "trash")
+                        }
+                        .secondaryAction()
                     }
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-            }
-        }
-        // Native toolbar search field + actions — the window toolbar renders
-        // as Liquid Glass on macOS 26, so this replaces the old hand-drawn
-        // header row. No opaque backgrounds: the window itself is glass.
-        .searchable(text: $history.search, placement: .toolbar,
-                    prompt: "Search transcripts")
-        .toolbar {
-            ToolbarItem {
-                if history.search.isEmpty {
-                    // Destructive: a wayward click must not wipe the whole
-                    // archive, so confirm first.
-                    Button("Clear All…", role: .destructive) { confirmClear = true }
-                        .disabled(history.records.isEmpty)
-                } else {
-                    Button("Clear Matches") { history.clearFiltered() }
-                }
-            }
-        }
-        .confirmationDialog("Clear all transcripts?",
-                            isPresented: $confirmClear,
-                            titleVisibility: .visible) {
-            Button("Clear All Transcripts", role: .destructive) { history.clear() }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This permanently deletes all \(history.records.count) transcripts from history.")
-        }
-    }
 
-    private var emptyState: some View {
-        VStack(spacing: Tokens.Space.x3) {
-            Spacer()
-            Image(systemName: "doc.text")
-                .font(.system(size: 36))
-                .foregroundStyle(Tokens.Color.textTert)
-            Text(history.search.isEmpty ? "No transcripts yet." : "No matches for “\(history.search)”.")
-                .font(Tokens.TypeScale.callout)
-                .foregroundStyle(Tokens.Color.textTert)
-            // Give the empty state a way forward instead of a dead end.
-            if history.search.isEmpty {
-                Button("Start Recording") {
-                    NotificationCenter.default.post(name: .toggleRecord, object: nil)
+                SearchField(text: $history.search, prompt: "Search transcripts")
+
+                if history.filtered().isEmpty {
+                    EmptyStateView(
+                        icon: "text.magnifyingglass",
+                        title: history.search.isEmpty ? "Nothing here yet" : "No matches",
+                        message: history.search.isEmpty
+                            ? "Your dictations will show up here."
+                            : "Try a different search.",
+                        actionTitle: history.search.isEmpty ? "Start recording" : nil,
+                        action: history.search.isEmpty ? { NotificationCenter.default.post(name: .toggleRecord, object: nil) } : nil
+                    )
+                    .frame(minHeight: 320)
+                    .card(padding: nil)
+                } else {
+                    VStack(spacing: Tokens.Space.x2) {
+                        ForEach(history.filtered()) { rec in
+                            TranscriptRow(rec: rec, copied: copiedID == rec.id, copyAction: { copy(rec) })
+                                .padding(Tokens.Space.x3)
+                                .card(radius: Tokens.Radius.md, padding: nil, elevated: false)
+                                .contextMenu {
+                                    Button("Copy") { copy(rec) }
+                                    Button("Copy raw") { copyRaw(rec) }
+                                    Divider()
+                                    Button("Delete", role: .destructive) { history.delete(rec) }
+                                }
+                        }
+                    }
                 }
-                .padding(.top, Tokens.Space.x1)
             }
-            Spacer()
+            .padding(Tokens.Space.x8)
+            .frame(maxWidth: 940, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .scrollIndicators(.never)
+        .confirmationDialog("Clear all transcripts?", isPresented: $confirmClear, titleVisibility: .visible) {
+            Button("Clear \(history.records.count) transcripts", role: .destructive) { history.clear() }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     private func copy(_ rec: TranscriptRecord) {
@@ -476,7 +531,8 @@ struct TranscriptsView: View {
     }
 }
 
-// MARK: - Dictionary (moved to sidebar, req 3)
+// MARK: - Dictionary
+
 struct DictView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
@@ -486,52 +542,52 @@ struct DictView: View {
     @State private var editingEntry: DictEntry?
 
     var body: some View {
-        Group {
-            if !dict.warnings.isEmpty { warningsBanner }
-
-            if dict.filtered().isEmpty {
-                VStack(spacing: Tokens.Space.x3) {
-                    Spacer()
-                    Image(systemName: "book.closed")
-                        .font(.system(size: 36)).foregroundStyle(Tokens.Color.textTert)
-                    Text("No entries yet. Add a term or a correction — e.g. “cloud code” → “Claude Code”.")
-                        .font(Tokens.TypeScale.callout).foregroundStyle(Tokens.Color.textTert)
-                        .multilineTextAlignment(.center).padding(.horizontal, Tokens.Space.x6)
-                    Spacer()
+        ScrollView {
+            VStack(alignment: .leading, spacing: Tokens.Space.x5) {
+                SectionHeader("Dictionary",
+                              eyebrow: "\(dict.entries.count) entries",
+                              subtitle: "Teach it names it mishears, and fix phrases automatically.") {
+                    Button { addEntry() } label: { Label("Add entry", systemImage: "plus") }
+                        .primaryAction()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List {
-                    ForEach(dict.filtered()) { e in
-                        DictRow(entry: e)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: Tokens.Space.x2, leading: Tokens.Space.x3,
-                                                      bottom: Tokens.Space.x2, trailing: Tokens.Space.x3))
-                            .contextMenu {
-                                Button("Edit") { editEntry(e) }
-                                Divider()
-                                Button("Delete", role: .destructive) { dict.remove(e) }
-                            }
+
+                SearchField(text: $dict.search, prompt: "Search dictionary")
+
+                if !dict.warnings.isEmpty { warningsBanner }
+
+                if dict.filtered().isEmpty {
+                    EmptyStateView(
+                        icon: "character.book.closed",
+                        title: dict.search.isEmpty ? "No entries yet" : "No matches",
+                        message: dict.search.isEmpty
+                            ? "Add a word to recognize, or a correction like “cloud code” → “Claude Code”."
+                            : "Try a different search.",
+                        actionTitle: dict.search.isEmpty ? "Add your first entry" : nil,
+                        action: dict.search.isEmpty ? { addEntry() } : nil
+                    )
+                    .frame(minHeight: 320)
+                    .card(padding: nil)
+                } else {
+                    VStack(spacing: Tokens.Space.x2) {
+                        ForEach(dict.filtered()) { e in
+                            DictRow(entry: e)
+                                .padding(Tokens.Space.x3)
+                                .card(radius: Tokens.Radius.md, padding: nil, elevated: false)
+                                .onTapGesture { editEntry(e) }
+                                .contextMenu {
+                                    Button("Edit") { editEntry(e) }
+                                    Divider()
+                                    Button("Delete", role: .destructive) { dict.remove(e) }
+                                }
+                        }
                     }
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
             }
+            .padding(Tokens.Space.x8)
+            .frame(maxWidth: 940, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
-        // Native toolbar search field + Add action — Liquid Glass toolbar on
-        // macOS 26; replaces the old hand-drawn header row. The warnings
-        // banner stays above the list (see the layout-bug note below).
-        .searchable(text: $dict.search, placement: .toolbar,
-                    prompt: "Search dictionary")
-        .toolbar {
-            ToolbarItem {
-                Button {
-                    addEntry()
-                } label: {
-                    Label("Add", systemImage: "plus")
-                }
-            }
-        }
+        .scrollIndicators(.never)
         .sheet(isPresented: $showEditor) {
             DictEditor(entry: editingEntry ?? DictEntry(kind: .term, phrase: "", replacement: ""),
                        onSave: { newEntry in
@@ -550,25 +606,46 @@ struct DictView: View {
                     .font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.warn)
                 Spacer()
             }
-            // NOTE: no `.fixedSize` here. A fixedSize Text in the fixed
-            // (non-scrolling) section of a NavigationSplitView detail column,
-            // directly above a List, triggers a macOS SwiftUI layout bug: the
-            // column loses its height proposal and the whole view is laid out
-            // centered far off-window (renders blank). Plain Text wraps fine.
             ForEach(Array(dict.warnings.prefix(2))) { w in
                 Text("• " + w.message)
                     .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
             }
         }
         .padding(Tokens.Space.x3)
-        .background(Tokens.Color.warn.opacity(0.12))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Tokens.Color.warn.opacity(0.12), in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous).strokeBorder(Tokens.Color.warn.opacity(0.25), lineWidth: 1))
     }
 
     private func addEntry() { editingEntry = DictEntry(kind: .term, phrase: "", replacement: ""); showEditor = true }
     private func editEntry(_ e: DictEntry) { editingEntry = e; showEditor = true }
 }
 
-private func fmt(_ t: TimeInterval) -> String {
-    let s = Int(t)
-    return String(format: "%d:%02d", s / 60, s % 60)
+/// The one in-content search field for the whole app.
+struct SearchField: View {
+    @Binding var text: String
+    var prompt: String
+
+    var body: some View {
+        HStack(spacing: Tokens.Space.x2) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Tokens.Color.textTert)
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain)
+                .font(Tokens.TypeScale.body)
+                .foregroundStyle(Tokens.Color.text)
+            if !text.isEmpty {
+                Button { text = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(Tokens.Color.textTert)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, Tokens.Space.x3)
+        .padding(.vertical, 9)
+        .background(Tokens.Color.fillQuiet, in: Capsule())
+        .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+        .frame(maxWidth: 420)
+    }
 }

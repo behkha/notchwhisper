@@ -202,13 +202,6 @@ private func tintColor(_ tint: (r: Double, g: Double, b: Double)?) -> SwiftUI.Co
     return SwiftUI.Color(red: tint.r, green: tint.g, blue: tint.b)
 }
 
-/// RGB triple of the resolved visualizer color (theme accent or glow tint),
-/// for Canvas shaders that need channel math.
-private func colorTriple(_ tint: (r: Double, g: Double, b: Double)?) -> (r: Double, g: Double, b: Double) {
-    if let tint { return tint }
-    return Tokens.Theme.current.accentRGB
-}
-
 // MARK: - Bar (agent-audio-visualizer-bar)
 
 /// Five rounded bars, center-aligned. Idle bars are square dots at 10%
@@ -529,16 +522,17 @@ private struct LKWaveVisualizer: View {
 
 // MARK: - Aura (agent-audio-visualizer-aura)
 
-/// Canvas approximation of the Unicorn Studio turbulence shader behind the
-/// LiveKit Aura component (the real thing is GLSL; no Metal compiler ships
-/// with Command Line Tools, so it can't be compiled here). 26 additively
-/// blended distorted rings — each displaced by a 4-layer sinusoidal
-/// turbulence cascade, matching the shader's frequency growth (×1.4/layer)
-/// and iteration spacing — form the organic glowing field. State parameters
-/// (speed / scale / amplitude / frequency / brightness) are the exact
-/// values from use-agent-audio-visualizer-aura.ts, including the thinking
-/// brightness pulse (0.5↔2.5) and speaking scale (0.2 + 0.24·v, with
-/// amplitude and brightness also voice-reactive).
+/// Faithful port of LiveKit Agents-UI's *prebuilt* Aura component
+/// (docs.livekit.io/frontends/agents-ui/audio-visualizer/prebuilt): a single
+/// soft, heavily-blurred glowing orb — NOT concentric rings. LiveKit builds it
+/// from a `rounded-full` element with a large blur and the agent color, whose
+/// SCALE and OPACITY track volume while speaking, with a gentle idle breath in
+/// the other states.
+///
+/// Here that's a stack of a few offset radial-gradient lobes drawn into a
+/// blurred Canvas layer: the offsets orbit slowly so the blob morphs
+/// organically, and `voice` drives the overall scale (0.55→1.0) and brightness
+/// exactly like the web component's `--lk-va-scale` / opacity bindings.
 private struct LKAuraVisualizer: View {
     let state: VisualizerAgentState
     let heights: [CGFloat]
@@ -547,38 +541,8 @@ private struct LKAuraVisualizer: View {
     let tint: (r: Double, g: Double, b: Double)?
     let t: TimeInterval
 
-    /// Light, hue-drifted companion of the base color for per-layer
-    /// variation (was LiveKit's fixed cyan→blue pair; now theme-derived).
-    /// Pure RGB→HSV→RGB math — no AppKit color-space pitfalls.
-    private static func companion(_ c: (r: Double, g: Double, b: Double)) -> (r: Double, g: Double, b: Double) {
-        let mx = max(c.r, c.g, c.b), mn = min(c.r, c.g, c.b)
-        let d = mx - mn
-        var h: Double = 0
-        if d > 0 {
-            if mx == c.r { h = (c.g - c.b) / d + (c.g < c.b ? 6 : 0) }
-            else if mx == c.g { h = (c.b - c.r) / d + 2 }
-            else { h = (c.r - c.g) / d + 4 }
-            h /= 6
-        }
-        let s = mx == 0 ? 0 : d / mx
-        let v = min(1, mx + 0.1)                    // slightly lighter
-        let s2 = s * 0.8                            // slightly softer
-        let hue = (h + 0.06).truncatingRemainder(dividingBy: 1.0)
-        let i = Int(hue * 6) % 6
-        let f = hue * 6 - Double(Int(hue * 6))
-        let p = v * (1 - s2), q = v * (1 - f * s2), tt = v * (1 - (1 - f) * s2)
-        switch i {
-        case 0:  return (v, tt, p)
-        case 1:  return (q, v, p)
-        case 2:  return (p, v, tt)
-        case 3:  return (p, q, v)
-        case 4:  return (tt, p, v)
-        default: return (v, p, q)
-        }
-    }
-
-    /// Voice level 0…1 with the noise floor cut off — same rationale and
-    /// gain as the Wave: silence must settle, speech must fill the range.
+    /// Voice level 0…1 with the noise floor cut off — silence settles, speech
+    /// fills the range (same treatment as the Wave).
     private var voice: Double {
         let mean = heights.isEmpty ? CGFloat(0) : heights.reduce(0, +) / CGFloat(heights.count)
         let raw = Double(max(energy, mean * 1.5))
@@ -587,103 +551,69 @@ private struct LKAuraVisualizer: View {
 
     var body: some View {
         Canvas { context, size in
-            let speed: Double
+            let side = min(size.width, size.height)
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let color = tintColor(tint)
+
+            // Per-state scale + brightness (mirrors the web component bindings).
             let scale: Double
-            let amp: Double
-            let freq: Double
             let brightness: Double
             switch state {
             case .speaking:
-                // Voice-reactive: the field grows, brightens, and gets more
-                // turbulent as you speak louder. Speed stays CONSTANT (see
-                // the Wave note — a varying rate against absolute time
-                // strobes); voice drives size, turbulence, and brightness,
-                // and the noise-floor gate makes silence a slow, dim breath.
-                let v = pow(voice, 0.65)
-                speed = 25
-                scale = 0.2 + 0.26 * v
-                amp = 0.75 + 0.5 * v
-                freq = 1.25
-                brightness = 1.5 + 1.7 * v
+                let v = pow(voice, 0.6)
+                scale = 0.55 + 0.45 * v
+                brightness = 0.45 + 0.55 * v
             case .listening:
-                speed = 20; scale = 0.3; amp = 1.0; freq = 0.7
-                brightness = 1.75 + 0.25 * sin(t * 2 * .pi / 0.7)
+                let breath = 0.5 + 0.5 * sin(t * 2 * .pi / 2.4)
+                scale = 0.6 + 0.06 * breath
+                brightness = 0.4 + 0.14 * breath
             case .thinking, .connecting:
-                speed = 30; scale = 0.3; amp = 0.5; freq = 1.0
-                brightness = 1.5 + 1.0 * sin(t * 2 * .pi / 0.7)
+                let pulse = 0.5 + 0.5 * sin(t * 2 * .pi / 0.9)
+                scale = 0.58 + 0.05 * pulse
+                brightness = 0.34 + 0.34 * pulse
             }
 
-            let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            let side = min(size.width, size.height)
-            let baseR = side * scale * 0.9
-            let evolve = t * speed * 0.03
-            let baseF = 2.0 + 13.0 * freq            // shader: mix(2, 15, uFrequency)
-            let norm = max(0, brightness) / 2.5
-            let layers = 26
+            let baseR = side * 0.42 * scale
 
-            // Theme-driven layer colors: the resolved accent (or glow heat)
-            // drifting toward a light, hue-shifted companion per layer.
-            let baseC = colorTriple(tint)
-            let shifted = Self.companion(baseC)
+            // Heavy blur → the soft-orb look. Everything is additive so the
+            // overlapping lobes bloom into one glowing mass.
+            var glow = context
+            glow.addFilter(.blur(radius: side * 0.14))
+            glow.blendMode = .plusLighter
 
-            context.blendMode = .plusLighter
-
-            var bloom = context
-            bloom.addFilter(.blur(radius: 5))
-            bloom.opacity = 0.5
-
-            for pass in 0..<2 {                       // 0 = bloom, 1 = crisp
-                let ctx = pass == 0 ? bloom : context
-                for k in 0..<layers {
-                    let iter = Double(k) / Double(layers)
-                    let phaseK = iter * .pi           // shader uSpacing 0.5 → ≈π
-                    // Per-layer hue drift (shader uColorShift).
-                    let mixV = (1 - iter) * 0.35
-                    let col = SwiftUI.Color(
-                        red: baseC.r + (shifted.r - baseC.r) * mixV,
-                        green: baseC.g + (shifted.g - baseC.g) * mixV,
-                        blue: baseC.b + (shifted.b - baseC.b) * mixV
+            // Three slowly-orbiting lobes + a bright core.
+            let lobes = 3
+            for i in 0..<lobes {
+                let phase = t * 0.5 + Double(i) * (2 * .pi / Double(lobes))
+                let wobble = side * 0.08 * (0.5 + 0.5 * scale)
+                let lc = CGPoint(x: center.x + cos(phase) * wobble,
+                                 y: center.y + sin(phase * 1.3) * wobble)
+                let r = baseR * (0.82 + 0.18 * sin(phase * 1.7))
+                glow.fill(
+                    Path(ellipseIn: CGRect(x: lc.x - r, y: lc.y - r, width: r * 2, height: r * 2)),
+                    with: .radialGradient(
+                        Gradient(colors: [
+                            color.opacity(0.55 * brightness),
+                            color.opacity(0.18 * brightness),
+                            .clear,
+                        ]),
+                        center: lc, startRadius: 0, endRadius: r
                     )
-                    let alpha = pass == 0 ? 0.04 + 0.16 * norm : 0.03 + 0.18 * norm
-
-                    var ring = Path()
-                    let steps = 64
-                    for s in 0...steps {
-                        let theta = Double(s) / Double(steps) * 2 * .pi
-                        // 4-layer turbulence cascade.
-                        var f = baseF
-                        var a = amp * 0.13
-                        var disp = 0.0
-                        for L in 0..<4 {
-                            disp += a * sin(f * cos(theta + Double(L) * 1.9)
-                                            + evolve * (0.6 + 0.4 * Double(L))
-                                            + phaseK * (1 + 0.3 * Double(L)))
-                            f *= 1.4
-                            a *= 0.72
-                        }
-                        let rr = baseR * (1 + max(-0.33, min(0.33, disp)))
-                        let pt = CGPoint(x: center.x + cos(theta + iter * 0.6) * rr,
-                                         y: center.y + sin(theta + iter * 0.6) * rr)
-                        if s == 0 { ring.move(to: pt) } else { ring.addLine(to: pt) }
-                    }
-                    ring.closeSubpath()
-                    ctx.stroke(ring, with: .color(col.opacity(alpha)),
-                               lineWidth: pass == 0 ? 3.5 : 1.1)
-                }
+                )
             }
-
-            // Soft core glow.
-            let glowR = baseR * 0.55
-            context.fill(
-                Path(ellipseIn: CGRect(x: center.x - glowR, y: center.y - glowR,
-                                       width: glowR * 2, height: glowR * 2)),
+            // Bright, tighter core so the centre reads as light, not haze.
+            let coreR = baseR * 0.5
+            glow.fill(
+                Path(ellipseIn: CGRect(x: center.x - coreR, y: center.y - coreR,
+                                       width: coreR * 2, height: coreR * 2)),
                 with: .radialGradient(
-                    Gradient(colors: [tintColor(tint).opacity(0.04 + 0.10 * norm), .clear]),
-                    center: center, startRadius: 0, endRadius: glowR
+                    Gradient(colors: [color.opacity(0.9 * brightness), color.opacity(0.0)]),
+                    center: center, startRadius: 0, endRadius: coreR
                 )
             )
         }
         .animation(nil, value: heights)
+        .animation(nil, value: energy)
     }
 }
 

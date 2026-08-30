@@ -55,7 +55,7 @@ enum HFModelSearch {
     /// usable for voice-to-text in this app.
     static func search(_ query: String, limit: Int = 30) async throws -> [Repo] {
         var comps = URLComponents(string: "https://huggingface.co/api/models")!
-        var items: [URLQueryItem] = [
+        let items: [URLQueryItem] = [
             URLQueryItem(name: "search", value: query),
             // Only automatic-speech-recognition models, CoreML-packaged:
             // anything else cannot be loaded by WhisperKit.

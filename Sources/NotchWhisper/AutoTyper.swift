@@ -12,6 +12,12 @@ import Carbon
 /// to keystrokes. That broke terminals silently: setting kAXValue on
 /// Terminal's text area "succeeds" but edits the on-screen buffer without
 /// sending anything to the pty, so the shell never saw the text.
+///
+/// Threading: the actual keystroke loop (with its per-character pacing sleep)
+/// runs on a private SERIAL queue, never the caller's thread. Callers are on
+/// the MainActor — a synchronous 1 ms-per-char sleep there froze the UI and
+/// the live-dictation tick loop for the duration of every inserted phrase.
+/// The serial queue also guarantees deltas are typed in the order enqueued.
 enum AutoTyper {
     /// Whether the Accessibility permission has been granted.
     static var isTrusted: Bool {
@@ -20,13 +26,31 @@ enum AutoTyper {
         ] as CFDictionary)
     }
 
-    /// Types `text` into the focused target. Returns the path taken, for
-    /// diagnostics: "empty", "untrusted", or "cgevent".
+    private static let queue = DispatchQueue(label: "com.behkha.notchwhisper.autotyper", qos: .userInitiated)
+
+    /// Enqueues `text` to be typed into the focused target. Returns immediately.
+    /// The returned path is for diagnostics: "empty", "untrusted", or "queued".
+    /// (Trust is re-checked on the queue right before typing too, so a grant
+    /// made between enqueue and execution still works.)
     @discardableResult
     static func type(_ text: String) -> String {
         guard !text.isEmpty else { return "empty" }
         guard isTrusted else { return "untrusted" }
+        queue.async { typeNow(text) }
+        return "queued"
+    }
 
+    /// Synchronous variant for the one-shot CLI/test entry points (`main.swift`
+    /// `--type-test`), where blocking is fine and the process exits right after.
+    @discardableResult
+    static func typeBlocking(_ text: String) -> String {
+        guard !text.isEmpty else { return "empty" }
+        guard isTrusted else { return "untrusted" }
+        typeNow(text)
+        return "cgevent"
+    }
+
+    private static func typeNow(_ text: String) {
         let lines = text.components(separatedBy: "\n")
         for (index, line) in lines.enumerated() {
             for ch in line {
@@ -35,7 +59,6 @@ enum AutoTyper {
             }
             if index < lines.count - 1 { pressReturn() }
         }
-        return "cgevent"
     }
 
     // MARK: - Synthetic keystrokes (Unicode-string events)

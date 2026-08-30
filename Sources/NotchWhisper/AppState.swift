@@ -35,6 +35,15 @@ enum NotchMode: Equatable {
 
     // MARK: Model lifecycle
     @Published var modelStatus: ModelStatus = .unknown
+    /// True while a model is being loaded into memory (distinct from
+    /// downloading). Drives the "Loading model…" progress bar in the notch,
+    /// Home and Settings.
+    @Published var isLoadingModel = false
+    /// 0…1 progress of the current model load (stepped: specialize → load →
+    /// tokenizer → ready). Not byte-accurate — WhisperKit gives no finer signal.
+    @Published var modelLoadProgress: Double = 0
+    /// Human phase label for the load, e.g. "Specializing for the Neural Engine…".
+    @Published var modelLoadPhase: String = ""
     @Published var isDownloading = false
     @Published var downloadProgress: Double = 0
     @Published var downloadLabel: String = ""
@@ -61,14 +70,20 @@ enum NotchMode: Equatable {
         downloadEtaSeconds = 0
     }
 
-    /// Best-available progress fraction: byte-accurate when a total is known,
-    /// otherwise WhisperKit's (file-count based) fraction. The byte fraction
-    /// and the callback fraction are combined with `max` so a slightly small
-    /// total estimate can never show >100% or stall the bar below completion.
+    /// Best-available progress fraction.
+    ///
+    /// When a real byte total is known (from the HF API) the BYTE fraction is
+    /// the source of truth — WhisperKit's own `downloadProgress` is file-count
+    /// based (one unit per file regardless of size), so it races to ~50% on the
+    /// many tiny config files and then crawls through the multi-hundred-MB
+    /// weight files, which reads as a stuck/lying bar. The byte fraction is held
+    /// just below 100% until WhisperKit confirms every file finished, so the bar
+    /// never claims "done" while data is still moving.
     var displayProgress: Double {
-        let byteFraction = downloadBytesTotal > 0
-            ? min(1, Double(downloadBytesDone) / Double(downloadBytesTotal)) : 0
-        return max(downloadProgress, byteFraction)
+        guard downloadBytesTotal > 0 else { return downloadProgress }
+        let byteFraction = min(1, Double(downloadBytesDone) / Double(downloadBytesTotal))
+        if downloadProgress >= 1.0 { return 1.0 }
+        return min(byteFraction, 0.995)
     }
 
     /// One-line download summary, e.g.

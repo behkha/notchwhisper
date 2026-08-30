@@ -55,7 +55,7 @@ struct NotchView: View {
     @State private var phase: Phase = .compact
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: state.mode == .idle)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: state.mode == .idle && !isBootLoading)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
             GeometryReader { geo in
                 island(t: t)
@@ -64,6 +64,12 @@ struct NotchView: View {
         }
         .onAppear { sync(animated: false) }
         .onChange(of: state.mode) { _, _ in sync(animated: true) }
+        .onChange(of: isBootLoading) { _, _ in sync(animated: true) }
+    }
+
+    /// Idle, but a model download or load is running — show a progress pill.
+    private var isBootLoading: Bool {
+        state.mode == .idle && (state.isDownloading || state.isLoadingModel)
     }
 
     // MARK: - Phase
@@ -78,7 +84,7 @@ struct NotchView: View {
     private var isResult: Bool { state.mode == .done || state.mode == .error }
 
     private func sync(animated: Bool) {
-        let target: Phase = isActive ? .active : (isResult ? .result : .compact)
+        let target: Phase = (isActive || isBootLoading) ? .active : (isResult ? .result : .compact)
         guard target != phase else { return }
         if animated {
             // Respect Reduce Motion: same completion, no spring travel — a
@@ -105,16 +111,19 @@ struct NotchView: View {
             return CGSize(width: 420,
                           height: controller.notchInfo.bandHeight + 78)
         case .result:
-            return CGSize(width: 216,
-                          height: controller.notchInfo.bandHeight + 40)
+            // Errors carry a real message and need room to breathe; "Done" is
+            // a single word and stays compact.
+            return state.mode == .error
+                ? CGSize(width: 360, height: controller.notchInfo.bandHeight + 56)
+                : CGSize(width: 200, height: controller.notchInfo.bandHeight + 40)
         }
     }
 
     private var targetRadius: CGFloat {
         switch phase {
         case .compact: return 16
-        case .active:  return 26
-        case .result:  return 22
+        case .active:  return 30
+        case .result:  return 24
         }
     }
 
@@ -137,14 +146,28 @@ struct NotchView: View {
                 .opacity(haloOpacity)
                 .padding(-12)
 
-            // The solid black silhouette — the UI itself.
+            // The silhouette — the UI itself. A near-black vertical gradient
+            // (not flat) with a soft top light-catch reads as a physical,
+            // glassy object rather than a sticker.
             IslandShape(radius: radius)
-                .fill(.black)
+                .fill(
+                    LinearGradient(
+                        colors: [SwiftUI.Color(red: 0.07, green: 0.07, blue: 0.09), .black],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
                 .overlay(
                     IslandShape(radius: radius)
-                        .strokeBorder(.white.opacity(phase == .compact ? 0 : 0.12), lineWidth: 0.5)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [.white.opacity(phase == .compact ? 0 : 0.18), .white.opacity(0.03)],
+                                startPoint: .top, endPoint: .bottom
+                            ),
+                            lineWidth: 0.75
+                        )
                 )
-                .shadow(color: .black.opacity(0.45), radius: 14, y: 6)
+                .shadow(color: .black.opacity(0.5), radius: 22, y: 10)
+                .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
                 .overlay(
                     content(t: t)
                         // Keep every mode's content BELOW the physical notch
@@ -169,6 +192,11 @@ struct NotchView: View {
 
     /// A spoken summary of the island's current state for VoiceOver.
     private var islandA11yLabel: String {
+        if isBootLoading {
+            return state.isDownloading
+                ? "Downloading model, \(Int((state.displayProgress * 100).rounded())) percent"
+                : "Loading model, \(Int((state.modelLoadProgress * 100).rounded())) percent"
+        }
         switch state.mode {
         case .recording:
             return "Recording, \(elapsed)"
@@ -204,6 +232,10 @@ struct NotchView: View {
                 colors: [.white.opacity(0.9), SwiftUI.Color(red: 0.6, green: 0.82, blue: 1.0)],
                 startPoint: .leading, endPoint: .trailing
             )
+        case .idle where isBootLoading:
+            let c = Tokens.Color.accent
+            return LinearGradient(colors: [c.opacity(0.8), c.opacity(0.5)],
+                                  startPoint: .leading, endPoint: .trailing)
         case .done:
             return LinearGradient(
                 colors: [Tokens.Color.success.opacity(0.9), Tokens.Color.success.opacity(0.6)],
@@ -239,7 +271,7 @@ struct NotchView: View {
         case .transcribing, .improving: return 0.22
         case .done:         return 0.20
         case .error:        return 0.24
-        case .idle:         return 0
+        case .idle:         return isBootLoading ? 0.22 : 0
         }
     }
 
@@ -254,6 +286,61 @@ struct NotchView: View {
 
     @ViewBuilder
     private func content(t: TimeInterval) -> some View {
+        if isBootLoading {
+            bootLoadingContent
+        } else {
+            modeContent(t: t)
+        }
+    }
+
+    /// Notch content while a model downloads / loads at idle (req 3).
+    private var bootLoadingContent: some View {
+        let downloading = state.isDownloading
+        let pct = downloading
+            ? Int((state.displayProgress * 100).rounded())
+            : Int((state.modelLoadProgress * 100).rounded())
+        let label = downloading
+            ? (state.downloadLabel.isEmpty ? "Downloading model…" : state.downloadLabel)
+            : (state.modelLoadPhase.isEmpty ? "Loading model…" : state.modelLoadPhase)
+        return VStack(spacing: 7) {
+            HStack(spacing: 8) {
+                Image(systemName: downloading ? "arrow.down.circle" : "gearshape.2.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                Text(label)
+                    .font(Tokens.TypeScale.notchLabel)
+                    .foregroundStyle(.white.opacity(0.92))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("\(pct)%")
+                    .font(Tokens.TypeScale.notchLabel.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+            GeometryReader { g in
+                let p = downloading ? max(state.displayProgress, 0.01) : max(state.modelLoadProgress, 0.02)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.12))
+                    Capsule().fill(Tokens.Color.accentGradient)
+                        .frame(width: max(4, g.size.width * p))
+                }
+            }
+            .frame(height: 4)
+            .animation(Tokens.Motion.ease, value: state.modelLoadProgress)
+            .animation(Tokens.Motion.ease, value: state.displayProgress)
+            if downloading, !state.downloadDetailText.isEmpty {
+                Text(state.downloadDetailText)
+                    .font(.system(size: 9, weight: .medium, design: .rounded).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder
+    private func modeContent(t: TimeInterval) -> some View {
         switch state.mode {
         case .recording:
             HStack(spacing: 10) {
@@ -359,15 +446,16 @@ struct NotchView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         case .error:
-            HStack(spacing: 7) {
+            HStack(alignment: .top, spacing: 7) {
                 Image(systemName: "exclamationmark.circle.fill")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Tokens.Color.danger)
                 Text(state.statusMessage.isEmpty ? "Error" : state.statusMessage)
                     .font(Tokens.TypeScale.callout)
                     .foregroundStyle(.white.opacity(0.9))
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 18)
             .frame(maxWidth: .infinity, maxHeight: .infinity)

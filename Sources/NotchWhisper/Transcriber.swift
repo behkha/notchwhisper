@@ -11,6 +11,15 @@ import WhisperKit
     private var whisper: WhisperKit?
     private var loadedModelId: String?
 
+    /// The single in-flight load, so concurrent callers (the `.modelChanged`
+    /// notification, `requestDownload`, a dictation start, the launch task)
+    /// share ONE `WhisperKit` construction instead of racing several. Racing
+    /// loads is the "downloaded model doesn't activate until relaunch" bug:
+    /// two concurrent CoreML compiles on the same folder collide, one throws,
+    /// and the failed one is the one whose result the UI observes.
+    private var loadTask: Task<Bool, Never>?
+    private var loadingModelId: String?
+
     var modelDir: URL {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NotchWhisper/Models")
@@ -31,17 +40,90 @@ import WhisperKit
 
     /// Load (downloading if needed) the model selected in settings.
     func ensureLoaded() async -> Bool {
-        if whisper != nil, loadedModelId == settings.modelId, state.modelStatus == .ready {
+        await ensureLoaded(modelId: settings.modelId)
+    }
+
+    /// Load a specific model, coalescing with any in-flight load of the same
+    /// model and cancelling an in-flight load of a *different* one.
+    @discardableResult
+    func ensureLoaded(modelId: String) async -> Bool {
+        if whisper != nil, loadedModelId == modelId, state.modelStatus == .ready {
             return true
         }
-        return await load(modelId: settings.modelId)
+        // Someone is already loading exactly this model → await their result.
+        if let task = loadTask, loadingModelId == modelId {
+            return await task.value
+        }
+        // A load for a different model is running → cancel it, we win.
+        if loadTask != nil, loadingModelId != modelId {
+            loadTask?.cancel()
+            loadTask = nil
+        }
+        loadingModelId = modelId
+        // Transcriber is @MainActor and lives for the whole app lifetime, so
+        // this Task runs on the MainActor and needs no weak capture.
+        let task = Task { () -> Bool in
+            let ok = await self.load(modelId: modelId)
+            if self.loadingModelId == modelId {
+                self.loadTask = nil
+                self.loadingModelId = nil
+            }
+            return ok
+        }
+        loadTask = task
+        return await task.value
+    }
+
+    private func beginLoadProgress(_ label: String) {
+        state.isLoadingModel = true
+        state.modelLoadProgress = 0.05
+        state.modelLoadPhase = "Preparing \(label)…"
+        state.modelStatus = .loading
+        state.statusMessage = "Loading \(label)…"
+    }
+
+    private func endLoadProgress(success: Bool) {
+        state.isLoadingModel = false
+        state.modelLoadProgress = success ? 1.0 : 0
+        state.modelLoadPhase = ""
+    }
+
+    /// Maps WhisperKit's coarse `ModelState` to a stepped 0…1 bar + phrase.
+    /// Static + MainActor so it can be called from the `@Sendable` state
+    /// callback without capturing the (non-Sendable) Transcriber.
+    @MainActor
+    static func reportModelState(_ s: ModelState, label: String) {
+        let st = AppState.shared
+        guard st.isLoadingModel else { return }
+        let (p, phrase): (Double, String)
+        switch s {
+        case .downloading:            (p, phrase) = (0.10, "Downloading \(label)…")
+        case .downloaded:             (p, phrase) = (0.25, "Preparing \(label)…")
+        case .prewarming:             (p, phrase) = (0.45, "Specializing for the Neural Engine…")
+        case .prewarmed:              (p, phrase) = (0.70, "Almost ready…")
+        case .loading:                (p, phrase) = (0.82, "Loading \(label) into memory…")
+        case .loaded:                 (p, phrase) = (1.00, "Ready")
+        case .unloading, .unloaded:   (p, phrase) = (st.modelLoadProgress, st.modelLoadPhase)
+        }
+        if p >= st.modelLoadProgress {
+            st.modelLoadProgress = p
+            st.modelLoadPhase = phrase
+        }
     }
 
     private func load(modelId: String) async -> Bool {
         let label = WhisperModelOption.find(id: modelId).display
         fputs("NotchWhisper: loading model \(label) (\(modelId))...\n", stderr)
-        state.modelStatus = .loading
-        state.statusMessage = "Loading \(label)…"
+        beginLoadProgress(label)
+
+        // Tear down any previously-loaded model first so a stale instance for a
+        // different variant can never be observed as "ready" after a switch.
+        if let old = whisper, loadedModelId != modelId {
+            await old.unloadModels()
+        }
+        whisper = nil
+        loadedModelId = nil
+
         let token = Keychain.getToken()
 
         // Custom HF repo model ("<repoId>:<folder>"): load straight from that
@@ -77,27 +159,11 @@ import WhisperKit
             modelToken: token,
             verbose: false,
             logLevel: .none,
-            load: true
+            prewarm: false,
+            load: false,
+            download: true
         )
-
-        do {
-            let w = try await WhisperKit(cfg)
-            w.modelStateCallback = { _, new in
-                if new == .loaded {
-                    Task { @MainActor in AppState.shared.modelStatus = .ready }
-                }
-            }
-            whisper = w
-            loadedModelId = modelId
-            state.modelStatus = .ready
-            fputs("NotchWhisper: model \(label) loaded OK\n", stderr)
-            return true
-        } catch {
-            state.modelStatus = .error(error.localizedDescription)
-            state.statusMessage = error.localizedDescription
-            fputs("NotchWhisper: model load FAILED: \(error)\n", stderr)
-            return false
-        }
+        return await construct(cfg, modelId: modelId, label: label, origin: "hub")
     }
 
     /// Loads a model folder directly from disk with `download: false` — the
@@ -116,24 +182,44 @@ import WhisperKit
             modelFolder: folderURL.path,
             verbose: false,
             logLevel: .none,
-            load: true,
+            prewarm: false,
+            load: false,
             download: false
         )
+        return await construct(cfg, modelId: modelId, label: label, origin: folderURL.path)
+    }
+
+    /// Builds the WhisperKit pipeline and drives `loadModels()` explicitly so
+    /// the stepped load-progress bar (req 3) reflects real phases. Shared by
+    /// the hub and offline-folder paths.
+    private func construct(_ cfg: WhisperKitConfig, modelId: String, label: String, origin: String) async -> Bool {
         do {
             let w = try await WhisperKit(cfg)
             w.modelStateCallback = { _, new in
-                if new == .loaded {
-                    Task { @MainActor in AppState.shared.modelStatus = .ready }
-                }
+                Task { @MainActor in Transcriber.reportModelState(new, label: label) }
             }
+            if Task.isCancelled { endLoadProgress(success: false); return false }
+            state.modelLoadProgress = max(state.modelLoadProgress, 0.35)
+            state.modelLoadPhase = "Loading \(label)…"
+            // `load: false` above → weights aren't resident yet; do it here so
+            // the callback fires prewarming → loading → loaded in order.
+            try await w.loadModels()
+            if Task.isCancelled { endLoadProgress(success: false); return false }
             whisper = w
             loadedModelId = modelId
             state.modelStatus = .ready
-            fputs("NotchWhisper: model \(label) loaded OK from \(folderURL.path)\n", stderr)
+            endLoadProgress(success: true)
+            state.statusMessage = ""
+            fputs("NotchWhisper: model \(label) loaded OK from \(origin)\n", stderr)
             return true
         } catch {
+            if Task.isCancelled {
+                endLoadProgress(success: false)
+                return false
+            }
             state.modelStatus = .error(error.localizedDescription)
             state.statusMessage = error.localizedDescription
+            endLoadProgress(success: false)
             fputs("NotchWhisper: model load FAILED: \(error)\n", stderr)
             return false
         }
@@ -334,10 +420,15 @@ import WhisperKit
         let repoRoot = modelDir
             .appendingPathComponent("models", isDirectory: true)
             .appendingPathComponent("argmaxinc/whisperkit-coreml", isDirectory: true)
+        // Exact total from the HF API when available (cached), else the
+        // catalog's rough label. The label was off by 2–3× for several tiers,
+        // which made the percentage and "X MB / Y MB" line wrong (req 5).
+        ModelCatalog.shared.refreshIfNeeded()
+        let realTotal = ModelCatalog.shared.downloadTotalBytes(for: option)
         let sampler = startDownloadStatsSampler(
             repoRoot: repoRoot,
             folder: option.folderName,
-            totalBytes: Self.parseSizeLabel(option.size)
+            totalBytes: realTotal
         )
         defer {
             sampler.cancel()
@@ -364,7 +455,7 @@ import WhisperKit
             }
             // Watchdog: cancel the attempt if progress freezes for 45 s.
             let lastProgress = ProgressBox(0, Date())
-            let watchdog = Task { [weak self] in
+            let watchdog = Task {
                 while !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 5_000_000_000)
                     guard !Task.isCancelled else { return }
@@ -479,30 +570,48 @@ import WhisperKit
         // as a bundle's small metadata files (model.mil, metadata.json, …)
         // finish downloading — long before the big weights land — so a
         // name-only check made in-progress downloads read as "Downloaded".
-        // Instead require a populated `weights/` directory inside each of the
-        // three compiled bundles (weight.bin / weight.esbin, whatever the
-        // variant ships).
+        //
+        // Completeness = each of the three compiled bundles exists AND carries
+        // real weight data. Different variants lay weights out differently
+        // (`weights/weight.bin`, `weights/weight.esbin`, or inline in a large
+        // `coremldata.bin` for older ML-program builds), so instead of pinning
+        // one path we require the bundle to hold at least ~256 KB of actual
+        // file data — enough to tell "config only" (a few KB) from "has
+        // weights" without assuming a layout.
         for name in ["AudioEncoder.mlmodelc", "TextDecoder.mlmodelc", "MelSpectrogram.mlmodelc"] {
-            let weightsDir = folder
-                .appendingPathComponent(name, isDirectory: true)
-                .appendingPathComponent("weights", isDirectory: true)
-            guard hasPopulatedWeights(weightsDir) else { return false }
+            let bundle = folder.appendingPathComponent(name, isDirectory: true)
+            let weights = bundle.appendingPathComponent("weights", isDirectory: true)
+            let ok = hasNonEmptyFile(weights) || bundleByteSize(bundle) >= 200 * 1024
+            guard ok else { return false }
         }
         return true
     }
 
     /// True when `dir` contains at least one non-empty regular file.
-    private func hasPopulatedWeights(_ dir: URL) -> Bool {
+    private func hasNonEmptyFile(_ dir: URL) -> Bool {
         guard let en = fileManager.enumerator(
             at: dir, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]
         ) else { return false }
         for case let url as URL in en {
             if let v = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-               v.isRegularFile == true, (v.fileSize ?? 0) > 0 {
-                return true
-            }
+               v.isRegularFile == true, (v.fileSize ?? 0) > 0 { return true }
         }
         return false
+    }
+
+    /// Sum of regular-file bytes anywhere inside a `.mlmodelc` bundle.
+    private func bundleByteSize(_ dir: URL) -> Int64 {
+        guard let en = fileManager.enumerator(
+            at: dir, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey]
+        ) else { return 0 }
+        var total: Int64 = 0
+        for case let url as URL in en {
+            if let v = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+               v.isRegularFile == true {
+                total += Int64(v.fileSize ?? 0)
+            }
+        }
+        return total
     }
 
     /// Models already present on disk AND complete enough to load.

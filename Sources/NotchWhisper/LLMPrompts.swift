@@ -62,6 +62,76 @@ enum LLMMode: String, CaseIterable, Codable, Identifiable {
     var needsCustomInstruction: Bool { self == .custom }
     /// Original = no LLM involved at all (pure passthrough).
     var isPassthrough: Bool { self == .original }
+
+    /// Sampling temperature tuned per mode: structure-only tasks stay near
+    /// deterministic (no room to invent); prose tasks get a little freedom.
+    var temperature: Double {
+        switch self {
+        case .original:              return 0.0
+        case .cleanup, .markdown:    return 0.1
+        case .structured, .actions:  return 0.2
+        case .rewrite, .custom:      return 0.3
+        case .summarize:             return 0.4
+        }
+    }
+
+    /// True when the mode's output is a single coherent document that must be
+    /// re-reduced (not just concatenated) when a long transcript is chunked.
+    var reducesAcrossChunks: Bool {
+        switch self {
+        case .summarize, .actions, .structured: return true
+        default: return false
+        }
+    }
+
+    /// A longer, plain-language explanation of what this mode does — shown in
+    /// Settings so the user understands each choice (req 8).
+    var explanation: String {
+        switch self {
+        case .original:
+            return "No AI is used. The transcription (after dictionary fixes) is typed exactly as the speech model produced it. Fastest, fully offline, no server needed."
+        case .cleanup:
+            return "A light touch-up. Removes “um / uh / you know”, fixes punctuation, capitalization and obvious mis-hearings, and merges broken sentences — but keeps your exact wording and tone. Nothing is reordered or rephrased."
+        case .markdown:
+            return "Formatting only. Adds headings, bullet and numbered lists, checkboxes, code blocks and links where the content naturally calls for them, without changing a single word of what you said. Good for notes and docs."
+        case .rewrite:
+            return "Turns spoken rambling into clean written prose. Fixes grammar, drops filler and repetition, tightens sentences and organizes stray thoughts — while preserving what you meant. The wording will change."
+        case .summarize:
+            return "Condenses a long dictation into a short summary that keeps the key facts, decisions, names and numbers. Best for meetings or long voice memos."
+        case .structured:
+            return "Reorganizes free-form speech into sectioned notes (for example Topic → Key points → Decisions → Questions → Actions), choosing a structure that fits the content. Keeps all the details."
+        case .actions:
+            return "Scans the transcript for tasks, deadlines, follow-ups and decisions and returns them as a checklist. Says so plainly when there are none."
+        case .custom:
+            return "Runs your own instruction against the transcript. Write exactly what you want done — e.g. “Rewrite as a polite Slack message” or “Translate to German and format as bullet points”."
+        }
+    }
+
+    /// A tiny before → after illustration for the picker.
+    var example: (before: String, after: String)? {
+        switch self {
+        case .cleanup:
+            return ("so um i think we should uh ship it on friday you know",
+                    "So I think we should ship it on Friday.")
+        case .markdown:
+            return ("todo one fix the build two update the docs three tag the release",
+                    "TODO:\n1. Fix the build\n2. Update the docs\n3. Tag the release")
+        case .rewrite:
+            return ("the thing is the api is slow because were calling it in a loop basically",
+                    "The API is slow because we call it inside a loop.")
+        case .summarize:
+            return ("long update about the migration, the timeline, blockers, and who owns what…",
+                    "Migration on track for Q3. Blocker: staging DB access. Owner: platform team.")
+        case .actions:
+            return ("remind me to email sarah and we need to book the venue before the 10th",
+                    "- [ ] Email Sarah\n- [ ] Book the venue before the 10th")
+        case .structured:
+            return ("we talked about pricing then the launch date then bugs then next steps",
+                    "## Pricing\n…\n## Launch date\n…\n## Bugs\n…\n## Next steps\n…")
+        default:
+            return nil
+        }
+    }
 }
 
 // MARK: - Prompts
@@ -150,5 +220,38 @@ enum LLMPrompts {
     /// Builds the user message carrying the transcript.
     static func userMessage(for transcript: String) -> String {
         "Transcript:\n\n\(transcript)"
+    }
+
+    /// Second-pass ("reduce") system prompt: merges the per-chunk outputs of a
+    /// long dictation into ONE coherent document. Only used for the modes whose
+    /// result is a single document (summarize / actions / structured) — for the
+    /// others the per-chunk outputs are simply concatenated in order.
+    static func reduceSystemPrompt(for mode: LLMMode, custom: String) -> String {
+        switch mode {
+        case .summarize:
+            return """
+            \(sharedRules)
+            You are given several partial summaries of ONE long dictation, in order. Merge them into a single cohesive summary with no repetition. Keep every important fact, decision, name and number.
+            """
+        case .actions:
+            return """
+            \(sharedRules)
+            You are given several partial action lists extracted from ONE long dictation, in order. Merge them into a single de-duplicated Markdown checklist. If there are genuinely no action items, say so in one line.
+            """
+        case .structured:
+            return """
+            \(sharedRules)
+            You are given several partial sets of structured notes from ONE long dictation, in order. Merge them into a single well-organized document: combine sections with the same heading, keep all details, remove duplication.
+            """
+        default:
+            return systemPrompt(for: mode, custom: custom)
+        }
+    }
+
+    static func reduceUserMessage(for parts: [String]) -> String {
+        let joined = parts.enumerated()
+            .map { "--- Part \($0.offset + 1) ---\n\($0.element)" }
+            .joined(separator: "\n\n")
+        return "Partial results:\n\n\(joined)"
     }
 }

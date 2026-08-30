@@ -128,6 +128,36 @@ final class NotchController: ObservableObject {
                 Task { @MainActor in self?.waveform.appendSamples(chunk) }
             }
             .store(in: &cancellables)
+
+        // Show the pill for a model download / load even while idle, so first
+        // run and model switches get a visible progress bar in the notch
+        // (req 3). Publisher.merge keeps a single sink.
+        state.$isDownloading.map { _ in () }
+            .merge(with: state.$isLoadingModel.map { _ in () })
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                Task { @MainActor in self?.refreshBootLoadingVisibility() }
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Panel visibility for the idle-time "downloading / loading model" state.
+    private func refreshBootLoadingVisibility() {
+        guard state.mode == .idle else { return }
+        if state.isDownloading || state.isLoadingModel {
+            hideWorkItem?.cancel(); hideWorkItem = nil
+            show()
+        } else {
+            let item = DispatchWorkItem { [weak self] in
+                Task { @MainActor in
+                    guard let self, self.state.mode == .idle,
+                          !self.state.isDownloading, !self.state.isLoadingModel else { return }
+                    self.hide()
+                }
+            }
+            hideWorkItem = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: item)
+        }
     }
 
     private func modeChanged(_ mode: NotchMode) {
@@ -151,12 +181,19 @@ final class NotchController: ObservableObject {
                 }
             }
             hideWorkItem = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2, execute: item)
+            // Errors carry a message worth reading; "Done" is a glance.
+            DispatchQueue.main.asyncAfter(deadline: .now() + (mode == .error ? 4.5 : 2.2), execute: item)
         case .idle:
             waveform.stop()
-            // Let the SwiftUI close morph (~0.3s) play before the panel retires.
+            // Let the SwiftUI close morph (~0.3s) play before the panel retires
+            // — unless a model download / load is in progress, which keeps its
+            // own progress pill visible.
             let item = DispatchWorkItem { [weak self] in
-                Task { @MainActor in self?.hide() }
+                Task { @MainActor in
+                    guard let self else { return }
+                    if self.state.isDownloading || self.state.isLoadingModel { return }
+                    self.hide()
+                }
             }
             hideWorkItem = item
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: item)

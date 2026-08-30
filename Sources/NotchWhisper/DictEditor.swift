@@ -1,11 +1,8 @@
 import SwiftUI
 
-/// Add / edit a dictionary entry. Supports both kinds:
-///   - term:        a word/phrase to recognize.
-///   - correction:  "heard" → "wrote".
-/// Shows live warnings so the user sees conflicts before saving.
+/// Add / edit a dictionary entry. Supports both kinds (term, correction) with
+/// live conflict warnings. Rendered as an Aurora sheet.
 struct DictEditor: View {
-    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var dict = DictionaryStore.shared
 
     let entry: DictEntry
@@ -29,66 +26,76 @@ struct DictEditor: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Form {
-                Section(isNew ? "Add Dictionary Entry" : "Edit Entry") {
-                    Picker("Type", selection: $kind) {
-                        Text("Word / phrase").tag(DictEntryKind.term)
-                        Text("Correction").tag(DictEntryKind.correction)
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: kind) { _, _ in validate() }
+        VStack(alignment: .leading, spacing: Tokens.Space.x4) {
+            Text(isNew ? "New dictionary entry" : "Edit entry")
+                .font(Tokens.TypeScale.title2)
+                .foregroundStyle(Tokens.Color.text)
 
-                    if kind == .correction {
-                        TextField("When you hear", text: $phrase, prompt: Text("cloud code"))
-                        TextField("Write instead", text: $replacement, prompt: Text("Claude Code"))
-                    } else {
-                        TextField("Word / phrase", text: $phrase, prompt: Text("Anthropic"))
-                    }
-
-                    TextField("Note (optional)", text: $note, prompt: Text("who/what this is"))
-                }
-
-                if !localWarnings.isEmpty {
-                    Section {
-                        ForEach(localWarnings, id: \.self) { w in
-                            Label {
-                                Text(w).font(Tokens.TypeScale.caption)
-                                    .foregroundStyle(Tokens.Color.textSec)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            } icon: {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(Tokens.Color.warn)
-                                    .font(.system(size: 12))
-                            }
-                        }
-                    }
-                }
+            Picker("", selection: $kind) {
+                Text("Word / phrase").tag(DictEntryKind.term)
+                Text("Correction").tag(DictEntryKind.correction)
             }
-            .formStyle(.grouped)
-            // Let the sheet's glass surface show through.
-            .scrollContentBackground(.hidden)
+            .pickerStyle(.segmented).labelsHidden()
+            .onChange(of: kind) { _, _ in validate() }
+
+            VStack(spacing: Tokens.Space.x3) {
+                if kind == .correction {
+                    field("When you hear", text: $phrase, placeholder: "cloud code")
+                    field("Write instead", text: $replacement, placeholder: "Claude Code")
+                } else {
+                    field("Word or phrase", text: $phrase, placeholder: "Anthropic")
+                }
+                field("Note (optional)", text: $note, placeholder: "who or what this is")
+            }
+
+            if !localWarnings.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(localWarnings, id: \.self) { w in
+                        Label(w, systemImage: "exclamationmark.triangle.fill")
+                            .font(Tokens.TypeScale.caption)
+                            .foregroundStyle(Tokens.Color.warn)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(Tokens.Space.x3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Tokens.Color.warn.opacity(0.12), in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
+            }
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { onCancel() }
+                Button("Cancel") { onCancel() }
+                    .secondaryAction()
                     .keyboardShortcut(.cancelAction)
                 Button("Save") { save() }
+                    .primaryAction()
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSave)
             }
-            .padding(.horizontal, Tokens.Space.x5)
-            .padding(.vertical, Tokens.Space.x4)
         }
-        .frame(width: 460)
+        .padding(Tokens.Space.x6)
+        .frame(width: 440)
+        .background(AuroraBackground())
+        .environment(\.colorScheme, .dark)
+        .tint(Tokens.Color.accent)
         .onAppear { validate() }
         .onChange(of: phrase) { _, _ in validate() }
         .onChange(of: replacement) { _, _ in validate() }
     }
 
-    private var isNew: Bool {
-        !dict.entries.contains { $0.id == entry.id }
+    private func field(_ label: String, text: Binding<String>, placeholder: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
+            TextField(placeholder, text: text)
+                .textFieldStyle(.plain)
+                .font(Tokens.TypeScale.body)
+                .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 9)
+                .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous).strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+        }
     }
+
+    private var isNew: Bool { !dict.entries.contains { $0.id == entry.id } }
 
     private var canSave: Bool {
         let p = phrase.trimmingCharacters(in: .whitespaces)

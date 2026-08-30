@@ -15,8 +15,24 @@ import WhisperKit
 struct ModelsView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
+    @ObservedObject private var catalog = ModelCatalog.shared
 
     @State private var selected: WhisperModelOption?
+    @State private var onlyCompatible = false
+
+    private let hw = HardwareInfo.current
+
+    /// Catalog ordered best-fit-for-this-Mac first, then by accuracy.
+    private var orderedModels: [WhisperModelOption] {
+        let list = onlyCompatible
+            ? WhisperModelOption.all.filter { $0.fit(on: hw) >= .tight }
+            : WhisperModelOption.all
+        return list.sorted { a, b in
+            let fa = a.fit(on: hw), fb = b.fit(on: hw)
+            if fa != fb { return fa > fb }
+            return a.englishWERValue < b.englishWERValue
+        }
+    }
 
     var body: some View {
         if let model = selected {
@@ -25,66 +41,63 @@ struct ModelsView: View {
                 .environmentObject(settings)
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: Tokens.Space.x5) {
-                    header
+                VStack(alignment: .leading, spacing: Tokens.Space.x6) {
+                    SectionHeader("Models", eyebrow: "on-device · private",
+                                  subtitle: "Whisper models run entirely on your Mac. Nothing is uploaded.")
+
+                    hardwareBanner
+
+                    if state.isLoadingModel { ModelLoadBar() }
+
                     HFSearchSection(onUse: { selected = $0 })
-                    builtInHeader
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 260, maximum: 320), spacing: Tokens.Space.x4)],
-                        spacing: Tokens.Space.x4
-                    ) {
-                        ForEach(WhisperModelOption.all) { m in
-                            // A real button, not a tap gesture: keyboard focus,
-                            // VoiceOver traits, and press feedback for free.
-                            Button {
-                                selected = m
-                            } label: {
-                                ModelCard(model: m, isActive: settings.modelId == m.id)
+
+                    VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+                        Text("BUILT-IN CATALOG")
+                            .font(Tokens.TypeScale.eyebrow).tracking(1.2)
+                            .foregroundStyle(Tokens.Color.textTert)
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 270, maximum: 360), spacing: Tokens.Space.x4)],
+                            spacing: Tokens.Space.x4
+                        ) {
+                            ForEach(orderedModels) { m in
+                                Button { selected = m } label: {
+                                    ModelCard(model: m, isActive: settings.modelId == m.id, hw: hw)
+                                }
+                                .buttonStyle(Pressable(scale: 0.985))
                             }
-                            .buttonStyle(Pressable(scale: 0.98))
                         }
                     }
-                    .padding(.horizontal, Tokens.Space.x4)
                 }
-                .padding(.vertical, Tokens.Space.x4)
+                .padding(Tokens.Space.x8)
+                .frame(maxWidth: 1000, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
+            .scrollIndicators(.never)
+            .onAppear { catalog.refreshIfNeeded() }
         }
     }
 
-    private var header: some View {
-        HStack(spacing: Tokens.Space.x2) {
-            Image(systemName: "cpu.fill").foregroundStyle(Tokens.Color.accent)
-            Text("Models")
-                .font(Tokens.TypeScale.largeTitle)
-                .foregroundStyle(Tokens.Color.text)
-            Spacer()
-            Text("Local · on-device · private")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textTert)
-        }
-        .padding(.horizontal, Tokens.Space.x4)
-    }
-
-    private var builtInHeader: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
-            HStack(spacing: Tokens.Space.x2) {
-                Image(systemName: "shippingbox.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Tokens.Color.accent)
-                Text("Built-in catalog")
-                    .font(Tokens.TypeScale.title2)
-                    .foregroundStyle(Tokens.Color.text)
-                Spacer()
-                Text("argmaxinc/whisperkit-coreml")
-                    .font(Tokens.TypeScale.caption)
+    /// This-Mac summary + a filter for models that actually fit it (req 4).
+    private var hardwareBanner: some View {
+        HStack(spacing: Tokens.Space.x3) {
+            IconTile(hw.isAppleSilicon ? "memorychip.fill" : "cpu")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Your Mac")
+                    .font(Tokens.TypeScale.micro)
                     .foregroundStyle(Tokens.Color.textTert)
+                Text(hw.summary)
+                    .font(Tokens.TypeScale.captionSB)
+                    .foregroundStyle(Tokens.Color.text)
             }
-            .padding(.horizontal, Tokens.Space.x4)
-            Text("Tap a card for accuracy, speed, RAM and language details.")
+            Spacer()
+            Toggle("Fits this Mac", isOn: $onlyCompatible)
+                .toggleStyle(.switch)
+                .controlSize(.small)
                 .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textTert)
-                .padding(.horizontal, Tokens.Space.x4)
+                .foregroundStyle(Tokens.Color.textSec)
         }
+        .padding(Tokens.Space.x4)
+        .card(padding: nil, elevated: false)
     }
 }
 
@@ -111,22 +124,19 @@ struct HFSearchSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            HStack(spacing: Tokens.Space.x2) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Tokens.Color.accent)
-                Text("Search Hugging Face")
-                    .font(Tokens.TypeScale.title2)
-                    .foregroundStyle(Tokens.Color.text)
+            HStack {
+                Text("SEARCH HUGGING FACE")
+                    .font(Tokens.TypeScale.eyebrow).tracking(1.2)
+                    .foregroundStyle(Tokens.Color.textTert)
                 Spacer()
                 Text("any Whisper / CoreML speech model")
-                    .font(Tokens.TypeScale.caption)
+                    .font(Tokens.TypeScale.micro)
                     .foregroundStyle(Tokens.Color.textTert)
             }
-            .padding(.horizontal, Tokens.Space.x4)
 
             HStack(spacing: Tokens.Space.x2) {
                 Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Tokens.Color.textTert)
                 TextField("e.g. whisper, distil-whisper, <org>/<model>", text: $query)
                     .textFieldStyle(.plain)
@@ -138,38 +148,34 @@ struct HFSearchSection: View {
                     Button {
                         Task { await runSearch() }
                     } label: {
-                        Image(systemName: "arrow.right.circle.fill").font(.system(size: 20))
+                        Image(systemName: "arrow.right.circle.fill").font(.system(size: 18))
                     }
                     .buttonStyle(Pressable())
                     .foregroundStyle(Tokens.Color.accent)
                     .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
-            .padding(Tokens.Space.x3)
-            // Glass search bar on the window's glass surface.
-            .glassRow(cornerRadius: Tokens.Radius.lg)
-            .padding(.horizontal, Tokens.Space.x4)
+            .padding(.horizontal, Tokens.Space.x3)
+            .padding(.vertical, 9)
+            .background(Tokens.Color.fillQuiet, in: Capsule())
+            .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
 
             if let err = searchError {
                 Label(err, systemImage: "exclamationmark.triangle")
                     .font(Tokens.TypeScale.caption)
                     .foregroundStyle(Tokens.Color.danger)
-                    .padding(.horizontal, Tokens.Space.x4)
             }
 
             if !results.isEmpty {
                 Text("\(results.count) speech-recognition CoreML repos · press ⏎ to refresh")
                     .font(Tokens.TypeScale.micro)
                     .foregroundStyle(Tokens.Color.textTert)
-                    .padding(.horizontal, Tokens.Space.x4)
-            }
-
-            LazyVStack(alignment: .leading, spacing: Tokens.Space.x2) {
-                ForEach(results) { repo in
-                    repoRow(repo)
+                LazyVStack(alignment: .leading, spacing: Tokens.Space.x2) {
+                    ForEach(results) { repo in
+                        repoRow(repo)
+                    }
                 }
             }
-            .padding(.horizontal, Tokens.Space.x4)
         }
     }
 
@@ -367,7 +373,16 @@ struct HFSearchSection: View {
                     if f > p { AppState.shared.downloadProgress = f }
                 }
             }
-            state.showToast("Downloaded \(folder.name). Pick it in the model list above or in Settings.")
+            // Verify the weights actually landed before calling it done, then
+            // activate + load it directly (parity with the built-in path — the
+            // old code just told the user to go pick it manually).
+            if transcriber?.hasLocalModelFolder(folder.name) == true {
+                settings.modelId = modelId
+                _ = await transcriber?.ensureLoaded(modelId: modelId)
+                state.showToast("Downloaded and activated \(folder.name).")
+            } else {
+                state.showToast("Download finished but the model files look incomplete — try again.")
+            }
         } catch {
             state.showToast("Download failed: \(error.localizedDescription)")
         }
@@ -379,11 +394,14 @@ struct ModelCard: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
     @ObservedObject private var theme = Tokens.ThemeManager.shared
+    @ObservedObject private var catalog = ModelCatalog.shared
     let model: WhisperModelOption
     let isActive: Bool
+    var hw: HardwareInfo = .current
 
     var body: some View {
         let _ = theme.theme   // card accent re-tints on theme change
+        let _ = catalog.sizeByFolder
         VStack(alignment: .leading, spacing: Tokens.Space.x3) {
             HStack(alignment: .top, spacing: Tokens.Space.x2) {
                 VStack(alignment: .leading, spacing: Tokens.Space.x1) {
@@ -416,6 +434,8 @@ struct ModelCard: View {
                     .font(.system(size: 18))
                     .foregroundStyle(isActive ? Tokens.Color.success : Tokens.Color.textTert)
             }
+
+            ModelFitBadge(fit: model.fit(on: hw))
 
             Text(model.blurb)
                 .font(Tokens.TypeScale.caption)
@@ -451,7 +471,7 @@ struct ModelCard: View {
             HStack(spacing: Tokens.Space.x2) {
                 Image(systemName: "arrow.down.circle")
                     .font(.system(size: 11)).foregroundStyle(Tokens.Color.textTert)
-                Text(model.size).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
+                Text(catalog.sizeLabel(for: model)).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
                 Spacer(minLength: 0)
                 Image(systemName: model.englishOnly ? "globe.americas" : "globe")
                     .font(.system(size: 11)).foregroundStyle(Tokens.Color.textTert)
@@ -568,6 +588,7 @@ struct AxisMarker: View {
 struct ModelDetailView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
+    @ObservedObject private var catalog = ModelCatalog.shared
     let model: WhisperModelOption
     let onBack: () -> Void
 
@@ -583,42 +604,39 @@ struct ModelDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
+        let _ = catalog.sizeByFolder   // re-render when HF sizes land
+        return ScrollView {
             VStack(alignment: .leading, spacing: Tokens.Space.x5) {
+                Button(action: onBack) {
+                    Label("Models", systemImage: "chevron.left")
+                        .font(Tokens.TypeScale.caption.weight(.semibold))
+                        .foregroundStyle(Tokens.Color.textSec)
+                }
+                .buttonStyle(.plain)
+
                 // Header
-                HStack(spacing: Tokens.Space.x3) {
-                    Button(action: onBack) {
-                        Label("Back to Models", systemImage: "chevron.left")
-                    }
-                    .help("Back to Models")
-                    VStack(alignment: .leading, spacing: Tokens.Space.x1) {
+                HStack(alignment: .top, spacing: Tokens.Space.x3) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(model.quality.uppercased())
+                            .font(Tokens.TypeScale.eyebrow).tracking(1.2)
+                            .foregroundStyle(Tokens.Color.accent)
                         HStack(spacing: Tokens.Space.x2) {
                             Text(model.display)
                                 .font(Tokens.TypeScale.largeTitle)
                                 .foregroundStyle(Tokens.Color.text)
                             if isActive {
-                                Text("ACTIVE")
-                                    .font(Tokens.TypeScale.micro)
-                                    .foregroundStyle(Tokens.Color.success)
-                                    .padding(.horizontal, Tokens.Space.x2)
-                                    .padding(.vertical, Tokens.Space.x1)
-                                    .background(Capsule().fill(Tokens.Color.success.opacity(0.16)))
+                                Chip(text: "Active", tint: Tokens.Color.success)
                             }
                         }
-                        Text(model.quality)
-                            .font(Tokens.TypeScale.captionSB)
-                            .foregroundStyle(Tokens.Color.accent)
                     }
                     Spacer(minLength: 0)
                     statusBadge
                 }
-                .padding(.horizontal, Tokens.Space.x4)
 
                 Text(model.blurb)
                     .font(Tokens.TypeScale.body)
                     .foregroundStyle(Tokens.Color.textSec)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, Tokens.Space.x4)
 
                 // Big metrics
                 HStack(spacing: Tokens.Space.x4) {
@@ -631,11 +649,15 @@ struct ModelDetailView: View {
                 }
                 .padding(.horizontal, Tokens.Space.x4)
 
+                // Compatibility with THIS Mac (req 4)
+                compatibilitySection
+                    .padding(.horizontal, Tokens.Space.x4)
+
                 // Spec grid
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: Tokens.Space.x4)],
                           spacing: Tokens.Space.x4) {
                     SpecTile(title: "Parameters", value: model.params)
-                    SpecTile(title: "Download size", value: model.size)
+                    SpecTile(title: "Download size", value: ModelCatalog.shared.sizeLabel(for: model))
                     SpecTile(title: "Runtime RAM", value: model.ram)
                     SpecTile(title: "English WER", value: model.englishWER)
                     SpecTile(title: "Multilingual WER", value: model.multiWER)
@@ -655,7 +677,7 @@ struct ModelDetailView: View {
                 }
                 .padding(Tokens.Space.x4)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Tokens.Color.surface, in: RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous))
+                .glassSurface()
                 .padding(.horizontal, Tokens.Space.x4)
 
                 // Action
@@ -676,11 +698,58 @@ struct ModelDetailView: View {
                     }
                     .frame(width: 360, alignment: .leading)
                     .padding(.horizontal, Tokens.Space.x4)
+                } else if state.isLoadingModel {
+                    // Load progress (req 3) — shown after a download completes
+                    // and while switching to an already-downloaded model.
+                    ModelLoadBar()
+                        .frame(maxWidth: 420, alignment: .leading)
+                        .padding(.horizontal, Tokens.Space.x4)
                 }
             }
-            .padding(.vertical, Tokens.Space.x4)
+            .padding(.vertical, Tokens.Space.x6)
+            .padding(.horizontal, Tokens.Space.x5)
+            .frame(maxWidth: 860, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
-        .background(Tokens.Color.bg)
+        .scrollIndicators(.never)
+    }
+
+    /// "Runs great / Tight fit / Not recommended" with a plain-language reason
+    /// and a disk-space check for the download.
+    @ViewBuilder
+    private var compatibilitySection: some View {
+        let hw = HardwareInfo.current
+        let fit = model.fit(on: hw)
+        let need = ModelCatalog.shared.downloadTotalBytes(for: model)
+        let free = HardwareInfo.freeDiskBytes()
+        let lowDisk = need > 0 && free > 0 && free < need + 500_000_000
+
+        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
+            HStack(spacing: Tokens.Space.x2) {
+                Label("On your Mac", systemImage: "checkmark.seal")
+                    .font(Tokens.TypeScale.headline)
+                    .foregroundStyle(Tokens.Color.text)
+                Spacer(minLength: 0)
+                ModelFitBadge(fit: fit)
+            }
+            Text(model.fitExplanation(on: hw))
+                .font(Tokens.TypeScale.callout)
+                .foregroundStyle(Tokens.Color.textSec)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("This Mac: \(hw.summary)")
+                .font(Tokens.TypeScale.caption)
+                .foregroundStyle(Tokens.Color.textTert)
+            if lowDisk {
+                Label("Low disk space — needs \(ByteCountFormatter.string(fromByteCount: need, countStyle: .file)), \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) free.",
+                      systemImage: "externaldrive.badge.exclamationmark")
+                    .font(Tokens.TypeScale.caption)
+                    .foregroundStyle(Tokens.Color.warn)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(Tokens.Space.x4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassSurface()
     }
 
     @ViewBuilder
@@ -753,7 +822,62 @@ struct SpecTile: View {
         }
         .padding(Tokens.Space.x4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Spec tile on the window's glass: a whisper of fill, no opaque card.
-        .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
+        // Spec tile as a small Liquid Glass chip (frosted vibrancy on <26).
+        .glassRow(cornerRadius: Tokens.Radius.md)
+    }
+}
+
+/// Compatibility verdict pill for a model on this Mac (req 4).
+struct ModelFitBadge: View {
+    let fit: ModelFit
+
+    private var tone: SwiftUI.Color {
+        switch fit {
+        case .great:          return Tokens.Color.success
+        case .ok:             return Tokens.Color.success
+        case .tight:          return Tokens.Color.warn
+        case .notRecommended: return Tokens.Color.danger
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: Tokens.Space.x1) {
+            Image(systemName: fit.symbol).font(.system(size: 10))
+            Text(fit.label).font(Tokens.TypeScale.micro)
+        }
+        .foregroundStyle(tone)
+        .padding(.horizontal, Tokens.Space.x2)
+        .padding(.vertical, Tokens.Space.x1)
+        .background(Capsule().fill(tone.opacity(0.14)))
+    }
+}
+
+/// Indeterminate-but-phased progress bar for a model LOAD (req 3). WhisperKit
+/// gives only coarse state transitions, so this shows the phase text plus a
+/// stepped bar that always advances.
+struct ModelLoadBar: View {
+    @EnvironmentObject private var state: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.x1) {
+            HStack(spacing: Tokens.Space.x2) {
+                ProgressView().controlSize(.small)
+                Text(state.modelLoadPhase.isEmpty ? "Loading model…" : state.modelLoadPhase)
+                    .font(Tokens.TypeScale.caption)
+                    .foregroundStyle(Tokens.Color.textSec)
+                Spacer(minLength: 0)
+                Text("\(Int((state.modelLoadProgress * 100).rounded()))%")
+                    .font(Tokens.TypeScale.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(Tokens.Color.textTert)
+            }
+            ProgressView(value: min(max(state.modelLoadProgress, 0.02), 1))
+                .progressViewStyle(.linear)
+                .tint(Tokens.Color.accent)
+                .animation(Tokens.Motion.ease, value: state.modelLoadProgress)
+        }
+        .padding(Tokens.Space.x3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassRow(cornerRadius: Tokens.Radius.md)
     }
 }

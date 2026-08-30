@@ -77,6 +77,29 @@ enum LLMServerClient {
         let completionTokens: Int?
     }
 
+    /// Strips leading chain-of-thought blocks emitted by reasoning models
+    /// (`<think>…</think>`, `<reasoning>…</reasoning>`) so they are never
+    /// inserted into the user's document. Also trims a stray leading/trailing
+    /// code fence some models wrap the whole answer in.
+    static func stripReasoning(_ raw: String) -> String {
+        var s = raw
+        for tag in ["think", "reasoning", "thought"] {
+            // Non-greedy, dot-matches-newline, case-insensitive.
+            if let re = try? NSRegularExpression(
+                pattern: "<\(tag)>[\\s\\S]*?</\(tag)>", options: [.caseInsensitive]) {
+                s = re.stringByReplacingMatches(
+                    in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "")
+            }
+            // Unterminated block (model hit the token cap mid-thought): drop
+            // everything up to the last close-ish marker.
+            if let openRange = s.range(of: "<\(tag)>", options: .caseInsensitive) {
+                s = String(s[openRange.upperBound...])
+            }
+        }
+        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return s
+    }
+
     /// Sends a chat completion request and returns the reply.
     static func chat(
         endpoint: String,
@@ -84,7 +107,7 @@ enum LLMServerClient {
         messages: [ChatMessage],
         apiKey: String? = nil,
         temperature: Double = 0.3,
-        maxTokens: Int = 2048,
+        maxTokens: Int = 4096,
         timeout: TimeInterval = 180
     ) async throws -> Completion {
         guard let url = chatURL(from: endpoint) else {
@@ -139,9 +162,19 @@ enum LLMServerClient {
             throw LLMServerError.serverError(msg)
         }
         guard let choices = obj["choices"] as? [[String: Any]],
-              let first = choices.first,
-              let text = (first["message"] as? [String: Any])?["content"] as? String
+              let first = choices.first
         else {
+            throw LLMServerError.serverError("the response had no message content")
+        }
+        let msg = first["message"] as? [String: Any]
+        // Some servers put reasoning in a separate `reasoning_content` field and
+        // the answer in `content`; others inline `<think>` in `content`. Prefer
+        // `content`, fall back to the top-level `text` some servers use.
+        let rawText = (msg?["content"] as? String)
+            ?? (first["text"] as? String)
+            ?? ""
+        let text = stripReasoning(rawText)
+        guard !text.isEmpty else {
             throw LLMServerError.serverError("the response had no message content")
         }
         var promptTokens: Int?

@@ -97,38 +97,64 @@ enum Tokens {
     }
 
     // MARK: Color
-    // A calm, neutral surface with a single accent (the recording red) and
-    // semantic tints. Dark-first because the app lives in the notch + a
-    // transcript list, but light is supported via the system appearance.
+    //
+    // "Aurora" — a bespoke, dark-only palette. The main window forces
+    // `.darkAqua` (AppDelegate) so every surface is designed for one ground:
+    // a near-black canvas lit by a soft accent aurora at the top, with
+    // white-alpha glass cards floating on it. This is the premium-utility look
+    // (Raycast / Wispr Flow / CleanShot), not the system-vibrancy look.
     enum Color {
-        // Accent — theme-driven (Settings → Appearance). Used for selection,
-        // links, badges, filled CTAs, and the notch visualizers.
+        // Accent — theme-driven (Settings → Appearance). Selection, links,
+        // badges, filled CTAs, the notch visualizers.
         static var accent: SwiftUI.Color { Theme.current.accent }
+        static var accentSoft: SwiftUI.Color { accent.opacity(0.16) }
         /// Legible text/icon color on top of `accent` fills (per-theme dark).
         static var onAccent: SwiftUI.Color { Theme.current.onAccent }
-        static let record      = SwiftUI.Color(red: 0.93, green: 0.27, blue: 0.27) // #ED4545
-        static let recordDark  = SwiftUI.Color(red: 0.80, green: 0.18, blue: 0.18)
+        /// The signature CTA / selection gradient (accent → a deeper accent).
+        static var accentGradient: LinearGradient {
+            let c = Theme.current.accentRGB
+            return LinearGradient(
+                colors: [
+                    SwiftUI.Color(red: min(1, c.r * 1.08), green: min(1, c.g * 1.08), blue: min(1, c.b * 1.08)),
+                    SwiftUI.Color(red: c.r * 0.72, green: c.g * 0.72, blue: c.b * 0.78),
+                ],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+        }
 
-        // Surfaces (dark)
-        static let bg          = SwiftUI.Color(NSColor.windowBackgroundColor)
-        static let surface     = SwiftUI.Color(NSColor.controlBackgroundColor)
-        static let surface2    = SwiftUI.Color(NSColor.underPageBackgroundColor)
-        static let elevated    = SwiftUI.Color(NSColor.textBackgroundColor)
+        static let record      = SwiftUI.Color(red: 0.98, green: 0.32, blue: 0.35) // #FA525A
+        static let recordDark  = SwiftUI.Color(red: 0.82, green: 0.18, blue: 0.22)
 
-        // Text
-        static let text        = SwiftUI.Color.primary
-        static let textSec     = SwiftUI.Color.secondary
-        static let textTert    = SwiftUI.Color(NSColor.tertiaryLabelColor)
+        // Canvas — the window ground. `bg` is the flat fallback; `AuroraBackground`
+        // paints the real gradient + accent bloom on top.
+        static let bg          = SwiftUI.Color(red: 0.043, green: 0.043, blue: 0.055) // #0B0B0E
+        static let bgDeep      = SwiftUI.Color(red: 0.027, green: 0.027, blue: 0.035) // #070709
+        static let bgRaised    = SwiftUI.Color(red: 0.075, green: 0.075, blue: 0.090) // #131317
+
+        // Glass card surfaces (white-alpha over the dark canvas).
+        static let surface     = SwiftUI.Color.white.opacity(0.045)
+        static let surface2    = SwiftUI.Color.white.opacity(0.028)
+        static let elevated    = SwiftUI.Color.white.opacity(0.07)
+        static let card        = SwiftUI.Color.white.opacity(0.05)
+        static let cardHover   = SwiftUI.Color.white.opacity(0.08)
+
+        // Text — warm white ramp.
+        static let text        = SwiftUI.Color.white.opacity(0.95)
+        static let textSec     = SwiftUI.Color.white.opacity(0.64)
+        static let textTert    = SwiftUI.Color.white.opacity(0.40)
         static let textOnAccent = SwiftUI.Color.white
 
         // Semantic
-        static let success     = SwiftUI.Color(red: 0.20, green: 0.78, blue: 0.50) // #33C780
-        static let warn        = SwiftUI.Color(red: 0.96, green: 0.65, blue: 0.14) // #F5A623
-        static let danger      = SwiftUI.Color(red: 0.90, green: 0.29, blue: 0.30) // #E64A4D
+        static let success     = SwiftUI.Color(red: 0.24, green: 0.82, blue: 0.52) // #3DD185
+        static let warn        = SwiftUI.Color(red: 0.99, green: 0.72, blue: 0.20) // #FDB833
+        static let danger      = SwiftUI.Color(red: 0.98, green: 0.36, blue: 0.38) // #FA5C61
 
-        // Lines / fills
-        static let separator   = SwiftUI.Color(NSColor.separatorColor)
-        static let fillQuiet   = SwiftUI.Color(NSColor.quaternaryLabelColor).opacity(0.18)
+        // Lines / fills / hairlines
+        static let separator   = SwiftUI.Color.white.opacity(0.08)
+        static let hairline    = SwiftUI.Color.white.opacity(0.09)
+        static let hairlineStrong = SwiftUI.Color.white.opacity(0.14)
+        static let fillQuiet   = SwiftUI.Color.white.opacity(0.06)
+        static let fillQuieter = SwiftUI.Color.white.opacity(0.035)
         static let notchFill   = SwiftUI.Color.black.opacity(0.82)
         static let notchStroke = SwiftUI.Color.white.opacity(0.16)
 
@@ -170,23 +196,24 @@ enum Tokens {
     }
 
     // MARK: Typography
-    // System fonts only. A small, disciplined scale.
+    // System fonts, a confident editorial scale. Display sizes use a rounded
+    // design for a friendlier, more consumer feel; body stays default.
     enum TypeScale {
-        static let largeTitle = Font.system(size: 26, weight: .bold, design: .default)
-        static let title1     = Font.system(size: 20, weight: .semibold, design: .default)
-        static let title2     = Font.system(size: 16, weight: .semibold, design: .default)
+        static let display    = Font.system(size: 34, weight: .bold, design: .rounded)
+        static let largeTitle = Font.system(size: 27, weight: .bold, design: .rounded)
+        static let title1     = Font.system(size: 21, weight: .semibold, design: .rounded)
+        static let title2     = Font.system(size: 17, weight: .semibold, design: .rounded)
         static let headline   = Font.system(size: 14, weight: .semibold, design: .default)
         static let body       = Font.system(size: 14, weight: .regular, design: .default)
         static let bodyMono   = Font.system(size: 13, weight: .regular, design: .monospaced)
         static let callout    = Font.system(size: 13, weight: .regular, design: .default)
         static let caption    = Font.system(size: 12, weight: .regular, design: .default)
         static let captionSB  = Font.system(size: 12, weight: .semibold, design: .default)
-        // Notch content type — the fixed micro label (what the skill calls
-        // notchLabel) inside the pill, next to the visualizer. Fixed on
-        // purpose: the notch band's height is hardware, not user-adjustable,
-        // so Dynamic Type would clip here.
+        /// Uppercase tracked eyebrow label above section titles.
+        static let eyebrow    = Font.system(size: 11, weight: .bold, design: .default)
+        // Notch content type — fixed (the notch band height is hardware).
         static let notchLabel = Font.system(size: 11, weight: .medium, design: .rounded)
-        /// Window-UI micro label (chips, badges) — scales with Dynamic Type.
+        /// Window-UI micro label (chips, badges).
         static let micro = Font.system(size: 11, weight: .medium, design: .default)
     }
 
@@ -205,11 +232,20 @@ enum Tokens {
 
     // MARK: Corner radius
     enum Radius {
-        static let sm: CGFloat = 6
-        static let md: CGFloat = 10
-        static let lg: CGFloat = 14
-        static let xl: CGFloat = 20
+        static let sm: CGFloat = 8
+        static let md: CGFloat = 12
+        static let lg: CGFloat = 18
+        static let xl: CGFloat = 24
+        static let xxl: CGFloat = 30
         static let pill: CGFloat = 999
+    }
+
+    // MARK: Elevation (ambient card shadows on the dark canvas)
+    enum Elevation {
+        static func card(_ view: some View) -> some View {
+            view.shadow(color: .black.opacity(0.35), radius: 20, x: 0, y: 10)
+                .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 1)
+        }
     }
 
     // MARK: Border

@@ -28,6 +28,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// General → "Live dictation"). Distinct from `isRecording`: the live loop
     /// keeps the mic open and types as you speak until toggled off.
     private var isDictating = false
+    /// A dictation start is parked waiting for the model to finish loading.
+    private var awaitingModelForDictation = false
+    /// True from `stopDictation()` until `finishDictation()` has fully released
+    /// the mic. Teardown is async (a final decode runs before `recorder.stop()`),
+    /// and `isDictating` is already false during it — without this guard a
+    /// hold-to-talk press in that window starts a SECOND recorder session on the
+    /// shared `AudioRecorder`, which the live teardown then rips out mid-phrase
+    /// (the "types as I speak, then types the whole thing again" bug).
+    private var isFinishingDictation = false
     /// App Nap assertion held only while recording/transcribing, so the 60 Hz
     /// waveform timer and the audio pipeline are never throttled while the app
     /// is backgrounded. Ended as soon as we return to idle.
@@ -49,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 var report = "launch=\(targetAtLaunch?.bundleIdentifier ?? "nil")"
                 report += " atType=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil")"
-                let result = AutoTyper.type(text)
+                let result = AutoTyper.typeBlocking(text)
                 try? "\(report) result=\(result)".write(toFile: "/tmp/nw_typeresult.txt", atomically: true, encoding: .utf8)
                 NSApp.terminate(nil)
             }
@@ -108,6 +117,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // visibility lives in NotchController) — but the controller must exist
         // so it can observe mode changes.
         _ = notch
+        // The menu-bar item is the ONLY way to reach the main window / Settings
+        // once first run is over (no Dock icon in .accessory mode). It's a lazy
+        // var, so it must be touched here or it never gets created — which is
+        // exactly what was happening: no status item ever appeared.
+        _ = menuBar
         installHotkey()
         wireNotifications()
 
@@ -173,36 +187,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = main
     }
 
+    /// Shared window chrome for the bespoke Aurora windows: full-bleed dark,
+    /// transparent titlebar, no title text — SwiftUI paints everything.
+    private func makeAuroraWindow(_ root: some View, width: CGFloat, height: CGFloat,
+                                  minW: CGFloat, minH: CGFloat, title: String) -> NSWindow {
+        let hosting = NSHostingView(rootView: root)
+        hosting.wantsLayer = true
+        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+                           styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                           backing: .buffered, defer: false)
+        win.title = title
+        win.titlebarAppearsTransparent = true
+        win.titleVisibility = .hidden
+        win.isMovableByWindowBackground = true
+        win.appearance = NSAppearance(named: .darkAqua)
+        win.backgroundColor = NSColor(red: 0.043, green: 0.043, blue: 0.055, alpha: 1)
+        win.isOpaque = true
+        win.contentView = hosting
+        hosting.autoresizingMask = [.width, .height]
+        win.setContentSize(NSSize(width: width, height: height))
+        win.minSize = NSSize(width: minW, height: minH)
+        win.center()
+        win.isReleasedWhenClosed = false
+        return win
+    }
+
     private func buildMainWindow() {
         let root = MainView()
             .environmentObject(state)
             .environmentObject(settings)
-            .frame(minWidth: Tokens.Layout.minWinW, maxWidth: Tokens.Layout.maxWinW,
-                   minHeight: Tokens.Layout.minWinH, maxHeight: Tokens.Layout.maxWinH)
-
-        // Host the SwiftUI view inside an NSVisualEffectView so the whole
-        // window — toolbar included — is a frosted, refractive glass surface
-        // (the macOS 26 Liquid Glass look).
-        let effect = NSVisualEffectView()
-        let hosting = NSHostingView(rootView: root)
-        hosting.wantsLayer = true
-        hosting.layer?.backgroundColor = .clear
-        hosting.autoresizingMask = [.width, .height]
-        effect.addSubview(hosting)
-
-        let win = NSWindow(contentRect: NSRect(x: 0, y: 0,
-                                               width: Tokens.Layout.minWinW + 80,
-                                               height: Tokens.Layout.minWinH + 40),
-                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
-                           backing: .buffered, defer: false)
-        win.title = "NotchWhisper"
-        win.contentView = effect
-        effect.autoresizingMask = [.width, .height]
-        win.applyGlassAppearance()
-        win.setContentSize(NSSize(width: Tokens.Layout.minWinW + 80, height: Tokens.Layout.minWinH + 40))
-        win.minSize = NSSize(width: Tokens.Layout.minWinW, height: Tokens.Layout.minWinH)
-        win.center()
-        win.isReleasedWhenClosed = false
+        let win = makeAuroraWindow(root,
+                                   width: Tokens.Layout.minWinW + 80, height: Tokens.Layout.minWinH + 40,
+                                   minW: Tokens.Layout.minWinW, minH: Tokens.Layout.minWinH,
+                                   title: "NotchWhisper")
         win.collectionBehavior = NSWindow.CollectionBehavior([.participatesInCycle, .managed])
         mainWindow = win
     }
@@ -211,24 +228,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let root = SettingsView()
             .environmentObject(state)
             .environmentObject(settings)
-
-        let effect = NSVisualEffectView()
-        let hosting = NSHostingView(rootView: root)
-        hosting.wantsLayer = true
-        hosting.layer?.backgroundColor = .clear
-        hosting.autoresizingMask = [.width, .height]
-        effect.addSubview(hosting)
-
-        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 640),
-                           styleMask: [.titled, .closable, .resizable],
-                           backing: .buffered, defer: false)
-        win.title = "Settings"
-        win.contentView = effect
-        effect.autoresizingMask = [.width, .height]
-        win.applyGlassAppearance()
-        win.setContentSize(NSSize(width: 560, height: 640))
-        win.minSize = NSSize(width: 480, height: 500)
-        win.isReleasedWhenClosed = false
+        let win = makeAuroraWindow(root, width: 620, height: 720, minW: 560, minH: 560,
+                                   title: "Settings")
         win.level = .normal
         settingsWindow = win
     }
@@ -307,8 +308,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in self?.toggleRecord() }
         }
         NotificationCenter.default.addObserver(forName: .hotkeyChanged, object: nil, queue: .main) { [weak self] _ in
-            self?.hotkey?.install(code: self?.settings.hotkeyCode ?? 61,
-                                  carbonModifiers: self?.settings.hotkeyModifiers ?? UInt32(optionKey))
+            Task { @MainActor in
+                guard let self else { return }
+                self.hotkey?.install(code: self.settings.hotkeyCode,
+                                     carbonModifiers: self.settings.hotkeyModifiers)
+            }
         }
         NotificationCenter.default.addObserver(forName: .modelChanged, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in _ = await self?.transcriber.ensureLoaded() }
@@ -327,12 +331,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func toggleRecord() {
         if isDictating { stopDictation(); return }
+        if isFinishingDictation { return }   // teardown in flight — ignore
         if settings.liveDictation { startDictation(); return }
         if isRecording { stopRecording() } else { startRecording() }
     }
 
     func startRecording() {
-        guard !isRecording, !isDictating else { return }
+        guard !isRecording, !isDictating, !isFinishingDictation, !awaitingModelForDictation else { return }
         do {
             try recorder.start()
             isRecording = true
@@ -361,7 +366,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Starts a continuous live-dictation session. The hotkey / Record button
     /// act as a toggle while the "Live dictation" setting is ON.
     func startDictation() {
-        guard !isDictating, !isRecording else { return }
+        // Re-check the setting on every entry. This method re-enters itself
+        // asynchronously after a model load (below), and `.dictationChanged`
+        // can turn the feature OFF while that load is in flight — without this
+        // guard the deferred call would start a live session the user has
+        // already disabled, with no hotkey left to stop it (the hotkey has
+        // reverted to hold-to-talk).
+        guard settings.liveDictation else { return }
+        guard !isDictating, !isRecording, !isFinishingDictation else { return }
+        // The model must be resident before the live loop starts — otherwise
+        // the loop bails on its first tick, leaving `isDictating` stuck true.
+        // `ensureLoaded()` drives `state.isLoadingModel`, which surfaces the
+        // notch's "Loading model…" progress pill on its own.
+        if state.modelStatus != .ready {
+            guard !awaitingModelForDictation else { return }
+            awaitingModelForDictation = true
+            Task { @MainActor in
+                let ok = await transcriber.ensureLoaded()
+                awaitingModelForDictation = false
+                guard ok else {
+                    state.mode = .error
+                    state.statusMessage = "Model not loaded."
+                    return
+                }
+                startDictation()
+            }
+            return
+        }
         do {
             try recorder.start()
             isDictating = true
@@ -384,11 +415,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func stopDictation() {
         guard isDictating else { return }
         isDictating = false
+        isFinishingDictation = true
         state.mode = .transcribing
         Task { await finishDictation() }
     }
 
     private func finishDictation() async {
+        // Cleared only once the mic is actually released — guards the whole
+        // async teardown against a concurrent hold-to-talk start.
+        defer { isFinishingDictation = false }
         let result = await live.stop()
         // Idempotent: guarantees the mic tap is released even if the loop
         // failed to load the model mid-session (in which case stop() returns
@@ -526,8 +561,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             guard await transcriber.download(modelId: modelId) else { return }
             settings.modelId = modelId
-            NotificationCenter.default.post(name: .modelChanged, object: nil)
-            _ = await transcriber.ensureLoaded()
+            // Load it directly here (coalesced inside Transcriber). Deliberately
+            // NOT also posting `.modelChanged`: that observer would kick off a
+            // second, racing load of the same model.
+            _ = await transcriber.ensureLoaded(modelId: modelId)
         }
     }
 
