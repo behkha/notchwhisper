@@ -50,14 +50,21 @@ final class LiveTranscriber {
     let transcriber: Transcriber
 
     static let sampleRate = Double(WhisperKit.sampleRate)   // 16000
-    private let tickNanoseconds: UInt64 = 350_000_000       // 0.35 s re-transcribe cadence
+    private let tickNanoseconds: UInt64 = 300_000_000       // 0.30 s re-transcribe cadence
     private let minNewAudioSeconds: Float = 0.25
     /// How much already-typed audio to keep as left context so the first
     /// segment of every pass isn't cut mid-word.
     private let overlapSeconds: Float = 0.9
+    /// Hard cap on the decode window. Without this, if confirmation stalls the
+    /// window grows from `typedUpto` back to ~0, Whisper then returns one long
+    /// segment that reaches the live edge (never "stable"), and NOTHING commits
+    /// — the classic "types the first sentence then dies". A bounded window
+    /// keeps segments short enough that the stability check actually fires; the
+    /// watchdog covers the rare case where even a short window won't confirm.
+    private let maxWindowSeconds: Float = 8.0
     /// A segment is confirmed when its end sits at least this far before the
     /// live (latest) edge of the transcribed window.
-    private let confirmLagSeconds: Float = 0.5
+    private let confirmLagSeconds: Float = 0.4
     /// While the user is paused (no new audio for this long) the confirm lag
     /// relaxes to `pauseFlushConfirmLag`: the tail can no longer change, so
     /// it is typed right away instead of hanging until speech resumes.
@@ -87,9 +94,14 @@ final class LiveTranscriber {
     /// Buffer-relative live edge of the last decode pass (for the "enough new
     /// audio" gate). Always ≥ `typedUpto`.
     private var decodedUpto = 0
-    /// Recorder-buffer bookkeeping for the pause detector.
-    private var lastBufferSize = 0
-    private var lastAudioGrowth = Date()
+    /// Last tick at which the mic level was above the silence floor. The mic
+    /// tap appends audio CONTINUOUSLY (silence included), so "the buffer is
+    /// still growing" is not a usable "still speaking" signal — the pause
+    /// detector keys off the level instead.
+    private var lastVoiceAt = Date()
+    /// Set once per pause after the pre-pause tail has been salvaged, so the
+    /// next paused tick collapses the retained silence instead of re-flushing.
+    private var pauseSalvaged = false
     /// Last time text was actually committed to the cursor (`typedUpto`
     /// advanced or a tail was typed). Drives the anti-stall watchdog: the
     /// confirm path can stall forever when Whisper keeps returning segments
@@ -117,8 +129,8 @@ final class LiveTranscriber {
         isRunning = true
         typedUpto = 0
         decodedUpto = 0
-        lastBufferSize = 0
-        lastAudioGrowth = Date()
+        lastVoiceAt = Date()
+        pauseSalvaged = false
         lastCommitAt = Date()
         typedText = ""
         rawAccumulated = ""
@@ -135,16 +147,20 @@ final class LiveTranscriber {
         task?.cancel()
         task = nil
 
+        // Release the mic NOW — the session is over. The final flush below
+        // decodes the already-captured tail from a local copy; keeping the
+        // shared `AudioRecorder` live through a multi-second decode lets a
+        // hold-to-talk press start a second capture that collides with it.
+        let samples = recorder.stop()
+
         // Final flush: whatever is still untyped is final now — type it
         // wholesale (one clean pass, starting exactly at the typed boundary).
-        let samples = recorder.accumulatedSamples
         let tailSamples = samples.count > typedUpto
             ? Array(samples.suffix(from: typedUpto))
             : []
         if !tailSamples.isEmpty {
             await flush(tailSamples)
         }
-        _ = recorder.stop()
 
         let raw = rawAccumulated
         let final = typedText
@@ -169,31 +185,71 @@ final class LiveTranscriber {
     }
 
     private func tick() async {
-        let samples = recorder.accumulatedSamples
         let now = Date()
-        if samples.count > lastBufferSize { lastAudioGrowth = now }
-        lastBufferSize = samples.count
+
+        // Hard cap on RETAINED audio, applied before snapshotting. The decode
+        // window is never larger than `maxWindowSeconds`, so audio older than
+        // that (from the live edge) can never be decoded again. The mic tap
+        // appends silence continuously and the post-commit trim only runs
+        // after a commit — so during a pause the buffer, and `pendingSeconds`
+        // (which arms the watchdog), would otherwise grow without bound and
+        // the loop never recovers when speech resumes.
+        let capSamples = Int(Float(Self.sampleRate) * (maxWindowSeconds + overlapSeconds + 2.0))
+        let liveCount = recorder.sampleCount
+        if liveCount > capSamples {
+            let dropped = recorder.trimSamples(liveCount - capSamples)
+            typedUpto = max(0, typedUpto - dropped)
+            decodedUpto = max(0, decodedUpto - dropped)
+        }
+
+        let samples = recorder.accumulatedSamples
+        // Voice-now signal: only the most recent few level samples (~0.3 s), not
+        // the whole 2.4 s ring — otherwise a loud moment keeps "voice" true long
+        // after the user actually stopped, and the pause never registers.
+        let level = state.levels.suffix(4).max() ?? 0
+        if level >= silenceLevel { lastVoiceAt = now; pauseSalvaged = false }
+        let paused = now.timeIntervalSince(lastVoiceAt) >= pauseFlushDelay
 
         let pendingSamples = samples.count - typedUpto
         guard pendingSamples > 0 else { return }          // everything typed: nothing to do
         let pendingSeconds = Float(pendingSamples) / Float(Self.sampleRate)
-        let paused = now.timeIntervalSince(lastAudioGrowth) >= pauseFlushDelay
         let enoughNew = Float(samples.count - decodedUpto) / Float(Self.sampleRate) >= minNewAudioSeconds
+
+        // PAUSE HANDLING. The mic keeps feeding silence; without this a resume
+        // after a long pause leaves the loop decoding the whole quiet stretch
+        // every tick and it never catches up ("stops working after a pause").
+        if paused, level < silenceLevel {
+            if !pauseSalvaged {
+                // One decode to salvage any pre-pause tail that never confirmed.
+                pauseSalvaged = true
+                if pendingSeconds >= 0.3 { await forceFlush(samples) }
+                return
+            }
+            // Tail already handled — collapse the retained silence and resync
+            // so the next spoken word starts from a near-empty buffer.
+            let keep = Int(Float(Self.sampleRate) * overlapSeconds)
+            let cur = recorder.sampleCount
+            if cur > keep { _ = recorder.trimSamples(cur - keep) }
+            typedUpto = recorder.sampleCount
+            decodedUpto = recorder.sampleCount
+            lastCommitAt = now      // let the normal path handle the resume, not the watchdog
+            state.partialText = typedText
+            return
+        }
 
         // Silence gate: don't spend a decode while nothing is being said AND
         // there is no pending tail worth flushing. (The recorder normalizes
         // levels to 0.06…1.0; ~0.075 is a quiet room.)
-        if (state.levels.max() ?? 0) < silenceLevel,
-           !paused, pendingSeconds < 0.5 { return }
+        if level < silenceLevel, !paused, pendingSeconds < 0.5 { return }
 
-        // ANTI-STALL WATCHDOG: text commits only when a segment ends ≥0.5 s
+        // ANTI-STALL WATCHDOG: text commits only when a segment ends well
         // before the live window edge. When Whisper returns a single segment
         // spanning to the live edge (typical for continuous speech) or its
-        // timestamps drift, NOTHING commits: typedUpto freezes, the decode
-        // window grows without bound, latency explodes and output dies after
-        // the first sentence(s). If a meaningful tail has been pending while
-        // no commit happened recently, force-type it now.
-        if pendingSeconds >= 2.0, now.timeIntervalSince(lastCommitAt) >= 1.5 {
+        // timestamps drift, NOTHING commits: typedUpto freezes, latency grows
+        // and output dies after the first sentence(s). Force-type the tail —
+        // but ONLY while the user is actually speaking; pending SILENCE is
+        // handled by the pause branch above, not by decoding it over and over.
+        if level >= silenceLevel, pendingSeconds >= 1.4, now.timeIntervalSince(lastCommitAt) >= 1.0 {
             fputs("NotchWhisper[live]: watchdog — pending \(String(format: "%.1f", pendingSeconds))s with no commit for \(String(format: "%.1f", now.timeIntervalSince(lastCommitAt)))s; forcing tail flush\n", stderr)
             await forceFlush(samples)
             return
@@ -203,8 +259,11 @@ final class LiveTranscriber {
         // pause-flush (the user stopped speaking but a tail is still untyped).
         guard enoughNew || (paused && pendingSeconds >= 0.3) else { return }
 
-        // Bounded sliding window: last `overlapSeconds` of typed audio + all new.
-        let start = max(0, typedUpto - Int(Float(Self.sampleRate) * overlapSeconds))
+        // Bounded sliding window: last `overlapSeconds` of typed audio + all new,
+        // but never more than `maxWindowSeconds` (see the field comment).
+        let overlapStart = max(0, typedUpto - Int(Float(Self.sampleRate) * overlapSeconds))
+        let capStart = max(0, samples.count - Int(Float(Self.sampleRate) * maxWindowSeconds))
+        let start = max(overlapStart, capStart)
         guard start < samples.count else { return }
         let window = Array(samples.suffix(from: start))
         guard !window.isEmpty else { return }
@@ -221,6 +280,10 @@ final class LiveTranscriber {
             fputs("NotchWhisper[live]: decode failed (will retry): \(error)\n", stderr)
             return
         }
+        // stop() may have fired while this decode was in flight (it flips
+        // isRunning and releases the recorder but can't interrupt an awaiting
+        // tick). Don't type or trim against a torn-down session.
+        guard isRunning else { return }
         decodedUpto = samples.count
         fputs("NotchWhisper[live]: pass buf=\(String(format: "%.1f", Float(samples.count) / Float(Self.sampleRate)))s pending=\(String(format: "%.1f", pendingSeconds))s segs=\(segments.count) typedUpto=\(typedUpto)\n", stderr)
         guard !segments.isEmpty else { return }
@@ -236,7 +299,7 @@ final class LiveTranscriber {
         // revised by future audio, so the lag relaxes and the pending
         // sentence types immediately.
         let windowSeconds = Float(window.count) / Float(Self.sampleRate)
-        let stableEnd = (paused && !enoughNew)
+        let stableEnd = paused
             ? windowSeconds - pauseFlushConfirmLag
             : windowSeconds - confirmLagSeconds
         let stable = segments.filter { $0.end <= stableEnd }
@@ -291,7 +354,6 @@ final class LiveTranscriber {
             }
             typedUpto -= dropped
             decodedUpto -= dropped
-            lastBufferSize -= dropped
         }
     }
 
@@ -321,7 +383,6 @@ final class LiveTranscriber {
         // The tail begins at the typed boundary, so its text is new; still
         // route through the word-diff to be safe against boundary re-words.
         typeTail(text)
-        typedUpto = recorder.accumulatedSamples.count
         state.partialText = typedText
     }
 
@@ -333,7 +394,13 @@ final class LiveTranscriber {
     /// If the decode produced nothing new, the audio stays pending and the
     /// watchdog re-fires on the next tick rather than dropping speech.
     private func forceFlush(_ samples: [Float]) async {
-        let start = max(0, typedUpto - Int(Float(Self.sampleRate) * overlapSeconds))
+        // Same bounded window as the normal path: overlap of typed audio + all
+        // new, but never more than `maxWindowSeconds`. Without the cap, once
+        // the watchdog takes over it decodes an ever-growing window and each
+        // pass gets slower than real time — the loop never recovers.
+        let overlapStart = max(0, typedUpto - Int(Float(Self.sampleRate) * overlapSeconds))
+        let capStart = max(0, samples.count - Int(Float(Self.sampleRate) * maxWindowSeconds))
+        let start = max(overlapStart, capStart)
         guard start < samples.count else { return }
         let window = Array(samples.suffix(from: start))
         let segments: [TranscriptionSegment]
@@ -346,6 +413,7 @@ final class LiveTranscriber {
             fputs("NotchWhisper[live]: watchdog flush decode failed: \(error)\n", stderr)
             return
         }
+        guard isRunning else { return }   // stop() fired during the decode
         decodedUpto = max(decodedUpto, samples.count)
         let text = Self.canonicalize(segments.map(\.text).joined(separator: " "))
         guard !text.isEmpty else {
@@ -359,7 +427,15 @@ final class LiveTranscriber {
             typedUpto = samples.count
             lastCommitAt = Date()
             state.partialText = typedText
-            fputs("NotchWhisper[live]: watchdog committed: \"\\(typed)\"\n", stderr)
+            fputs("NotchWhisper[live]: watchdog committed: \"\(typed)\"\n", stderr)
+            // Keep the buffer bounded (same as tick()): drop the fully-typed
+            // prefix, keeping the overlap region as left context.
+            let trim = max(0, typedUpto - Int(Float(Self.sampleRate) * overlapSeconds))
+            if trim > 0 {
+                let dropped = recorder.trimSamples(trim)
+                typedUpto = max(0, typedUpto - dropped)
+                decodedUpto = max(typedUpto, decodedUpto - dropped)
+            }
         }
     }
 

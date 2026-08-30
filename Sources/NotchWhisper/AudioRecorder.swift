@@ -30,6 +30,9 @@ import WhisperKit
 
     /// Begin recording. Throws if the mic is unavailable/denied.
     func start() throws {
+        // Defensive: never leak a tap/engine if start is called while already
+        // capturing (overlapping record + live-dictation lifecycles).
+        if engine != nil { _ = stop() }
         audioSamples = []
         let engine = AVAudioEngine()
         let input = engine.inputNode
