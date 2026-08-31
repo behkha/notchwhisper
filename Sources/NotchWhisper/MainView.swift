@@ -14,11 +14,12 @@ struct MainView: View {
     @Namespace private var pill
 
     enum Nav: String, CaseIterable, Identifiable {
-        case home, transcripts, dictionary, models
+        case home, upload, transcripts, dictionary, models
         var id: String { rawValue }
         var label: String {
             switch self {
             case .home: return "Home"
+            case .upload: return "Upload"
             case .transcripts: return "Transcripts"
             case .dictionary: return "Dictionary"
             case .models: return "Models"
@@ -27,6 +28,7 @@ struct MainView: View {
         var icon: String {
             switch self {
             case .home: return "house.fill"
+            case .upload: return "arrow.up.doc.fill"
             case .transcripts: return "text.line.first.and.arrowtriangle.forward"
             case .dictionary: return "character.book.closed.fill"
             case .models: return "cpu.fill"
@@ -173,6 +175,7 @@ struct MainView: View {
         Group {
             switch nav {
             case .home:        HomeView(nav: $nav)
+            case .upload:      FileTranscribeView()
             case .transcripts: TranscriptsView()
             case .dictionary:  DictView()
             case .models:      ModelsView()

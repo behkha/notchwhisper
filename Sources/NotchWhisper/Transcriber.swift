@@ -376,6 +376,77 @@ import WhisperKit
             .trimmingCharacters(in: .whitespacesAndNewlines as CharacterSet)
     }
 
+    /// Transcribe a whole imported FILE (Upload page).
+    ///
+    /// Same engines as dictation, but built for clips that can run for hours:
+    ///  · progress is reported over the clip (0…1) as segments are discovered,
+    ///  · the run can be cancelled mid-file (`isCancelled` is polled by the
+    ///    engine callbacks, so a cancel takes effect within one window),
+    ///  · timestamps stay ON so segment ends can drive that progress, and
+    ///    long-form decoding keeps its window alignment.
+    ///
+    /// `onProgress` / `isCancelled` are called off the MainActor — callers hop
+    /// themselves.
+    func transcribeFile(
+        _ samples: [Float],
+        biasTerms: [String] = [],
+        isCancelled: @escaping @Sendable () -> Bool = { false },
+        onProgress: @escaping @Sendable (Double) -> Void = { _ in }
+    ) async throws -> String {
+        if activeEngineIsLlama {
+            return try await llama.transcribe(
+                samples,
+                context: llamaContextPrompt(biasTerms: biasTerms),
+                isCancelled: isCancelled,
+                onProgress: onProgress
+            )
+        }
+        guard let w = whisper else { throw TranscriberError.notLoaded }
+
+        var initialPrompt: [Int]?
+        if !biasTerms.isEmpty, let tok = w.tokenizer {
+            var ids: [Int] = []
+            for term in biasTerms {
+                let t = term.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !t.isEmpty else { continue }
+                ids.append(contentsOf: tok.encode(text: t))
+            }
+            if ids.count > 100 { ids = Array(ids.prefix(100)) }
+            if !ids.isEmpty { initialPrompt = ids }
+        }
+
+        let totalSeconds = max(0.001, Double(samples.count) / Double(WhisperKit.sampleRate))
+        let opts = DecodingOptions(
+            verbose: false,
+            task: settings.task == "translate" ? .translate : .transcribe,
+            language: settings.language,
+            temperature: 0.0,
+            temperatureFallbackCount: 3,
+            usePrefillPrompt: true,
+            skipSpecialTokens: true,
+            withoutTimestamps: false,   // segment ends drive the progress bar
+            promptTokens: initialPrompt
+        )
+        let results = try await w.transcribe(
+            audioArray: samples,
+            decodeOptions: opts,
+            // Returning `false` aborts the decode loop — that's how a cancel
+            // reaches WhisperKit from the UI.
+            callback: { _ in isCancelled() ? false : nil },
+            segmentCallback: { segments in
+                guard let end = segments.last?.end else { return }
+                onProgress(min(1, max(0, Double(end) / totalSeconds)))
+            }
+        )
+        if isCancelled() { throw CancellationError() }
+        return results
+            .flatMap { $0.segments }
+            .map { $0.text }
+            .joined(separator: " ")
+            .replacingOccurrences(of: "  ", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines as CharacterSet)
+    }
+
     /// Fast, incremental real-time dictation decode. Transcribes only `samples`
     /// (a short ~1–2 s chunk) and uses the already-transcribed `runningText` as
     /// a prefill prompt so the model continues the sentence naturally without

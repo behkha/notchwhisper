@@ -88,6 +88,42 @@ if let flagIdx = CommandLine.arguments.firstIndex(of: "--llama-selftest"),
     exit(exitCode)
 }
 
+// `NotchWhisper --file-selftest <audio-or-video-file>` runs the Upload page's
+// pipeline headless: decode the file to 16 kHz mono, load the selected model,
+// transcribe the whole clip with progress, and print the transcript.
+if let flagIdx = CommandLine.arguments.firstIndex(of: "--file-selftest"),
+   CommandLine.arguments.count >= flagIdx + 2 {
+    let path = CommandLine.arguments[flagIdx + 1]
+    nonisolated(unsafe) var done = false
+    nonisolated(unsafe) var exitCode: Int32 = 0
+    Task { @MainActor in
+        defer { done = true }
+        do {
+            let samples = try await AudioFileImport.loadSamples(from: URL(fileURLWithPath: path))
+            fputs("file-selftest: \(samples.count) samples (\(AudioFileImport.durationLabel(samples: samples.count)))\n", stderr)
+            let transcriber = Transcriber(AppState.shared, Settings.shared)
+            guard await transcriber.ensureLoaded() else {
+                fputs("file-selftest FAILED: model not loaded\n", stderr)
+                exitCode = 1
+                return
+            }
+            let started = Date()
+            let text = try await transcriber.transcribeFile(
+                samples,
+                biasTerms: DictionaryStore.shared.biasingTerms(),
+                onProgress: { p in fputs("file-selftest: \(Int(p * 100))%\n", stderr) }
+            )
+            fputs("file-selftest: took \(String(format: "%.2f", Date().timeIntervalSince(started))) s\n", stderr)
+            print("TRANSCRIBED: \(text)")
+        } catch {
+            fputs("file-selftest FAILED: \(error)\n", stderr)
+            exitCode = 1
+        }
+    }
+    while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+    exit(exitCode)
+}
+
 // `NotchWhisper --type-test "some text"` types the text into the frontmost app
 // via the normal AutoTyper path and exits — an end-to-end test of dictation
 // insertion with no UI and no microphone needed.

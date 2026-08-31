@@ -39,6 +39,7 @@ On first launch the default `base` model downloads from Hugging Face (you'll see
 - **Notch display** — a FaceTime-style pill lives in the camera notch (or the menu-bar band on non-notched Macs) showing idle → recording waveform → transcribing → improving → done → error, plus a live download-percentage badge.
 - **Hold-to-talk** — press and hold a global hotkey (default **Right `⌥`**) to record, release to transcribe. Works while any other app is focused.
 - **Live dictation** — flip it on in Settings → General and the hotkey becomes press-on / press-off: speak and the words are typed into the focused field **in real time**, with the live transcript shown in the notch.
+- **File transcription** — the **Upload** page takes any audio or video file (drop it in or pick it), decodes it locally, and transcribes the whole thing with a progress bar you can cancel. The text is editable in place, copyable, saveable as `.txt`, and saved to history like any other transcript.
 - **Auto-type anywhere** — the transcript is inserted into the focused field via the Accessibility API (with a keystroke fallback) so it lands in any app.
 - **Local Whisper models** — pick from `tiny` → `large-v3` (incl. turbo, distil, and quantized builds) and download in-app. Cached on disk, never uploaded. The **Models** page embeds a live [Hugging Face search](https://huggingface.co/models) filtered to automatic-speech-recognition + Core ML, showing exact per-folder sizes, downloads, likes, license, and dates.
 - **Local LLM post-processing** — optionally clean up, format, rewrite, summarize, or structure your transcript with a language model running **on your Mac** (Ollama, LM Studio, Unsloth, or any OpenAI-compatible server). Your text stays local.
@@ -46,7 +47,7 @@ On first launch the default `base` model downloads from Hugging Face (you'll see
 - **Transcript history** — every dictation is saved (raw, corrected, which dictionary fixes fired, and which LLM mode) so you can search, copy, and revisit past transcripts.
 - **Six accent themes** — Ember (default), Ocean, Violet, Forest, Rose, Aqua. Recolors the whole app, the notch glow, and the Wave/Aura visualizers.
 - **Five notch visualizers** — ported from LiveKit's Agents-UI: Bar, Wave, Radial, Grid, Aura.
-- **Menu-bar app** — no Dock icon; everything lives in the status bar + notch, with an on-demand main window (Home, Transcripts, Dictionary, Models).
+- **Menu-bar app** — no Dock icon; everything lives in the status bar + notch, with an on-demand main window (Home, Upload, Transcripts, Dictionary, Models).
 
 ---
 
@@ -59,6 +60,9 @@ On first launch the default `base` model downloads from Hugging Face (you'll see
 
 **Live dictation**
 In **Settings → General**, enable *Live dictation*. The hotkey switches to a toggle: press once to start a continuous session, speak, press again to stop. Words are typed as you talk; the notch shows the live transcript.
+
+**Transcribing a file**
+Open the main window → **Upload**, then drop in a recording (or click *Choose file…*). MP3, WAV, M4A, AAC, FLAC, AIFF, CAF, MP4 and MOV all work, at any length — the audio is decoded to 16 kHz mono on your Mac and run through the same engine, dictionary bias and correction pass as dictation. Long files show progress over the clip and can be cancelled mid-run. Nothing is auto-typed; you get the text on the page to edit, copy, or save.
 
 **First run details**
 - The main window opens automatically the first time (when no model is downloaded yet). Afterwards the app stays invisible until you open it from the menu bar → **Open NotchWhisper**.
@@ -209,11 +213,12 @@ Microphone audio is resampled to 16 kHz mono (Whisper's input rate) in `AudioRec
 
 ```text
 Sources/NotchWhisper/
-├── main.swift            NSApplication entry point (+ --type-test / --llama-selftest hooks)
+├── main.swift            NSApplication entry point (+ --type-test / --llama-selftest / --file-selftest hooks)
 ├── AppDelegate.swift     Wires UI, hotkey, and the record → transcribe → type → history flow
 ├── AppState.swift        Observable state shared by UI + logic
 ├── Settings.swift        UserDefaults-backed preferences
 ├── AudioRecorder.swift   AVAudioEngine → 16 kHz mono + live RMS levels
+├── AudioFileImport.swift Decodes a picked audio/video file to 16 kHz mono (AVAudioFile → AVAssetReader)
 ├── Transcriber.swift     Engine façade: WhisperKit wrapper + routes llama:* ids to LlamaASR
 ├── LlamaASR.swift        llama.cpp / mtmd engine for GGUF Qwen3-ASR (hold-to-talk)
 ├── LlamaModels.swift     Qwen3-ASR GGUF catalog (llama:* ids)
@@ -233,7 +238,8 @@ Sources/NotchWhisper/
 ├── Dictionary.swift      Custom term / correction dictionary store
 ├── DictEditor.swift      Dictionary editor UI
 ├── History.swift         Transcript history store
-├── MainView.swift        Main window: Home, Transcripts, Dictionary, Models
+├── FileTranscribeView.swift Upload page: pick/drop a file → decode → transcribe → editable text
+├── MainView.swift        Main window: Home, Upload, Transcripts, Dictionary, Models
 ├── MenuBar.swift         Status-bar item + quick actions
 ├── DesignTokens.swift    Theme + design system
 └── Keychain.swift        Secure storage for the LLM API key
@@ -320,6 +326,7 @@ Non-activating dev/test hooks (they never steal focus):
 
 - `--wave-preview` — shows the notch pill with a simulated voice waveform so you can evaluate or screenshot the ribbon; it stays up until you quit the app.
 - `--type-test "some text"` — types the text into the frontmost app via the normal AutoTyper path and exits (optional `--delay N` seconds to let the target app get focus first). An end-to-end test of dictation insertion with no UI and no microphone.
+- `--file-selftest <audio-or-video-file>` — runs the Upload page's pipeline headless: decodes the file, loads the selected model, transcribes the whole clip with progress on stderr, and prints the transcript.
 - `/tmp/nw_type_trigger` — a file whose contents are typed into the frontmost app ~2 s after launch; a diagnostic report is written to `/tmp/nw_typeresult.txt`.
 
 ---

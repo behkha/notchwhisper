@@ -157,13 +157,29 @@ final class LlamaASR: @unchecked Sendable {
     /// Transcribe `samples` (16 kHz mono). `context` is optional biasing text
     /// (dictionary terms, a language hint) placed in the system turn — Qwen3-ASR
     /// is trained to use it as hotword / context guidance.
-    func transcribe(_ samples: [Float], context: String) async throws -> String {
+    ///
+    /// `isCancelled` / `onProgress` are for long imported files: progress is
+    /// reported per 80 s chunk and a cancel is honoured between chunks. Both
+    /// run on the engine queue, not the MainActor.
+    func transcribe(
+        _ samples: [Float],
+        context: String,
+        isCancelled: @escaping @Sendable () -> Bool = { false },
+        onProgress: @escaping @Sendable (Double) -> Void = { _ in }
+    ) async throws -> String {
         try await runOnQueue {
-            try self.transcribeSync(samples, context: context)
+            try self.transcribeSync(
+                samples, context: context, isCancelled: isCancelled, onProgress: onProgress
+            )
         }
     }
 
-    private func transcribeSync(_ samples: [Float], context: String) throws -> String {
+    private func transcribeSync(
+        _ samples: [Float],
+        context: String,
+        isCancelled: @escaping @Sendable () -> Bool = { false },
+        onProgress: @escaping @Sendable (Double) -> Void = { _ in }
+    ) throws -> String {
         guard let ctx, let mctx, let model else { throw EngineError.notLoaded }
         let vocab = llama_model_get_vocab(model)
 
@@ -178,7 +194,8 @@ final class LlamaASR: @unchecked Sendable {
         }
 
         var pieces: [String] = []
-        for chunk in chunks {
+        for (index, chunk) in chunks.enumerated() {
+            if isCancelled() { throw CancellationError() }
             // Fresh KV per chunk (each is an independent utterance segment).
             llama_memory_clear(llama_get_memory(ctx), true)
 
@@ -247,6 +264,7 @@ final class LlamaASR: @unchecked Sendable {
             defer { llama_batch_free(batch) }
 
             for _ in 0 ..< maxNewTokens {
+                if isCancelled() { throw CancellationError() }
                 let tok = llama_sampler_sample(sampler, ctx, -1)
                 llama_sampler_accept(sampler, tok)
                 if llama_vocab_is_eog(vocab, tok) { break }
@@ -264,6 +282,7 @@ final class LlamaASR: @unchecked Sendable {
             }
 
             pieces.append(Self.cleanOutput(Self.detokenize(out, vocab: vocab)))
+            onProgress(Double(index + 1) / Double(chunks.count))
         }
 
         let text = pieces

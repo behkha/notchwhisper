@@ -14,7 +14,10 @@ struct TranscriptRecord: Identifiable, Codable, Hashable {
     /// Which LLM mode processed this transcript (nil = no LLM post-processing).
     var llmMode: LLMMode? = nil
 
-    enum Source: String, Codable { case hotkey, button }
+    /// How the audio was captured. `file` = imported from disk on the Upload
+    /// page (older records only ever carry `hotkey`/`button`, so decoding
+    /// existing archives is unaffected).
+    enum Source: String, Codable { case hotkey, button, file }
 
     var corrected: Bool { !corrections.isEmpty }
     var processed: Bool { llmMode != nil && llmMode != .original }
