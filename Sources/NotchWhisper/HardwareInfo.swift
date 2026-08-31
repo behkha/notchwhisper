@@ -156,3 +156,36 @@ extension WhisperModelOption {
         return gb >= 1 ? String(format: "%.0f GB", gb.rounded()) : String(format: "%.1f GB", gb)
     }
 }
+
+extension LlamaModelOption {
+
+    /// Validate this GGUF Qwen3-ASR model against the current Mac. llama.cpp
+    /// runs it on the Metal GPU; the practical limits are RAM and Apple Silicon.
+    func fit(on hw: HardwareInfo = .current) -> ModelFit {
+        guard hw.isAppleSilicon else { return .notRecommended }
+        let gb = hw.memoryGB
+        if gb + 0.5 < Double(minRAMGB) { return .notRecommended }
+        let budget = Double(hw.physicalMemory) * 0.55
+        switch Double(ramBytes) / budget {
+        case ..<0.45: return .great
+        case ..<0.75: return .ok
+        case ..<1.05: return .tight
+        default:      return .notRecommended
+        }
+    }
+
+    func fitExplanation(on hw: HardwareInfo = .current) -> String {
+        let mem = hw.memoryGB >= 1
+            ? String(format: "%.0f GB", hw.memoryGB.rounded())
+            : String(format: "%.1f GB", hw.memoryGB)
+        switch fit(on: hw) {
+        case .great:          return "Comfortably within your \(mem) of RAM — runs well on this Mac."
+        case .ok:             return "Runs well on your \(mem) of RAM with room for other apps."
+        case .tight:          return "Uses a large share of your \(mem) of RAM — expect memory pressure."
+        case .notRecommended:
+            return hw.isAppleSilicon
+                ? "Needs about \(minRAMGB) GB of RAM — more than your \(mem) Mac can spare. Pick a smaller Qwen3-ASR build."
+                : "Qwen3-ASR runs only on Apple Silicon Macs."
+        }
+    }
+}

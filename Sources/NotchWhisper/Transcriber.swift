@@ -11,6 +11,10 @@ import WhisperKit
     private var whisper: WhisperKit?
     private var loadedModelId: String?
 
+    /// Second engine: GGUF Qwen3-ASR via llama.cpp / mtmd. Loaded only while the
+    /// active model id is `llama:*`; hold-to-talk (batch) transcription only.
+    let llama = LlamaASR()
+
     /// The single in-flight load, so concurrent callers (the `.modelChanged`
     /// notification, `requestDownload`, a dictation start, the launch task)
     /// share ONE `WhisperKit` construction instead of racing several. Racing
@@ -47,7 +51,8 @@ import WhisperKit
     /// model and cancelling an in-flight load of a *different* one.
     @discardableResult
     func ensureLoaded(modelId: String) async -> Bool {
-        if whisper != nil, loadedModelId == modelId, state.modelStatus == .ready {
+        if loadedModelId == modelId, state.modelStatus == .ready,
+           (whisper != nil || llama.loadedModelId == modelId) {
             return true
         }
         // Someone is already loading exactly this model → await their result.
@@ -112,9 +117,15 @@ import WhisperKit
     }
 
     private func load(modelId: String) async -> Bool {
+        if LlamaModelOption.isLlamaId(modelId) {
+            return await loadLlama(modelId: modelId)
+        }
         let label = WhisperModelOption.find(id: modelId).display
         fputs("NotchWhisper: loading model \(label) (\(modelId))...\n", stderr)
         beginLoadProgress(label)
+
+        // Switching away from the llama engine: free its weights first.
+        if llama.loadedModelId != nil { llama.unload() }
 
         // Tear down any previously-loaded model first so a stale instance for a
         // different variant can never be observed as "ready" after a switch.
@@ -225,6 +236,89 @@ import WhisperKit
         }
     }
 
+    // MARK: - llama.cpp / Qwen3-ASR engine
+
+    /// Load a `llama:*` GGUF Qwen3-ASR model. Requires both GGUF files already
+    /// on disk (downloaded from the Models tab). Tears down WhisperKit first.
+    private func loadLlama(modelId: String) async -> Bool {
+        guard let opt = LlamaModelOption.find(id: modelId) else {
+            state.modelStatus = .error("Unknown Qwen3-ASR model '\(modelId)'.")
+            state.statusMessage = "Unknown model."
+            return false
+        }
+        let label = opt.display
+        fputs("NotchWhisper: loading model \(label) (\(modelId))...\n", stderr)
+        beginLoadProgress(label)
+
+        guard GGUFDownloader.isDownloaded(opt) else {
+            state.modelStatus = .error("\(label) isn't downloaded yet.")
+            state.statusMessage = "Download \(label) first."
+            endLoadProgress(success: false)
+            return false
+        }
+
+        // Tear down WhisperKit so a stale instance can't be observed as ready.
+        if let old = whisper { await old.unloadModels() }
+        whisper = nil
+        loadedModelId = nil
+
+        let modelPath = GGUFDownloader.modelPath(for: opt).path
+        let mmprojPath = GGUFDownloader.mmprojPath(for: opt).path
+        let threads = max(4, ProcessInfo.processInfo.activeProcessorCount - 2)
+
+        do {
+            try await llama.load(
+                modelId: modelId, modelPath: modelPath, mmprojPath: mmprojPath, threads: threads
+            ) { p, phase in
+                Task { @MainActor in
+                    guard AppState.shared.isLoadingModel else { return }
+                    if p >= AppState.shared.modelLoadProgress {
+                        AppState.shared.modelLoadProgress = p
+                        AppState.shared.modelLoadPhase = phase
+                    }
+                }
+            }
+            if Task.isCancelled { llama.unload(); endLoadProgress(success: false); return false }
+            loadedModelId = modelId
+            state.modelStatus = .ready
+            endLoadProgress(success: true)
+            state.statusMessage = ""
+            fputs("NotchWhisper: model \(label) loaded OK (llama.cpp)\n", stderr)
+            return true
+        } catch {
+            state.modelStatus = .error(error.localizedDescription)
+            state.statusMessage = error.localizedDescription
+            endLoadProgress(success: false)
+            fputs("NotchWhisper: llama model load FAILED: \(error)\n", stderr)
+            return false
+        }
+    }
+
+    /// True when the active engine is llama.cpp / Qwen3-ASR (hold-to-talk only).
+    var activeEngineIsLlama: Bool { LlamaModelOption.isLlamaId(loadedModelId ?? "") }
+
+    /// llama.cpp GGUF Qwen3-ASR models present on disk (by model id).
+    func availableLocalLlamaModelIds() -> [String] {
+        LlamaModelOption.all.filter { GGUFDownloader.isDownloaded($0) }.map(\.id)
+    }
+
+    /// Builds the Qwen3-ASR "context" system prompt: a language hint plus a few
+    /// dictionary terms as hotwords. Qwen3-ASR is trained to use this text.
+    private func llamaContextPrompt(biasTerms: [String]) -> String {
+        var lines: [String] = []
+        if let lang = settings.language, !lang.isEmpty, lang.lowercased() != "auto" {
+            lines.append("Language: \(lang).")
+        }
+        let terms = biasTerms
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .prefix(40)
+        if !terms.isEmpty {
+            lines.append("Expected terms: " + terms.joined(separator: ", ") + ".")
+        }
+        return lines.joined(separator: " ")
+    }
+
     /// Locates the on-disk folder of a catalog model, requiring complete
     /// CoreML weights. Checks the canonical WhisperKit layout first
     /// (`models/argmaxinc/whisperkit-coreml/<folderName>`), then scans the
@@ -271,6 +365,11 @@ import WhisperKit
     private func tokenIfGated(_ repo: String) -> String? { Keychain.getToken() }
 
     func transcribe(_ samples: [Float], biasTerms: [String] = []) async throws -> String {
+        if activeEngineIsLlama {
+            return try await llama.transcribe(
+                samples, context: llamaContextPrompt(biasTerms: biasTerms)
+            )
+        }
         let segments = try await decode(samples, biasTerms: biasTerms)
         return segments.map { $0.text }
             .joined(separator: "\n")
@@ -283,6 +382,7 @@ import WhisperKit
     /// re-reading earlier audio. Uses a single greedy decode (no temperature
     /// fallbacks) — each pass is cheap so words can stream out as you speak.
     func liveTranscribeChunk(_ samples: [Float], runningText: String, biasTerms: [String] = []) async throws -> String {
+        if activeEngineIsLlama { throw TranscriberError.liveUnsupported }
         guard let w = whisper else { throw TranscriberError.notLoaded }
 
         // Prompt context: recent already-transcribed text (capped so the token
@@ -361,6 +461,7 @@ import WhisperKit
     /// carry real audio positions (the confirmation logic in LiveTranscriber
     /// needs them), dictionary bias as a prefill prompt.
     func liveTranscribe(_ samples: [Float], biasTerms: [String] = []) async throws -> [TranscriptionSegment] {
+        if activeEngineIsLlama { throw TranscriberError.liveUnsupported }
         guard let w = whisper else { throw TranscriberError.notLoaded }
 
         // Short bias prompt only: a long prefill on a short window makes
@@ -406,6 +507,9 @@ import WhisperKit
     ///  3. Stall watchdog: if progress hasn't advanced for 45 s the attempt
     ///     is cancelled and retried, instead of sitting at 47% forever.
     func download(modelId: String) async -> Bool {
+        if let llamaOpt = LlamaModelOption.find(id: modelId) {
+            return await GGUFDownloader.download(llamaOpt)
+        }
         let option = WhisperModelOption.find(id: modelId)
         let label = option.display
         state.isDownloading = true
@@ -637,7 +741,17 @@ import WhisperKit
             .sorted()
     }
 
-    enum TranscriberError: Error { case notLoaded, downloadIncomplete }
+    enum TranscriberError: LocalizedError {
+        case notLoaded, downloadIncomplete, liveUnsupported
+
+        var errorDescription: String? {
+            switch self {
+            case .notLoaded:          return "The transcription model isn't loaded."
+            case .downloadIncomplete: return "The model download didn't complete."
+            case .liveUnsupported:    return "Live dictation isn't supported by this model — use hold-to-talk."
+            }
+        }
+    }
 
     // MARK: - Download stats sampling
 

@@ -47,9 +47,12 @@ struct SettingsView: View {
     private var dictationGroup: some View {
         SettingsGroup(title: "Dictation") {
             SettingRow(icon: "dot.radiowaves.left.and.right", title: "Live dictation",
-                       subtitle: "Type into the focused field as you speak. The hotkey becomes press-to-start / press-to-stop.") {
+                       subtitle: LlamaModelOption.isLlamaId(settings.modelId)
+                            ? "Not available with Qwen3-ASR — that model uses hold-to-talk. Switch to a Whisper model for live dictation."
+                            : "Type into the focused field as you speak. The hotkey becomes press-to-start / press-to-stop.") {
                 Toggle("", isOn: $settings.liveDictation)
                     .labelsHidden().toggleStyle(.switch)
+                    .disabled(LlamaModelOption.isLlamaId(settings.modelId))
                     .onChange(of: settings.liveDictation) { _, _ in
                         NotificationCenter.default.post(name: .dictationChanged, object: nil)
                     }
@@ -169,13 +172,13 @@ struct SettingsView: View {
         return SettingsGroup(title: "Model",
                              footnote: "Manage the full catalog — with a compatibility check for this Mac — on the Models page.") {
             SettingRow(icon: "cpu", title: "Active model",
-                       subtitle: "\(WhisperModelOption.find(id: settings.modelId).lang) · \(ModelCatalog.shared.sizeLabel(for: WhisperModelOption.find(id: settings.modelId)))") {
+                       subtitle: activeModelSubtitle) {
                 Picker("", selection: $settings.modelId) {
                     ForEach(downloaded, id: \.self) { id in
-                        Text(WhisperModelOption.find(id: id).display).tag(id)
+                        Text(Self.modelDisplayName(id)).tag(id)
                     }
                     if !downloaded.contains(settings.modelId) {
-                        Text("\(WhisperModelOption.find(id: settings.modelId).display) · not downloaded").tag(settings.modelId)
+                        Text("\(Self.modelDisplayName(settings.modelId)) · not downloaded").tag(settings.modelId)
                     }
                 }
                 .labelsHidden()
@@ -227,14 +230,33 @@ struct SettingsView: View {
         let folders = AppDelegate.shared?.transcriberRef.availableLocalModels() ?? []
         var ids = folders.map { WhisperModelOption.bareId($0) }
         if !ids.contains(WhisperModelOption.default.id) { ids.append(WhisperModelOption.default.id) }
-        return Array(Set(ids)).sorted {
+        var whisper = Array(Set(ids)).sorted {
             WhisperModelOption.find(id: $0).englishWERValue < WhisperModelOption.find(id: $1).englishWERValue
         }
+        whisper += (AppDelegate.shared?.transcriberRef.availableLocalLlamaModelIds() ?? []).sorted()
+        return whisper
     }
     private var downloadedSummary: String {
         let local = AppDelegate.shared?.transcriberRef.availableLocalModels() ?? []
-        if local.isEmpty { return "No models downloaded yet." }
-        return "On disk: " + local.map { WhisperModelOption.find(id: $0).display }.joined(separator: ", ")
+        let llama = AppDelegate.shared?.transcriberRef.availableLocalLlamaModelIds() ?? []
+        let names = local.map { WhisperModelOption.find(id: $0).display }
+            + llama.compactMap { LlamaModelOption.find(id: $0)?.display }
+        if names.isEmpty { return "No models downloaded yet." }
+        return "On disk: " + names.joined(separator: ", ")
+    }
+
+    /// Display name for any model id (Whisper catalog or `llama:*` Qwen3-ASR).
+    static func modelDisplayName(_ id: String) -> String {
+        if let l = LlamaModelOption.find(id: id) { return l.display }
+        return WhisperModelOption.find(id: id).display
+    }
+
+    private var activeModelSubtitle: String {
+        if let l = LlamaModelOption.find(id: settings.modelId) {
+            return "Qwen3-ASR · \(l.sizeLabel) · hold-to-talk"
+        }
+        let m = WhisperModelOption.find(id: settings.modelId)
+        return "\(m.lang) · \(ModelCatalog.shared.sizeLabel(for: m))"
     }
 
     // MARK: Local LLM

@@ -79,6 +79,20 @@ NotchWhisper ships with the full `argmaxinc/whisperkit-coreml` catalog (27 varia
 
 Larger models are more accurate but slower and heavier to download. The **Models** page also has a live Hugging Face search (server-side filtered to ASR + Core ML repos) where every repo expands to its downloadable folders with exact sizes and metadata straight from the HF API.
 
+### Qwen3-ASR (llama.cpp)
+
+Apple Silicon only. The **Models** page also offers **Qwen3-ASR** — Qwen's multilingual speech model — run on the Metal GPU through a bundled build of [llama.cpp](https://github.com/ggml-org/llama.cpp) (`mtmd`). It's strong on accents, code-switching and noisy audio, and takes a short context prompt (dictionary terms as hotwords, an optional language hint).
+
+| Model | Download | RAM |
+| --- | --- | --- |
+| Qwen3-ASR 0.6B (Q8) | ~0.9 GB | 8 GB+ |
+| Qwen3-ASR 1.7B (Q8) | ~2.5 GB | 16 GB+ |
+| Qwen3-ASR 1.7B (BF16) | ~4.7 GB | 24 GB+ |
+
+GGUF weights download on demand from `ggml-org/Qwen3-ASR-*-GGUF` into `~/Library/Application Support/NotchWhisper/Models/llama/`. **Hold-to-talk only** — live dictation stays on WhisperKit (Qwen3-ASR has no streaming/timestamp API). The dictionary-correction and local-LLM passes run on its output unchanged.
+
+The prebuilt llama.cpp libraries are vendored in `vendor/llama/` (pinned to a llama.cpp release; regenerate or bump with `scripts/fetch_llama.sh`). `build.sh` copies them into `NotchWhisper.app/Contents/Frameworks` and the ad-hoc/self-signed `--deep` signature covers them. For a **notarized** release each `vendor/llama` dylib must be signed with your Developer ID, the hardened runtime, and a secure timestamp before notarization.
+
 ---
 
 ## Local LLM post-processing
@@ -195,13 +209,16 @@ Microphone audio is resampled to 16 kHz mono (Whisper's input rate) in `AudioRec
 
 ```text
 Sources/NotchWhisper/
-├── main.swift            NSApplication entry point (+ --type-test hook)
+├── main.swift            NSApplication entry point (+ --type-test / --llama-selftest hooks)
 ├── AppDelegate.swift     Wires UI, hotkey, and the record → transcribe → type → history flow
 ├── AppState.swift        Observable state shared by UI + logic
 ├── Settings.swift        UserDefaults-backed preferences
 ├── AudioRecorder.swift   AVAudioEngine → 16 kHz mono + live RMS levels
-├── Transcriber.swift     WhisperKit wrapper (load + download + transcribe)
-├── LiveTranscriber.swift Continuous type-as-you-speak loop
+├── Transcriber.swift     Engine façade: WhisperKit wrapper + routes llama:* ids to LlamaASR
+├── LlamaASR.swift        llama.cpp / mtmd engine for GGUF Qwen3-ASR (hold-to-talk)
+├── LlamaModels.swift     Qwen3-ASR GGUF catalog (llama:* ids)
+├── GGUFDownloader.swift  Resumable 2-file GGUF download from Hugging Face
+├── LiveTranscriber.swift Continuous type-as-you-speak loop (WhisperKit only)
 ├── AutoTyper.swift       Accessibility insert + CGEvent keystroke fallback
 ├── HotkeyMonitor.swift   Carbon global hotkey (press / release)
 ├── NotchWindow.swift     Borderless always-on-top panel in the notch

@@ -289,4 +289,35 @@ struct WhisperModelOption: Identifiable, Hashable {
         let rounded = secs < 10 ? Int(secs.rounded()) : Int((secs / 5).rounded() * 5)
         return "~\(max(rounded, 1)) sec / min audio"
     }
+
+    // MARK: - Attribution (who made the model + a Hugging Face link)
+
+    struct Attribution {
+        let org: String        // HF handle, for the avatar lookup
+        let display: String    // human label
+        let note: String?      // e.g. "Core ML build by Argmax"
+        let url: URL           // the Hugging Face page
+    }
+
+    var attribution: Attribution {
+        let hub = URL(string: "https://huggingface.co/argmaxinc/whisperkit-coreml")!
+        if folderName.hasPrefix("openai_whisper-") {
+            return Attribution(org: "openai", display: "OpenAI",
+                               note: "Core ML build by Argmax", url: hub)
+        }
+        if folderName.hasPrefix("distil-whisper_") {
+            return Attribution(org: "distil-whisper", display: "Distil-Whisper",
+                               note: "Core ML build by Argmax", url: hub)
+        }
+        // Custom "<repoId>:<folder>" model from the Hugging Face search.
+        if let custom = WhisperModelOption.parseCustom(id) {
+            let org = custom.repo.split(separator: "/").first.map(String.init) ?? custom.repo
+            return Attribution(
+                org: org, display: org, note: nil,
+                url: URL(string: "https://huggingface.co/\(custom.repo)")!
+            )
+        }
+        return Attribution(org: "openai", display: "OpenAI",
+                           note: "Core ML build by Argmax", url: hub)
+    }
 }

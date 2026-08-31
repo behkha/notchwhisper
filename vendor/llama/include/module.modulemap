@@ -1,0 +1,19 @@
+module CLlama {
+    header "llama.h"
+    header "mtmd.h"
+    header "mtmd-helper.h"
+
+    // Pulled in transitively by llama.h / mtmd.h — declared so the Clang
+    // importer can find them without a header search fallback.
+    header "ggml.h"
+    header "ggml-cpu.h"
+    header "ggml-backend.h"
+    header "ggml-alloc.h"
+    header "ggml-opt.h"
+    header "gguf.h"
+
+    export *
+    link "mtmd"
+    link "llama"
+    link "ggml-base"
+}

@@ -67,6 +67,25 @@ struct ModelsView: View {
                             }
                         }
                     }
+
+                    if hw.isAppleSilicon {
+                        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+                            Text("QWEN3-ASR · LLAMA.CPP")
+                                .font(Tokens.TypeScale.eyebrow).tracking(1.2)
+                                .foregroundStyle(Tokens.Color.textTert)
+                            Text("Qwen's multilingual speech model, run on the Metal GPU via llama.cpp. Hold-to-talk only — live dictation uses Whisper.")
+                                .font(Tokens.TypeScale.caption)
+                                .foregroundStyle(Tokens.Color.textSec)
+                            LazyVGrid(
+                                columns: [GridItem(.adaptive(minimum: 270, maximum: 360), spacing: Tokens.Space.x4)],
+                                spacing: Tokens.Space.x4
+                            ) {
+                                ForEach(LlamaModelOption.all) { m in
+                                    LlamaModelCard(model: m, hw: hw)
+                                }
+                            }
+                        }
+                    }
                 }
                 .padding(Tokens.Space.x8)
                 .frame(maxWidth: 1000, alignment: .leading)
@@ -478,6 +497,13 @@ struct ModelCard: View {
                 Text(model.lang)
                     .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
             }
+
+            Divider().overlay(Tokens.Color.hairline)
+            ModelAttribution(
+                org: model.attribution.org, display: model.attribution.display,
+                note: model.attribution.note, link: model.attribution.url,
+                compact: true, showLink: false     // card is one big Button
+            )
         }
         .padding(Tokens.Space.x4)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -489,6 +515,108 @@ struct ModelCard: View {
         // VoiceOver: one coherent element naming the model, not a pile of text.
         .accessibilityElement(children: .combine)
         .accessibilityHint("Shows model details")
+    }
+}
+
+/// A card for a GGUF Qwen3-ASR model (llama.cpp engine). Simpler than
+/// `ModelCard` — Qwen3-ASR has no per-model WER/speed table.
+struct LlamaModelCard: View {
+    @EnvironmentObject private var state: AppState
+    @EnvironmentObject private var settings: Settings
+    let model: LlamaModelOption
+    var hw: HardwareInfo = .current
+
+    private var isActive: Bool { settings.modelId == model.id }
+    private var isDownloadingThis: Bool { state.downloadingModelId == model.id }
+    private var isLocal: Bool {
+        !isDownloadingThis && GGUFDownloader.isDownloaded(model)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+            HStack(alignment: .top, spacing: Tokens.Space.x2) {
+                VStack(alignment: .leading, spacing: Tokens.Space.x1) {
+                    HStack(spacing: Tokens.Space.x2) {
+                        Text(model.display)
+                            .font(Tokens.TypeScale.title2)
+                            .foregroundStyle(Tokens.Color.text)
+                        if isActive {
+                            Text("ACTIVE")
+                                .font(Tokens.TypeScale.micro)
+                                .foregroundStyle(Tokens.Color.success)
+                                .padding(.horizontal, Tokens.Space.x2).padding(.vertical, Tokens.Space.x1)
+                                .background(Capsule().fill(Tokens.Color.success.opacity(0.16)))
+                        }
+                    }
+                    Text("\(model.quant) · llama.cpp")
+                        .font(Tokens.TypeScale.captionSB)
+                        .foregroundStyle(Tokens.Color.accent)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: isActive ? "checkmark.circle.fill" : "waveform")
+                    .font(.system(size: 18))
+                    .foregroundStyle(isActive ? Tokens.Color.success : Tokens.Color.textTert)
+            }
+
+            ModelFitBadge(fit: model.fit(on: hw))
+
+            Text(model.blurb)
+                .font(Tokens.TypeScale.caption)
+                .foregroundStyle(Tokens.Color.textSec)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(4)
+
+            HStack(spacing: Tokens.Space.x2) {
+                Image(systemName: "arrow.down.circle").font(.system(size: 11)).foregroundStyle(Tokens.Color.textTert)
+                Text(model.sizeLabel).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
+                Spacer(minLength: 0)
+                Image(systemName: "memorychip").font(.system(size: 11)).foregroundStyle(Tokens.Color.textTert)
+                Text("~\(model.ramLabel) RAM").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
+            }
+
+            Divider().overlay(Tokens.Color.hairline)
+            // Maker (Qwen) + the GGUF repo actually downloaded (ggml-org).
+            ModelAttribution(
+                org: model.makerOrg, display: model.makerDisplay,
+                note: "GGUF by ggml-org", link: model.ggufURL, compact: true
+            )
+
+            if isDownloadingThis {
+                VStack(alignment: .leading, spacing: Tokens.Space.x1) {
+                    ProgressView(value: max(state.displayProgress, 0.02))
+                        .tint(Tokens.Color.accent)
+                    if !state.downloadDetailText.isEmpty {
+                        Text(state.downloadDetailText)
+                            .font(Tokens.TypeScale.micro).monospacedDigit()
+                            .foregroundStyle(Tokens.Color.textTert)
+                    }
+                }
+            } else {
+                Button {
+                    if isActive { return }
+                    if isLocal {
+                        settings.modelId = model.id
+                        NotificationCenter.default.post(name: .modelChanged, object: nil)
+                    } else {
+                        AppDelegate.shared?.requestDownload(modelId: model.id)
+                    }
+                } label: {
+                    HStack(spacing: Tokens.Space.x2) {
+                        Image(systemName: isActive ? "checkmark.circle.fill"
+                              : (isLocal ? "checkmark.circle" : "arrow.down.circle.fill"))
+                        Text(isActive ? "Active" : (isLocal ? "Use this model" : "Download & use"))
+                    }
+                    .font(Tokens.TypeScale.captionSB)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(isActive ? Tokens.Color.success : Tokens.Color.accent)
+                .disabled(state.isDownloading || model.fit(on: hw) == .notRecommended)
+            }
+        }
+        .padding(Tokens.Space.x4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassSurface(interactive: false)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -637,6 +765,14 @@ struct ModelDetailView: View {
                     .font(Tokens.TypeScale.body)
                     .foregroundStyle(Tokens.Color.textSec)
                     .fixedSize(horizontal: false, vertical: true)
+
+                ModelAttribution(
+                    org: model.attribution.org, display: model.attribution.display,
+                    note: model.attribution.note, link: model.attribution.url
+                )
+                .padding(Tokens.Space.x3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassRow(cornerRadius: Tokens.Radius.md)
 
                 // Big metrics
                 HStack(spacing: Tokens.Space.x4) {

@@ -1,0 +1,4 @@
+llama.cpp vendored libraries + headers
+build: b10712
+source: https://github.com/ggml-org/llama.cpp/releases/tag/b10712
+regenerate: scripts/fetch_llama.sh (bump LLAMA_CPP_BUILD, delete vendor/llama/lib)

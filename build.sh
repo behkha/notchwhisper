@@ -11,6 +11,9 @@ RES="$APP_BUNDLE/Contents/Resources"
 FRI="$APP_BUNDLE/Contents/Frameworks"
 MIN_MACOS="14.0"
 
+echo "==> Vendoring llama.cpp (Qwen3-ASR backend)"
+"$ROOT/scripts/fetch_llama.sh"
+
 echo "==> Resolving dependencies (WhisperKit)"
 pushd "$ROOT" >/dev/null
 swift package resolve 2>&1 | tail -5
@@ -108,6 +111,15 @@ fi
 
 # Bundle any dylibs SwiftPM emitted alongside the executable.
 find "$BIN_SRC" -maxdepth 1 -name "*.dylib" -exec cp {} "$FRI/" \; || true
+
+# Bundle the vendored llama.cpp / mtmd libraries (the Qwen3-ASR backend). These
+# aren't emitted by SwiftPM — they live in vendor/llama/lib — so copy the real
+# (unversioned-major) dylibs explicitly. Their install names are @rpath/… so the
+# Frameworks rpath below resolves them.
+if [ -d "$ROOT/vendor/llama/lib" ]; then
+  find "$ROOT/vendor/llama/lib" -maxdepth 1 -name "*.0.dylib" -exec cp {} "$FRI/" \; || true
+fi
+
 if [ -n "$(ls -A "$FRI" 2>/dev/null)" ]; then
   install_name_tool -add_rpath "@executable_path/../Frameworks" "$BIN" 2>/dev/null || true
 fi

@@ -251,7 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///    live session that types as you speak, press again to STOP.
     /// Called at launch and whenever the setting (or key) changes.
     private func installHotkey() {
-        if settings.liveDictation {
+        if liveDictationActive {
             hotkey = HotkeyMonitor(
                 onDown: { [weak self] in Task { @MainActor in self?.toggleRecord() } },
                 onUp: {},
@@ -315,7 +315,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         NotificationCenter.default.addObserver(forName: .modelChanged, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in _ = await self?.transcriber.ensureLoaded() }
+            Task { @MainActor in
+                guard let self else { return }
+                // A llama:* model can't do live dictation — end any running
+                // session and flip the hotkey back to hold-to-talk.
+                if !self.liveDictationActive, self.isDictating { self.stopDictation() }
+                self.installHotkey()
+                _ = await self.transcriber.ensureLoaded()
+            }
         }
         NotificationCenter.default.addObserver(forName: .dictationChanged, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
@@ -329,10 +336,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Live dictation streams partials and needs segment timestamps — only
+    /// WhisperKit provides them. With a `llama:*` Qwen3-ASR model active the
+    /// hotkey/button falls back to hold-to-talk regardless of the setting.
+    var liveDictationActive: Bool {
+        settings.liveDictation && !LlamaModelOption.isLlamaId(settings.modelId)
+    }
+
     func toggleRecord() {
         if isDictating { stopDictation(); return }
         if isFinishingDictation { return }   // teardown in flight — ignore
-        if settings.liveDictation { startDictation(); return }
+        if liveDictationActive { startDictation(); return }
         if isRecording { stopRecording() } else { startRecording() }
     }
 
@@ -372,7 +386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // guard the deferred call would start a live session the user has
         // already disabled, with no hotkey left to stop it (the hotkey has
         // reverted to hold-to-talk).
-        guard settings.liveDictation else { return }
+        guard liveDictationActive else { return }
         guard !isDictating, !isRecording, !isFinishingDictation else { return }
         // The model must be resident before the live loop starts — otherwise
         // the loop bails on its first tick, leaving `isDictating` stuck true.
@@ -558,15 +572,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// and a dictation started during the download would try to load a
     /// half-finished model.
     func requestDownload(modelId: String) {
-        Task {
-            guard await transcriber.download(modelId: modelId) else { return }
-            settings.modelId = modelId
+        // Re-entrancy guard: a double-click (or clicking a second model while
+        // one is downloading) must not start two writers on the same file.
+        guard !state.isDownloading, downloadTask == nil else { return }
+        downloadTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.downloadTask = nil }
+            guard await self.transcriber.download(modelId: modelId) else { return }
+            self.settings.modelId = modelId
             // Load it directly here (coalesced inside Transcriber). Deliberately
             // NOT also posting `.modelChanged`: that observer would kick off a
             // second, racing load of the same model.
-            _ = await transcriber.ensureLoaded(modelId: modelId)
+            _ = await self.transcriber.ensureLoaded(modelId: modelId)
         }
     }
+    private var downloadTask: Task<Void, Never>?
 
     var transcriberRef: Transcriber { transcriber }
 
@@ -580,6 +600,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             live.cancelNow()
             isDictating = false
         }
+        transcriber.llama.shutdown()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
