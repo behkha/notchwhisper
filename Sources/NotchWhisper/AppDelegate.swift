@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var updateWindow: NSWindow?
 
     private var isRecording = false
     /// True while a continuous live-dictation session is running (Settings →
@@ -138,6 +139,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Reconcile launch-at-login with the stored setting (default ON).
         settings.applyLaunchAtLogin()
 
+        // Ask GitHub whether `main` moved on since this build's commit. Delayed
+        // so it never competes with model loading at launch.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+            UpdateChecker.shared.checkAtLaunch()
+        }
+
         // First run only: no local model yet → show the main window once so
         // the user can pick a model and meet the app. Afterwards the app stays
         // invisible until opened from the menu bar.
@@ -154,6 +161,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenu = NSMenuItem(title: appName, action: nil, keyEquivalent: "")
         let appSub = NSMenu()
         appSub.addItem(NSMenuItem(title: "About \(appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
+        let updateItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        updateItem.target = self
+        appSub.addItem(updateItem)
         appSub.addItem(.separator())
         appSub.addItem(NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ","))
         appSub.addItem(.separator())
@@ -249,6 +259,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showSettings() {
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// The Updates window. Built on demand — most launches never open it.
+    @objc func showUpdates() {
+        if updateWindow == nil {
+            let win = makeAuroraWindow(UpdateView(), width: 620, height: 620,
+                                       minW: 560, minH: 460, title: "Updates")
+            win.level = .normal
+            updateWindow = win
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        updateWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Menu command: check, then open the window with whatever came back.
+    @objc func checkForUpdates() {
+        UpdateChecker.shared.check()
+        showUpdates()
     }
 
     // MARK: - Hotkey

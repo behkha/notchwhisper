@@ -64,6 +64,14 @@ In **Settings → General**, enable *Live dictation*. The hotkey switches to a t
 **Transcribing a file**
 Open the main window → **Upload**, then drop in a recording (or click *Choose file…*). MP3, WAV, M4A, AAC, FLAC, AIFF, CAF, MP4 and MOV all work, at any length — the audio is decoded to 16 kHz mono on your Mac and run through the same engine, dictionary bias and correction pass as dictation. Long files show progress over the clip and can be cancelled mid-run. Nothing is auto-typed; you get the text on the page to edit, copy, or save.
 
+**Changing the hotkey**
+In **Settings → Hotkey**, click the key cap and press what you want. Three shapes are accepted:
+- a bare modifier — tap `⌥` (left or right are distinct keys) and release;
+- a modifier combination — hold `⌘`, tap `⌥`, release both → `⌘⌥`;
+- a regular key with modifiers — hold `⌃⌥` and press Space → `⌃⌥Space`.
+
+Escape cancels the recording; the ↺ button restores Right `⌥`. Left and right modifiers are told apart, so Right `⌥` stays free of the Option character-entry layer on the left key.
+
 **First run details**
 - The main window opens automatically the first time (when no model is downloaded yet). Afterwards the app stays invisible until you open it from the menu bar → **Open NotchWhisper**.
 - WhisperKit caches models under `~/Library/Application Support/NotchWhisper/Models`.
@@ -200,9 +208,10 @@ Every finished dictation is saved to **Transcripts** (searchable, with copy / co
 | Theme color | Appearance | Ember / Ocean / Violet / Forest / Rose / Aqua | Ember |
 | Voice-reactive glow | Appearance | on / off | on |
 | Notch visualizer | Appearance | Bar / Wave / Radial / Grid / Aura | Bar |
-| Hold-to-talk hotkey | Hotkey | re-recordable (all modifiers) | Right `⌥` |
+| Hold-to-talk hotkey | Hotkey | any key, modifier, or combination | Right `⌥` |
 | Active model | Model | tiny → large-v3 (+ turbo/distil/quantized) | `base` |
 | Local LLM processing | Local LLM | enabled + mode (see above) | off |
+| Check for updates automatically | Updates | on / off | on |
 
 > A few behavior preferences are stored in `UserDefaults` and used by the engine — **auto-type** (on), **newline-after-text** (off), **language** (auto-detect, or any Whisper-supported language), **task** (transcribe / translate-to-English), and **haptics** (on) — but they are **not yet exposed in the Settings window**, so they currently run at their defaults.
 
@@ -247,7 +256,8 @@ Sources/NotchWhisper/
 ├── GGUFDownloader.swift  Resumable 2-file GGUF download from Hugging Face
 ├── LiveTranscriber.swift Continuous type-as-you-speak loop (WhisperKit only)
 ├── AutoTyper.swift       Accessibility insert + CGEvent keystroke fallback
-├── HotkeyMonitor.swift   Carbon global hotkey (press / release)
+├── HotkeyMonitor.swift   Global hotkey tap (bare modifier / combination / key + modifiers)
+├── HotkeyRecorder.swift  Shortcut recorder for Settings (keyDown + flagsChanged)
 ├── NotchWindow.swift     Borderless always-on-top panel in the notch
 ├── NotchView.swift       SwiftUI pill UI (waveform, spinner, badges)
 ├── Visualizers.swift     5 LiveKit-style audio visualizers + settings preview
@@ -275,6 +285,10 @@ Sources/NotchWhisper/
 ├── FileTranscribeView.swift Upload page: pick/drop a file → decode → transcribe → editable text
 ├── MainView.swift        Main window: Home, Upload, Transcripts, Dictionary, Models
 ├── MenuBar.swift         Status-bar item + quick actions
+├── AppVersion.swift      Build provenance read from Info.plist (commit, branch, repo)
+├── UpdateChecker.swift   Polls GitHub for new commits on main + builds the changelog
+├── Updater.swift         Downloads that commit, rebuilds, swaps the .app, relaunches
+├── UpdateView.swift      Updates window + the "update available" banner
 ├── DesignTokens.swift    Theme + design system
 └── Keychain.swift        Secure storage for the LLM API key
 ```
@@ -321,6 +335,20 @@ open build/NotchWhisper.app
 ```
 
 `build.sh` accepts an `ARCH` variable (`arm64` / `x86_64` / `universal`; omit it to build for your Mac's architecture) and falls back to host arch. To package a `.dmg` for your own local use, run `./make_dmg.sh` (optionally with the arch suffix) after building.
+
+### In-app updates
+
+NotchWhisper follows the **`main` branch**, not tagged releases: `build.sh` stamps the commit it built from into `Info.plist` (`NWGitCommit`), and the app asks the GitHub API whether `main` has moved on. When it has, an **Update available** banner appears in the menu-bar panel and in **Settings → Updates**; opening it shows the commit range with each commit's message as the changelog.
+
+**Update & Relaunch** then:
+
+1. downloads that exact commit's source tarball into `~/Library/Caches/NotchWhisper/Updates` (your own checkout is never touched);
+2. runs `build.sh` there — which vendors llama.cpp, compiles, and **re-signs with the same local `NotchWhisper Dev` identity**;
+3. swaps the running `.app` for the result and relaunches it.
+
+The rebuild is what keeps the app's TCC grants (Microphone, Input Monitoring, Accessibility) alive — a downloaded prebuilt binary would carry a different signature and reset every permission. In exchange, an update takes a few minutes and needs the Xcode command line tools. The build log is visible in the window while it runs, and *Skip this version* silences the banner until something newer lands.
+
+Automatic checks run at launch and every 3 hours; turn them off in **Settings → Updates**, or check on demand from **NotchWhisper → Check for Updates…**.
 
 **Releases.** Pushing a `v*` tag cuts a GitHub Release containing source archives only. The workflow at `.github/workflows/release.yml` is kept minimal on purpose; once Developer ID signing + notarization is wired up, it can be extended to build and attach notarized `.dmg`s again.
 

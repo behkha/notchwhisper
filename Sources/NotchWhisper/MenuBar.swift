@@ -24,8 +24,15 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let panel = MenuPanel(close: { [weak self] in self?.popover.performClose(nil) })
             .environmentObject(state)
             .environmentObject(settings)
-        popover.contentViewController = NSHostingController(rootView: panel)
-        popover.contentSize = NSSize(width: 320, height: 10)   // SwiftUI drives height
+        // The hosting controller must publish SwiftUI's measured size as its
+        // `preferredContentSize`, otherwise NSPopover is shown at whatever
+        // `contentSize` we guessed, computes its anchor from THAT box, and then
+        // grows — which pushed the panel up through the menu bar and off the top
+        // of the screen. `.preferredContentSize` makes the popover know its real
+        // height before it is placed.
+        let hosting = NSHostingController(rootView: panel)
+        hosting.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hosting
 
         if let btn = statusItem.button {
             btn.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "NotchWhisper")
@@ -149,6 +156,8 @@ private struct MenuPanel: View {
             .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous).strokeBorder(Tokens.Color.hairline, lineWidth: 1))
 
+            UpdateBanner(compact: true)
+
             // Latest transcript
             if let rec = history.records.first {
                 Button {
@@ -184,6 +193,10 @@ private struct MenuPanel: View {
         .background(AuroraBackground())
         .environment(\.colorScheme, .dark)
         .tint(Tokens.Color.accent)
+        // The popover makes its window key, which paints the system focus ring
+        // on the first focusable control (the record button). Every other
+        // surface in the app suppresses it too.
+        .focusEffectDisabled()
     }
 
     private func toggleRow(_ icon: String, _ title: String, isOn: Binding<Bool>) -> some View {

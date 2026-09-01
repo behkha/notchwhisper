@@ -11,6 +11,22 @@ RES="$APP_BUNDLE/Contents/Resources"
 FRI="$APP_BUNDLE/Contents/Frameworks"
 MIN_MACOS="14.0"
 
+# Build provenance. The app ships as source, so the meaningful identity of a
+# build is the commit it came from — the in-app updater compares this against
+# the tip of `main` on GitHub. Overridable via env for CI/tarball builds.
+GIT_COMMIT="${NOTCHWHISPER_COMMIT:-$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)}"
+GIT_COMMIT_DATE="${NOTCHWHISPER_COMMIT_DATE:-$(git -C "$ROOT" log -1 --format=%cI 2>/dev/null || echo "")}"
+GIT_BRANCH="${NOTCHWHISPER_BRANCH:-main}"
+SOURCE_REPO="${NOTCHWHISPER_REPO:-behkha/notchwhisper}"
+if [ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]; then GIT_DIRTY=1; else GIT_DIRTY=0; fi
+# A tarball checkout has no .git; the commit then comes from the directory name
+# GitHub gives it (notchwhisper-<sha>), which the updater passes through.
+if [ "$GIT_COMMIT" = "unknown" ]; then
+  MAYBE_SHA="$(basename "$ROOT")"; MAYBE_SHA="${MAYBE_SHA##*-}"
+  if [ ${#MAYBE_SHA} -eq 40 ]; then GIT_COMMIT="$MAYBE_SHA"; GIT_DIRTY=0; fi
+fi
+echo "==> Build provenance: $GIT_COMMIT (dirty=$GIT_DIRTY)"
+
 echo "==> Vendoring llama.cpp (Qwen3-ASR backend)"
 "$ROOT/scripts/fetch_llama.sh"
 
@@ -138,6 +154,12 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>$APP</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>$MIN_MACOS</string>
+  <!-- Build provenance, read by AppVersion / UpdateChecker. -->
+  <key>NWGitCommit</key><string>$GIT_COMMIT</string>
+  <key>NWGitCommitDate</key><string>$GIT_COMMIT_DATE</string>
+  <key>NWGitDirty</key><string>$GIT_DIRTY</string>
+  <key>NWSourceRepo</key><string>$SOURCE_REPO</string>
+  <key>NWSourceBranch</key><string>$GIT_BRANCH</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>NotchWhisper uses your microphone to transcribe your voice locally, on-device.</string>
   <key>NSInputMonitoringUsageDescription</key>

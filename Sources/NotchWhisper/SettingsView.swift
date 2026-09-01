@@ -9,8 +9,8 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: Settings
     @ObservedObject private var theme = Tokens.ThemeManager.shared
 
-    @State private var capturing = false
-    @State private var captureLabel = "Press a key…"
+    @StateObject private var recorder = HotkeyRecorder()
+    @ObservedObject private var updates = UpdateChecker.shared
 
     @State private var showingAPIKey = false
     @State private var apiKeyInput = ""
@@ -29,6 +29,7 @@ struct SettingsView: View {
                 hotkeyGroup
                 modelGroup
                 llmGroup
+                updatesGroup
             }
             .padding(Tokens.Space.x8)
             .frame(maxWidth: 620, alignment: .leading)
@@ -39,7 +40,14 @@ struct SettingsView: View {
         .environment(\.colorScheme, .dark)
         .tint(Tokens.Color.accent)
         .focusEffectDisabled()
-        .onDisappear { cancelCapture() }
+        .onAppear {
+            recorder.onCommit = { code, mods in
+                settings.hotkeyCode = code
+                settings.hotkeyModifiers = mods
+                NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
+            }
+        }
+        .onDisappear { recorder.cancel() }
     }
 
     // MARK: General / dictation
@@ -131,28 +139,35 @@ struct SettingsView: View {
     private var hotkeyGroup: some View {
         SettingsGroup(title: "Hotkey",
                       footnote: settings.liveDictation
-                        ? "Press this key anywhere to start live dictation; press again to stop."
-                        : "Hold this key anywhere to record; release to transcribe and type.") {
+                        ? "Press this shortcut anywhere to start live dictation; press again to stop."
+                        : "Hold this shortcut anywhere to record; release to transcribe and type.") {
             HStack(spacing: Tokens.Space.x3) {
                 IconTile("keyboard", tint: Tokens.Color.accent)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Trigger key").font(Tokens.TypeScale.body.weight(.medium)).foregroundStyle(Tokens.Color.text)
-                    Text(capturing ? "Listening for a key…" : "Click the key cap to change")
+                    Text("Trigger").font(Tokens.TypeScale.body.weight(.medium)).foregroundStyle(Tokens.Color.text)
+                    Text(recorder.isRecording
+                         ? "Press a key or hold a modifier combination — Esc cancels"
+                         : "Click the key cap, then press the key or combination you want")
                         .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
-                Button { armCapture() } label: {
-                    Text(capturing ? captureLabel : settings.hotkeyDisplay)
+                Spacer(minLength: Tokens.Space.x3)
+                Button { recorder.toggle() } label: {
+                    Text(recorder.capLabel(current: settings.hotkeyDisplay))
                         .font(Tokens.TypeScale.title2)
-                        .foregroundStyle(capturing ? Tokens.Color.record : Tokens.Color.text)
-                        .frame(minWidth: 96, minHeight: 40)
+                        .lineLimit(1)
+                        .foregroundStyle(recorder.isRecording ? Tokens.Color.record : Tokens.Color.text)
+                        .padding(.horizontal, Tokens.Space.x3)
+                        .frame(minWidth: 110, minHeight: 40)
                         .background(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-                            .fill(capturing ? Tokens.Color.record.opacity(0.14) : Tokens.Color.fillQuiet))
+                            .fill(recorder.isRecording ? Tokens.Color.record.opacity(0.14) : Tokens.Color.fillQuiet))
                         .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-                            .strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+                            .strokeBorder(recorder.isRecording ? Tokens.Color.record.opacity(0.5) : Tokens.Color.hairline, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
+                .help(recorder.isRecording ? "Recording — press Esc to cancel" : "Click to record a new shortcut")
                 Button {
+                    recorder.cancel()
                     settings.hotkeyCode = 61; settings.hotkeyModifiers = 0
                     NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
                 } label: { Image(systemName: "arrow.counterclockwise") }
@@ -267,6 +282,54 @@ struct SettingsView: View {
         if model.resources.diskBytes > 0 { parts.append(model.resources.diskLabel) }
         if !model.capabilities.streaming { parts.append("hold-to-talk only") }
         return parts.joined(separator: " · ")
+    }
+
+    // MARK: Updates
+
+    private var updatesGroup: some View {
+        SettingsGroup(title: "Updates",
+                      footnote: "NotchWhisper follows the \(AppVersion.branch) branch on GitHub. Updating downloads that commit, rebuilds the app and relaunches it — the build takes a few minutes and needs the Xcode command line tools.") {
+            SettingRow(icon: "shippingbox", title: "Version",
+                       subtitle: AppVersion.displayVersion) {
+                Button(updates.isChecking ? "Checking…" : "Check now") {
+                    AppDelegate.shared?.checkForUpdates()
+                }
+                .secondaryAction()
+                .disabled(updates.isChecking)
+            }
+
+            SettingRow(icon: "arrow.triangle.2.circlepath", title: "Check for updates automatically",
+                       subtitle: lastCheckSubtitle) {
+                Toggle("", isOn: $updates.autoCheck).labelsHidden().toggleStyle(.switch)
+            }
+
+            if updates.pendingUpdate != nil || updateStatusLine != nil {
+                VStack(alignment: .leading, spacing: Tokens.Space.x2) {
+                    if updates.pendingUpdate != nil {
+                        UpdateBanner()
+                    } else if let line = updateStatusLine {
+                        Text(line).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
+                    }
+                }
+                .padding(.horizontal, Tokens.Space.x4)
+                .padding(.vertical, Tokens.Space.x3)
+            }
+        }
+    }
+
+    private var lastCheckSubtitle: String {
+        guard let last = updates.lastCheck else { return "Never checked." }
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        return "Last checked \(f.localizedString(for: last, relativeTo: Date()))."
+    }
+
+    private var updateStatusLine: String? {
+        switch updates.status {
+        case .upToDate: return "You're on the latest commit."
+        case .failed(let message): return message
+        default: return nil
+        }
     }
 
     // MARK: Local LLM
@@ -438,27 +501,4 @@ struct SettingsView: View {
         isTestingConnection = false
     }
 
-    private func armCapture() {
-        capturing = true
-        captureLabel = "Press a key…"
-        var monitor: Any?
-        let modifierKeyCodes: Set<Int> = [58, 61, 55, 54, 56, 60, 59, 57]
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
-            let code = Int(event.keyCode)
-            if modifierKeyCodes.contains(code) {
-                settings.hotkeyCode = UInt32(code)
-                settings.hotkeyModifiers = 0
-            } else {
-                let mods = UInt32(event.modifierFlags.intersection([.command, .option, .control, .shift]).rawValue)
-                settings.hotkeyCode = UInt32(code)
-                settings.hotkeyModifiers = mods
-            }
-            NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
-            if let m = monitor { NSEvent.removeMonitor(m) }
-            capturing = false
-            return nil
-        }
-    }
-
-    private func cancelCapture() { capturing = false }
 }

@@ -224,29 +224,74 @@ import ServiceManagement
 
     // MARK: - Helpers
     var hotkeyDisplay: String {
-        var parts: [String] = []
-        if hotkeyModifiers & UInt32(optionKey) != 0 { parts.append("⌥") }
-        if hotkeyModifiers & UInt32(controlKey) != 0 { parts.append("⌃") }
-        if hotkeyModifiers & UInt32(shiftKey) != 0 { parts.append("⇧") }
-        if hotkeyModifiers & UInt32(cmdKey) != 0 { parts.append("⌘") }
-        if let name = keyName(code: Int(hotkeyCode)) {
-            parts.append(name)
-        } else {
-            parts.append("key \(hotkeyCode)")
-        }
-        return parts.joined(separator: "")
+        Settings.hotkeyDisplay(code: hotkeyCode, modifiers: hotkeyModifiers)
     }
 
-    private func keyName(code: Int) -> String? {
-        let map: [Int: String] = [
-            61: "Right ⌥", 58: "⌥", 55: "⌘", 54: "Right ⌘",
-            56: "⇧", 60: "Right ⇧", 59: "⌃", 57: "Caps",
-            49: "Space", 36: "↩", 48: "Tab", 53: "Esc",
-            123: "←", 124: "→", 125: "↓", 126: "↑",
-            122: "F1", 120: "F2", 99: "F3", 118: "F4",
-            96: "F5", 97: "F6", 98: "F7", 100: "F8",
-            101: "F9", 109: "F10", 103: "F11", 111: "F12"
-        ]
-        return map[code]
+    /// Renders a (key code, Carbon modifier mask) pair the way macOS writes
+    /// shortcuts: modifiers in ⌃⌥⇧⌘ order, then the key. The trigger key's own
+    /// modifier is never repeated in the prefix (right-Option reads "Right ⌥",
+    /// not "⌥Right ⌥").
+    static func hotkeyDisplay(code: UInt32, modifiers: UInt32) -> String {
+        let mods = modifiers & ~HotkeyCodes.carbonMask(forModifierKeyCode: Int(code))
+        var out = ""
+        if mods & UInt32(controlKey) != 0 { out += "⌃" }
+        if mods & UInt32(optionKey) != 0  { out += "⌥" }
+        if mods & UInt32(shiftKey) != 0   { out += "⇧" }
+        if mods & UInt32(cmdKey) != 0     { out += "⌘" }
+        out += keyName(code: Int(code)) ?? "key \(code)"
+        return out
+    }
+
+    /// Modifier-only prefix for a Carbon mask, in ⌃⌥⇧⌘ order. Used while the
+    /// recorder is mid-gesture and no trigger key has been chosen yet.
+    static func modifierDisplay(_ modifiers: UInt32) -> String {
+        var out = ""
+        if modifiers & UInt32(controlKey) != 0 { out += "⌃" }
+        if modifiers & UInt32(optionKey) != 0  { out += "⌥" }
+        if modifiers & UInt32(shiftKey) != 0   { out += "⇧" }
+        if modifiers & UInt32(cmdKey) != 0     { out += "⌘" }
+        return out
+    }
+
+    static func keyName(code: Int) -> String? {
+        if let named = namedKeys[code] { return named }
+        // Everything else: ask the current keyboard layout what the key types,
+        // so a French or Dvorak layout shows the character actually printed on
+        // the cap instead of a raw key code.
+        return layoutCharacter(for: code)?.uppercased()
+    }
+
+    private static let namedKeys: [Int: String] = [
+        61: "Right ⌥", 58: "⌥", 55: "⌘", 54: "Right ⌘",
+        56: "⇧", 60: "Right ⇧", 59: "⌃", 62: "Right ⌃",
+        57: "Caps", 63: "fn",
+        49: "Space", 36: "↩", 76: "⌤", 48: "⇥", 53: "Esc",
+        51: "⌫", 117: "⌦", 115: "Home", 119: "End",
+        116: "Page Up", 121: "Page Down",
+        123: "←", 124: "→", 125: "↓", 126: "↑",
+        122: "F1", 120: "F2", 99: "F3", 118: "F4",
+        96: "F5", 97: "F6", 98: "F7", 100: "F8",
+        101: "F9", 109: "F10", 103: "F11", 111: "F12",
+        105: "F13", 107: "F14", 113: "F15"
+    ]
+
+    /// The unmodified character a key produces on the active keyboard layout.
+    private static func layoutCharacter(for code: Int) -> String? {
+        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let ptr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
+        else { return nil }
+        let data = Unmanaged<CFData>.fromOpaque(ptr).takeUnretainedValue() as Data
+        var deadKeyState: UInt32 = 0
+        var length = 0
+        var chars = [UniChar](repeating: 0, count: 4)
+        let status = data.withUnsafeBytes { raw -> OSStatus in
+            guard let layout = raw.bindMemory(to: UCKeyboardLayout.self).baseAddress else { return -1 }
+            return UCKeyTranslate(layout, UInt16(code), UInt16(kUCKeyActionDisplay), 0,
+                                  UInt32(LMGetKbdType()), UInt32(kUCKeyTranslateNoDeadKeysBit),
+                                  &deadKeyState, chars.count, &length, &chars)
+        }
+        guard status == noErr, length > 0 else { return nil }
+        let s = String(utf16CodeUnits: chars, count: length)
+        return s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : s
     }
 }
