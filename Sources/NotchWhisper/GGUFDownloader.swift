@@ -1,5 +1,39 @@
 import Foundation
 
+/// A GGUF speech model discovered on the Hub rather than shipped in the
+/// catalog. The id carries everything the downloader and the loader need
+/// (`gguf:<repo>|<weights>|<mmproj>`), so neither has to look anything up —
+/// which matters because at download time there is no installation record yet.
+struct CustomGGUFModel: Hashable {
+    let repoId: String
+    let weightsFile: String
+    let mmprojFile: String
+
+    static let prefix = "gguf:"
+
+    var modelId: String { Self.makeId(repoId: repoId, weights: weightsFile, mmproj: mmprojFile) }
+    var displayName: String {
+        (weightsFile as NSString).deletingPathExtension
+    }
+
+    static func makeId(repoId: String, weights: String, mmproj: String) -> String {
+        "\(prefix)\(repoId)|\(weights)|\(mmproj)"
+    }
+
+    static func isCustomGGUFId(_ id: String) -> Bool { id.hasPrefix(prefix) }
+
+    /// nil when the id isn't a well-formed custom GGUF reference (including one
+    /// with an empty projector, which this app can't load).
+    static func parse(_ id: String) -> CustomGGUFModel? {
+        guard id.hasPrefix(prefix) else { return nil }
+        let parts = id.dropFirst(prefix.count).split(separator: "|", omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return nil }
+        let repo = String(parts[0]), weights = String(parts[1]), mmproj = String(parts[2])
+        guard !repo.isEmpty, !weights.isEmpty, !mmproj.isEmpty else { return nil }
+        return CustomGGUFModel(repoId: repo, weightsFile: weights, mmprojFile: mmproj)
+    }
+}
+
 /// Downloads the two GGUF files (decoder + `mmproj`) for a `LlamaModelOption`
 /// from Hugging Face into `Application Support/NotchWhisper/Models/llama/<repo>/`.
 ///
@@ -8,10 +42,10 @@ import Foundation
 /// to the same `AppState` fields the Whisper download UI reads.
 enum GGUFDownloader {
 
-    /// `…/NotchWhisper/Models/llama`
+    /// `<model storage root>/llama` — follows the configured storage location
+    /// so relocating the models directory moves this engine too.
     static func root() -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("NotchWhisper/Models/llama", isDirectory: true)
+        ModelStorageLocation.currentRoot.appendingPathComponent("llama", isDirectory: true)
     }
 
     /// `…/Models/llama/<repoId>`
@@ -73,6 +107,7 @@ enum GGUFDownloader {
         state.downloadLabel = "Downloading \(model.display)…"
         state.resetDownloadStats()
         state.downloadBytesTotal = model.sizeBytes
+        state.downloadFilesTotal = 2      // decoder weights + audio projector
         defer {
             state.isDownloading = false
             state.downloadingModelId = nil
@@ -87,21 +122,28 @@ enum GGUFDownloader {
         ]
 
         var priorBytes: Int64 = 0
-        for (remote, local) in files {
+        for (index, (remote, local)) in files.enumerated() {
+            state.downloadFilesDone = index
             let sink = ProgressSink(priorBytes: priorBytes, grandTotal: model.sizeBytes)
             // Retry with backoff — resume picks up from whatever landed, so a
             // dropped connection near the end recovers instead of restarting.
             var lastError: Error?
             var ok = false
             for attempt in 1...4 {
+                if Task.isCancelled { return false }
                 if attempt > 1 {
                     state.downloadLabel = "Resuming \(model.display)… (attempt \(attempt)/4)"
-                    try? await Task.sleep(nanoseconds: UInt64(attempt) * 1_500_000_000)
+                    do { try await Task.sleep(nanoseconds: UInt64(attempt) * 1_500_000_000) }
+                    catch { return false }        // cancelled while backing off
                 }
                 do {
                     try await FileFetcher.fetch(remote, to: local, progress: sink)
                     ok = true
                     break
+                } catch is CancellationError {
+                    // Paused or cancelled by the queue: partial bytes stay on
+                    // disk so the next attempt resumes from exactly here.
+                    return false
                 } catch {
                     lastError = error
                     fputs("GGUFDownloader: \(local.lastPathComponent) attempt \(attempt) failed: \(error)\n", stderr)
@@ -111,6 +153,7 @@ enum GGUFDownloader {
                 state.showToast("Download failed: \(lastError?.localizedDescription ?? "unknown error"). Click Download again to resume.")
                 return false
             }
+            state.downloadFilesDone = index + 1
             state.downloadLabel = "Downloading \(model.display)…"
             priorBytes += (try? FileManager.default.attributesOfItem(atPath: local.path)[.size] as? Int64) ?? 0
         }
@@ -123,6 +166,123 @@ enum GGUFDownloader {
             && FileManager.default.fileExists(atPath: mmprojPath(for: model).path)
         if ok { FileManager.default.createFile(atPath: completeMarker(for: model).path, contents: Data()) }
         return ok
+    }
+
+    // MARK: - Arbitrary GGUF speech models
+    //
+    // The shipped Qwen3-ASR catalog is three known entries; a repository found
+    // through discovery is any GGUF plus its `mmproj` audio projector. Both use
+    // the same transfer path — only where the file list comes from differs.
+
+    /// `…/llama/<repoId>` for a discovered GGUF model.
+    static func customDir(repoId: String) -> URL {
+        root().appendingPathComponent(repoId, isDirectory: true)
+    }
+
+    static func customComplete(_ model: CustomGGUFModel) -> Bool {
+        let fm = FileManager.default
+        for name in [model.weightsFile, model.mmprojFile] {
+            let url = customDir(repoId: model.repoId).appendingPathComponent(name)
+            guard let size = (try? fm.attributesOfItem(atPath: url.path))?[.size] as? Int64,
+                  size > 0 else { return false }
+        }
+        return fm.fileExists(atPath: customMarker(model).path)
+    }
+
+    private static func customMarker(_ model: CustomGGUFModel) -> URL {
+        customDir(repoId: model.repoId)
+            .appendingPathComponent(".\(model.weightsFile).complete")
+    }
+
+    static func customBytes(_ model: CustomGGUFModel) -> Int64 {
+        let dir = customDir(repoId: model.repoId)
+        var sum: Int64 = 0
+        for name in [model.weightsFile, model.mmprojFile] {
+            let url = dir.appendingPathComponent(name)
+            if let s = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int64 {
+                sum += s
+            }
+        }
+        return sum
+    }
+
+    /// Download a discovered GGUF speech model (weights + projector).
+    @MainActor
+    static func downloadCustom(_ model: CustomGGUFModel, totalBytes: Int64) async -> Bool {
+        let state = AppState.shared
+        state.isDownloading = true
+        state.downloadingModelId = model.modelId
+        state.downloadLabel = "Downloading \(model.displayName)…"
+        state.resetDownloadStats()
+        state.downloadBytesTotal = totalBytes
+        state.downloadFilesTotal = 2
+        defer {
+            state.isDownloading = false
+            state.downloadingModelId = nil
+            state.downloadLabel = ""
+        }
+
+        let dir = customDir(repoId: model.repoId)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        var priorBytes: Int64 = 0
+        for (index, name) in [model.weightsFile, model.mmprojFile].enumerated() {
+            // File names come from the Hub, so they are re-sanitized here: a
+            // path component can never escape the model directory (§79).
+            let safeName = (name as NSString).lastPathComponent
+            guard !safeName.isEmpty, !safeName.hasPrefix(".") else { return false }
+            guard let remote = URL(string: "https://huggingface.co/\(model.repoId)/resolve/main/\(safeName)")
+            else { return false }
+            let local = dir.appendingPathComponent(safeName)
+            guard local.path.hasPrefix(dir.path) else { return false }
+
+            state.downloadFilesDone = index
+            let sink = ProgressSink(priorBytes: priorBytes, grandTotal: totalBytes)
+            var ok = false
+            var lastError: Error?
+            for attempt in 1...4 {
+                if Task.isCancelled { return false }
+                if attempt > 1 {
+                    state.downloadLabel = "Resuming \(model.displayName)… (attempt \(attempt)/4)"
+                    do { try await Task.sleep(nanoseconds: UInt64(attempt) * 1_500_000_000) }
+                    catch { return false }
+                }
+                do {
+                    try await FileFetcher.fetch(remote, to: local, progress: sink)
+                    ok = true
+                    break
+                } catch is CancellationError {
+                    return false
+                } catch {
+                    lastError = error
+                    fputs("GGUFDownloader: \(safeName) attempt \(attempt) failed: \(error)\n", stderr)
+                }
+            }
+            guard ok else {
+                state.showToast("Download failed: \(lastError?.localizedDescription ?? "unknown error"). Download again to resume.")
+                return false
+            }
+            state.downloadFilesDone = index + 1
+            state.downloadLabel = "Downloading \(model.displayName)…"
+            priorBytes += (try? FileManager.default.attributesOfItem(atPath: local.path)[.size] as? Int64) ?? 0
+        }
+
+        state.downloadProgress = 1.0
+        state.downloadBytesDone = max(state.downloadBytesTotal, priorBytes)
+        FileManager.default.createFile(atPath: customMarker(model).path, contents: Data())
+        return true
+    }
+
+    static func removeCustom(_ model: CustomGGUFModel) {
+        let fm = FileManager.default
+        let dir = customDir(repoId: model.repoId)
+        for name in [model.weightsFile, model.mmprojFile] {
+            try? fm.removeItem(at: dir.appendingPathComponent((name as NSString).lastPathComponent))
+        }
+        try? fm.removeItem(at: customMarker(model))
+        if let contents = try? fm.contentsOfDirectory(atPath: dir.path), contents.isEmpty {
+            try? fm.removeItem(at: dir)
+        }
     }
 
     /// Delete a model's files (both GGUFs + marker + the repo dir if empty).
@@ -197,6 +357,11 @@ private final class FileFetcher: NSObject, URLSessionDataDelegate, @unchecked Se
     private var received: Int64 = 0         // bytes written this run
     private var continuation: CheckedContinuation<Void, Error>?
     private var settled = false
+    /// The in-flight transfer, so a pause/cancel can actually stop the socket
+    /// rather than leaving it draining in the background.
+    private var task: URLSessionTask?
+    private var cancelledByUs = false
+    private let lock = NSLock()
 
     private init(destination: URL, expectedTotal: Int64, startOffset: Int64,
                  rangeHeader: String?, progress: ProgressSink) {
@@ -242,10 +407,42 @@ private final class FileFetcher: NSObject, URLSessionDataDelegate, @unchecked Se
         let session = URLSession(configuration: config, delegate: fetcher, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
 
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            fetcher.continuation = cont
-            session.dataTask(with: request).resume()
+        // Cancelling the enclosing Task (the queue's Pause / Cancel) tears the
+        // socket down immediately. Whatever already reached the file stays
+        // there, so the next attempt resumes with a Range request.
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                fetcher.continuation = cont
+                let task = session.dataTask(with: request)
+                fetcher.adopt(task)
+                task.resume()
+            }
+        } onCancel: {
+            fetcher.cancelTransfer()
         }
+    }
+
+    /// Take ownership of the transfer, cancelling it straight away if the
+    /// enclosing Task was already cancelled before the task started.
+    private func adopt(_ task: URLSessionTask) {
+        lock.lock()
+        self.task = task
+        let alreadyCancelled = cancelledByUs
+        lock.unlock()
+        if alreadyCancelled { task.cancel() }
+    }
+
+    private func cancelTransfer() {
+        lock.lock()
+        cancelledByUs = true
+        let task = self.task
+        lock.unlock()
+        task?.cancel()
+    }
+
+    private var wasCancelledByUs: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return cancelledByUs
     }
 
     /// Real remote size via HEAD (URLSession follows the HF→CDN 302; the final
@@ -352,7 +549,13 @@ private final class FileFetcher: NSObject, URLSessionDataDelegate, @unchecked Se
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error {
             let ns = error as NSError
-            if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return }  // settled elsewhere
+            if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled {
+                // Distinguish "we pulled the plug" (pause/cancel — the awaiting
+                // caller still needs an answer) from a 416/short-circuit that
+                // already settled the continuation.
+                if wasCancelledByUs { settle(.failure(CancellationError())) }
+                return
+            }
             settle(.failure(GGUFDownloader.DownloadError.transport(error.localizedDescription)))
             return
         }

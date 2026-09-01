@@ -41,7 +41,7 @@ On first launch the default `base` model downloads from Hugging Face (you'll see
 - **Live dictation** — flip it on in Settings → General and the hotkey becomes press-on / press-off: speak and the words are typed into the focused field **in real time**, with the live transcript shown in the notch.
 - **File transcription** — the **Upload** page takes any audio or video file (drop it in or pick it), decodes it locally, and transcribes the whole thing with a progress bar you can cancel. The text is editable in place, copyable, saveable as `.txt`, and saved to history like any other transcript.
 - **Auto-type anywhere** — the transcript is inserted into the focused field via the Accessibility API (with a keystroke fallback) so it lands in any app.
-- **Local Whisper models** — pick from `tiny` → `large-v3` (incl. turbo, distil, and quantized builds) and download in-app. Cached on disk, never uploaded. The **Models** page embeds a live [Hugging Face search](https://huggingface.co/models) filtered to automatic-speech-recognition + Core ML, showing exact per-folder sizes, downloads, likes, license, and dates.
+- **Model manager** — the **Models** page is a full manager, not just a picker: it shows the active engine and its health, everything installed, what's recommended *for your Mac*, and a searchable catalog that spans the built-in models and [Hugging Face](https://huggingface.co/models). Installs are queued, resumable, pausable and verified before a model is ever activated; models can be benchmarked and compared on your own audio, tested in a playground, imported from disk, pinned to a revision, and removed with a storage view that shows exactly what each one costs.
 - **Local LLM post-processing** — optionally clean up, format, rewrite, summarize, or structure your transcript with a language model running **on your Mac** (Ollama, LM Studio, Unsloth, or any OpenAI-compatible server). Your text stays local.
 - **Custom dictionary** — teach the model words it keeps getting wrong, and auto-correct heard phrases ("cloud code" → "Claude Code"). Entries bias recognition *and* fix the typed output. Editable in the UI or as a plain-text file.
 - **Transcript history** — every dictation is saved (raw, corrected, which dictionary fixes fired, and which LLM mode) so you can search, copy, and revisit past transcripts.
@@ -81,7 +81,29 @@ NotchWhisper ships with the full `argmaxinc/whisperkit-coreml` catalog (27 varia
 | Accurate | `medium`, `distil-large-v3` | ~750 MB – 1.5 GB | High accuracy, 16 GB+ Macs |
 | Best | `large-v3`, `large-v3 turbo` | ~947 MB – 3.1 GB | Highest accuracy; turbo ≈ 8× speed |
 
-Larger models are more accurate but slower and heavier to download. The **Models** page also has a live Hugging Face search (server-side filtered to ASR + Core ML repos) where every repo expands to its downloadable folders with exact sizes and metadata straight from the HF API.
+Larger models are more accurate but slower and heavier to download.
+
+### The Models page
+
+Everything about models lives on one page; Settings keeps only the behavioural
+choices (which model is active, whether to pick one automatically, when to load it).
+
+- **Active model** — what's running right now, its health, and what it costs in disk and memory.
+- **Installed** — one row per model with a single primary action (`Use` / `Repair` / `Resume`), and the rest behind `•••`.
+- **Recommended for your Mac** — scored against your actual hardware, your languages, your own benchmark results and your power state. Every recommendation lists the reasons that earned it.
+- **Discover** — the built-in catalog plus a live Hugging Face search, with combinable filters (language, size, performance, format, runtime, source, compatibility). Only formats a shipped runtime can actually load are offered; anything else is explained rather than hidden.
+- **Storage** — per-model usage, remove unused models, clear interrupted downloads, and move the model directory (copy → verify → delete, so an interrupted move never loses anything).
+
+Accuracy and speed figures come from the model cards and are labelled as
+published approximations. Anything NotchWhisper hasn't measured says
+**Not benchmarked** rather than inventing a score — run the built-in benchmark
+and it reports real numbers from your Mac (processing time, real-time factor,
+peak memory, CPU, first-result latency, and word error rate if you supply a
+reference transcript). Benchmark audio and results never leave the machine.
+
+Downloads run through a single queue: one transfer at a time, resumable, with
+byte-accurate progress, pause/cancel/retry, and a verification pass that must
+succeed before a model is marked installed or made active.
 
 ### Qwen3-ASR (llama.cpp)
 
@@ -230,8 +252,20 @@ Sources/NotchWhisper/
 ├── NotchView.swift       SwiftUI pill UI (waveform, spinner, badges)
 ├── Visualizers.swift     5 LiveKit-style audio visualizers + settings preview
 ├── Models.swift          Whisper model catalog (Hugging Face ids)
-├── HFModels.swift        Live Hugging Face search client
-├── ModelsView.swift      Models page (download + HF search)
+├── HFModels.swift        Hugging Face search + repository metadata client
+├── HFMetadataCache.swift Normalized metadata cache (stale-while-revalidate, offline-safe)
+├── ModelDescriptor.swift Normalized model type + runtime registry + compatibility
+├── ModelRegistry.swift   Installed-model records, lifecycle, favorites, removal
+├── ModelDownloadQueue.swift Install queue over the existing downloaders (pause/resume/verify)
+├── ModelStorage.swift    Storage location (+ migration), disk truth, usage report
+├── ModelRecommender.swift Scoring, awards, language profile, battery awareness
+├── ModelBenchmark.swift  Local benchmarking + usage analytics
+├── ModelImport.swift     Import a model from disk (detect → validate → register)
+├── ModelsView.swift      Models page (active / installed / recommended / discover / storage)
+├── ModelDetailSheet.swift Full model detail: compatibility, capabilities, licence, files
+├── ModelSheets.swift     Test playground, benchmark, compare, import, storage, downloads
+├── ModelRows.swift       Model rows, cards, active panel, primary action
+├── ModelsComponents.swift Status pills, metrics, banners, flow layout
 ├── LLMServer.swift       OpenAI-compatible chat client
 ├── LLMRunner.swift       Post-processing orchestration + chunking
 ├── LLMPrompts.swift      Per-mode system prompts

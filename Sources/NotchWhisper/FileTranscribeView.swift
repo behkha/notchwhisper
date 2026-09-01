@@ -253,7 +253,7 @@ struct FileTranscribeView: View {
                 SectionHeader("Transcribe a file",
                               eyebrow: "Upload",
                               subtitle: "Drop in a recording — it's transcribed on this Mac, and nothing is uploaded anywhere.") {
-                    Chip(text: WhisperModelOption.find(id: settings.modelId).display,
+                    Chip(text: ModelRegistry.shared.descriptor(for: settings.modelId).displayName,
                          systemImage: "cpu", tint: Tokens.Color.accent)
                 }
 

@@ -24,10 +24,10 @@ import WhisperKit
     private var loadTask: Task<Bool, Never>?
     private var loadingModelId: String?
 
-    var modelDir: URL {
-        fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("NotchWhisper/Models")
-    }
+    /// The configured model storage root (Models → Storage → Change Location…).
+    /// Read through `ModelStorageLocation` so a relocation takes effect
+    /// everywhere at once instead of leaving a stale path behind.
+    var modelDir: URL { ModelStorageLocation.currentRoot }
 
     init(_ state: AppState, _ settings: Settings) {
         self.state = state
@@ -119,6 +119,24 @@ import WhisperKit
     private func load(modelId: String) async -> Bool {
         if LlamaModelOption.isLlamaId(modelId) {
             return await loadLlama(modelId: modelId)
+        }
+        if modelId.hasPrefix(Self.importedPrefix) {
+            return await loadImported(modelId: modelId)
+        }
+        if let custom = CustomGGUFModel.parse(modelId) {
+            let dir = GGUFDownloader.customDir(repoId: custom.repoId)
+            guard GGUFDownloader.customComplete(custom) else {
+                beginLoadProgress(custom.displayName)
+                state.modelStatus = .error("\(custom.displayName) isn't fully downloaded yet.")
+                state.statusMessage = "Download \(custom.displayName) first."
+                endLoadProgress(success: false)
+                return false
+            }
+            return await loadLlamaFiles(
+                modelId: modelId, label: custom.displayName,
+                modelPath: dir.appendingPathComponent(custom.weightsFile).path,
+                mmprojPath: dir.appendingPathComponent(custom.mmprojFile).path
+            )
         }
         let label = WhisperModelOption.find(id: modelId).display
         fputs("NotchWhisper: loading model \(label) (\(modelId))...\n", stderr)
@@ -247,23 +265,32 @@ import WhisperKit
             return false
         }
         let label = opt.display
-        fputs("NotchWhisper: loading model \(label) (\(modelId))...\n", stderr)
-        beginLoadProgress(label)
-
         guard GGUFDownloader.isDownloaded(opt) else {
+            beginLoadProgress(label)
             state.modelStatus = .error("\(label) isn't downloaded yet.")
             state.statusMessage = "Download \(label) first."
             endLoadProgress(success: false)
             return false
         }
+        return await loadLlamaFiles(
+            modelId: modelId, label: label,
+            modelPath: GGUFDownloader.modelPath(for: opt).path,
+            mmprojPath: GGUFDownloader.mmprojPath(for: opt).path
+        )
+    }
+
+    /// Shared GGUF load path — used by both the shipped Qwen3-ASR catalog and
+    /// user-imported GGUF models.
+    private func loadLlamaFiles(modelId: String, label: String,
+                                modelPath: String, mmprojPath: String) async -> Bool {
+        fputs("NotchWhisper: loading model \(label) (\(modelId))...\n", stderr)
+        beginLoadProgress(label)
 
         // Tear down WhisperKit so a stale instance can't be observed as ready.
         if let old = whisper { await old.unloadModels() }
         whisper = nil
         loadedModelId = nil
 
-        let modelPath = GGUFDownloader.modelPath(for: opt).path
-        let mmprojPath = GGUFDownloader.mmprojPath(for: opt).path
         let threads = max(4, ProcessInfo.processInfo.activeProcessorCount - 2)
 
         do {
@@ -294,8 +321,72 @@ import WhisperKit
         }
     }
 
+    // MARK: - Imported models
+
+    /// Model ids for anything the user brought in from disk (Models → Import).
+    static let importedPrefix = "imported:"
+
+    /// Load a user-imported model from the path recorded when it was imported.
+    ///
+    /// Imported models have no catalog entry and no repository layout to infer
+    /// from, so the installation record is the only source of truth for where
+    /// the files are and which engine reads them.
+    private func loadImported(modelId: String) async -> Bool {
+        guard let record = ModelRegistry.shared.installations[modelId] else {
+            state.modelStatus = .error("That imported model is no longer registered.")
+            state.statusMessage = "Imported model missing."
+            return false
+        }
+        let label = record.displayName
+        let dir = URL(fileURLWithPath: record.installedPath, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: dir.path) else {
+            state.modelStatus = .error("\(label) isn't at \(record.installedPath) any more.")
+            state.statusMessage = "Imported model files are missing."
+            return false
+        }
+
+        switch record.engine {
+        case .whisperKit:
+            beginLoadProgress(label)
+            if llama.loadedModelId != nil { llama.unload() }
+            if let old = whisper { await old.unloadModels() }
+            whisper = nil
+            loadedModelId = nil
+            guard ModelDisk.hasCoreMLWeights(dir) else {
+                state.modelStatus = .error("\(label) is missing its compiled Core ML weights.")
+                state.statusMessage = "Imported model is incomplete."
+                endLoadProgress(success: false)
+                return false
+            }
+            return await loadFolder(dir, modelId: modelId, label: label, token: nil)
+
+        case .llamaCPP:
+            let contents = (try? fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+            let ggufs = contents.filter { $0.pathExtension.lowercased() == "gguf" }
+            let projector = ggufs.first { $0.lastPathComponent.lowercased().hasPrefix("mmproj") }
+            let weights = ggufs.first { !$0.lastPathComponent.lowercased().hasPrefix("mmproj") }
+            guard let weights, let projector else {
+                state.modelStatus = .error("\(label) is missing its GGUF weights or mmproj file.")
+                state.statusMessage = "Imported model is incomplete."
+                return false
+            }
+            return await loadLlamaFiles(
+                modelId: modelId, label: label,
+                modelPath: weights.path, mmprojPath: projector.path
+            )
+        }
+    }
+
     /// True when the active engine is llama.cpp / Qwen3-ASR (hold-to-talk only).
-    var activeEngineIsLlama: Bool { LlamaModelOption.isLlamaId(loadedModelId ?? "") }
+    var activeEngineIsLlama: Bool {
+        let id = loadedModelId ?? ""
+        if LlamaModelOption.isLlamaId(id) { return true }
+        if CustomGGUFModel.isCustomGGUFId(id) { return true }
+        if id.hasPrefix(Self.importedPrefix) {
+            return ModelRegistry.shared.installations[id]?.engine == .llamaCPP
+        }
+        return false
+    }
 
     /// llama.cpp GGUF Qwen3-ASR models present on disk (by model id).
     func availableLocalLlamaModelIds() -> [String] {
@@ -581,6 +672,13 @@ import WhisperKit
         if let llamaOpt = LlamaModelOption.find(id: modelId) {
             return await GGUFDownloader.download(llamaOpt)
         }
+        if let custom = CustomGGUFModel.parse(modelId) {
+            return await GGUFDownloader.downloadCustom(custom, totalBytes: expectedBytes(modelId))
+        }
+        if let custom = WhisperModelOption.parseCustom(modelId),
+           custom.repo != "imported" {
+            return await downloadCustomRepo(repoId: custom.repo, folder: custom.folder)
+        }
         let option = WhisperModelOption.find(id: modelId)
         let label = option.display
         state.isDownloading = true
@@ -612,7 +710,12 @@ import WhisperKit
             state.downloadLabel = ""
         }
 
-        cleanPartialDownloads()
+        // Sweep OTHER models' partials only. The target model's partial files
+        // and WhisperKit's `.incomplete` resume state are exactly what makes a
+        // paused or interrupted download resume instead of starting over, so
+        // they must survive (the sweep exists to stop a stale half-folder from
+        // poisoning a *load*, which can't apply to the model we're fetching).
+        cleanPartialDownloads(keeping: option.folderName)
 
         let token = Keychain.getToken()
         let variant = WhisperModelOption.bareId(modelId)
@@ -620,6 +723,7 @@ import WhisperKit
         let maxAttempts = 3
         var lastError: Error?
         for attempt in 1...maxAttempts {
+            if Task.isCancelled { return false }
             // Progress resumes from whatever files already completed.
             await MainActor.run {
                 AppState.shared.downloadProgress = 0
@@ -654,11 +758,20 @@ import WhisperKit
                         token: token
                     ) { progress in
                         let f = progress.fractionCompleted
+                        // WhisperKit's Progress counts one unit per file, which
+                        // is useless as a byte bar but is exactly the "3 of 7
+                        // files" the installation UI wants.
+                        let done = Int(progress.completedUnitCount)
+                        let total = Int(progress.totalUnitCount)
                         // Sync (non-async) callback: hop via tasks. The UI
                         // update is monotonic so out-of-order hops are safe.
                         Task { @MainActor in
                             let p = AppState.shared.downloadProgress
                             if f > p { AppState.shared.downloadProgress = f }
+                            if total > 0 {
+                                AppState.shared.downloadFilesTotal = total
+                                AppState.shared.downloadFilesDone = max(0, min(done, total))
+                            }
                         }
                         Task { await lastProgress.update(f) }
                     }
@@ -684,16 +797,95 @@ import WhisperKit
             } catch {
                 lastError = error
                 watchdog.cancel()
+                // A pause/cancel from the install queue unwinds here. Leave the
+                // partial files alone so the next attempt resumes, and don't
+                // report it as a failure.
+                if Task.isCancelled { return false }
                 fputs("NotchWhisper: download attempt \(attempt) failed: \(error)\n", stderr)
                 if attempt < maxAttempts {
                     try? await Task.sleep(nanoseconds: UInt64(2 * attempt) * 1_000_000_000)
                 }
             }
         }
+        if Task.isCancelled { return false }
         await MainActor.run {
             AppState.shared.showToast("Download failed after \(maxAttempts) attempts: \(lastError?.localizedDescription ?? "unknown error")")
         }
         return false
+    }
+
+    /// Best-known download size for a model that may not be installed yet: the
+    /// queued job carries the figure the Hub reported, and the registry is the
+    /// fallback for anything already known locally.
+    private func expectedBytes(_ modelId: String) -> Int64 {
+        if let queued = ModelDownloadQueue.shared.job(for: modelId)?.totalBytes, queued > 0 {
+            return queued
+        }
+        return ModelRegistry.shared.descriptor(for: modelId).resources.diskBytes
+    }
+
+    /// Download one Core ML model folder out of an arbitrary Hugging Face
+    /// repository (a model found through discovery rather than the shipped
+    /// catalog).
+    ///
+    /// WhisperKit's `download(variant:)` globs `"*<variant>/*"`, so the variant
+    /// must be the folder name minus its publisher prefix for the match to be
+    /// unique inside that repo — and `from:` must name the repo, or the files
+    /// come from the built-in one instead.
+    private func downloadCustomRepo(repoId: String, folder: String) async -> Bool {
+        let modelId = "\(repoId):\(folder)"
+        let variant = folder
+            .replacingOccurrences(of: "openai_whisper-", with: "whisper-")
+            .replacingOccurrences(of: "distil-whisper_", with: "distil-")
+
+        state.isDownloading = true
+        state.downloadingModelId = modelId
+        state.downloadLabel = "Downloading \(folder)…"
+        state.resetDownloadStats()
+
+        // The exact byte total comes from the Hub's file listing when we have
+        // it, so the bar and the "X of Y" line are real numbers.
+        let total = expectedBytes(modelId)
+        let repoRoot = ModelDisk.customRepoRoot(repoId, root: modelDir)
+        let sampler = startDownloadStatsSampler(
+            repoRoot: repoRoot, folder: folder, totalBytes: total
+        )
+        defer {
+            sampler.cancel()
+            state.isDownloading = false
+            state.downloadingModelId = nil
+            state.downloadLabel = ""
+        }
+
+        do {
+            _ = try await WhisperKit.download(
+                variant: variant,
+                downloadBase: modelDir,
+                from: repoId,
+                token: Keychain.getToken()
+            ) { progress in
+                let fraction = progress.fractionCompleted
+                let done = Int(progress.completedUnitCount)
+                let count = Int(progress.totalUnitCount)
+                Task { @MainActor in
+                    if fraction > AppState.shared.downloadProgress {
+                        AppState.shared.downloadProgress = fraction
+                    }
+                    if count > 0 {
+                        AppState.shared.downloadFilesTotal = count
+                        AppState.shared.downloadFilesDone = max(0, min(done, count))
+                    }
+                }
+            }
+            // The queue verifies completeness before registering; this only
+            // reports whether the transfer itself finished.
+            return true
+        } catch {
+            if Task.isCancelled { return false }
+            fputs("NotchWhisper: custom repo download failed: \(error)\n", stderr)
+            state.showToast("Download failed: \(error.localizedDescription)")
+            return false
+        }
     }
 
     /// Whether the on-disk folder for `folderName` carries complete CoreML
@@ -711,7 +903,10 @@ import WhisperKit
     /// present, CoreML weights missing) and orphaned `.incomplete` files.
     /// Only touches folders matching known catalog entries — never `.cache`
     /// metadata of healthy downloads.
-    private func cleanPartialDownloads() {
+    /// - Parameter keeping: folder whose partial state must be preserved — the
+    ///   model currently being downloaded, whose `.incomplete` files are its
+    ///   resume state.
+    private func cleanPartialDownloads(keeping: String? = nil) {
         let known = Set(WhisperModelOption.all.map { $0.folderName })
         let roots = [
             modelDir.appendingPathComponent("models/argmaxinc/whisperkit-coreml"),
@@ -723,6 +918,7 @@ import WhisperKit
             ) else { continue }
             for item in contents {
                 guard item.lastPathComponent != ".cache" else { continue }
+                guard item.lastPathComponent != keeping else { continue }
                 let isDir = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
                 guard isDir, known.contains(item.lastPathComponent) else { continue }
                 if !hasModelWeightsInFolder(item) {
@@ -732,9 +928,11 @@ import WhisperKit
             }
         }
         // Orphaned .incomplete files (the downloader's own resume state is
-        // keyed by etag and recreated as needed).
+        // keyed by etag and recreated as needed) — except the ones belonging to
+        // the download about to run.
         if let en = fileManager.enumerator(at: modelDir, includingPropertiesForKeys: nil) {
             for case let url as URL in en where url.lastPathComponent.hasSuffix(".incomplete") {
+                if let keeping, url.path.contains(keeping) { continue }
                 try? fileManager.removeItem(at: url)
             }
         }

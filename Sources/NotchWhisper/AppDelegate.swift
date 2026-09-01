@@ -125,8 +125,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installHotkey()
         wireNotifications()
 
-        // Load the model in the background so transcription is ready immediately.
-        Task { _ = await transcriber.ensureLoaded() }
+        // Bring up the model registry (reconciles the installed-model records
+        // against what is actually on disk) before anything reads from it.
+        _ = ModelRegistry.shared
+
+        // Load the model in the background so transcription is ready
+        // immediately — unless the user chose to defer it until first use.
+        if settings.modelPreload.preloadsAtLaunch {
+            Task { _ = await transcriber.ensureLoaded() }
+        }
 
         // Reconcile launch-at-login with the stored setting (default ON).
         settings.applyLaunchAtLogin()
@@ -350,8 +357,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if isRecording { stopRecording() } else { startRecording() }
     }
 
+    /// Automatic model selection (§38): pick the best installed model for the
+    /// current language, hardware and power state.
+    ///
+    /// Only ever runs *before* audio starts flowing — the model behind a live
+    /// recording is never swapped out from under it.
+    private func applyAutomaticModelSelection() {
+        guard settings.autoSelectModel else { return }
+        guard !isRecording, !isDictating, !isFinishingDictation else { return }
+        guard !state.isDownloading else { return }
+        let installed = ModelRegistry.shared.installedDescriptors
+        guard installed.count > 1 else { return }
+        guard let best = ModelRecommender.best(from: installed), best.id != settings.modelId else { return }
+        settings.modelId = best.id
+        NotificationCenter.default.post(name: .modelChanged, object: nil)
+        state.showToast("Switched to \(best.displayName) for this dictation.")
+    }
+
     func startRecording() {
         guard !isRecording, !isDictating, !isFinishingDictation, !awaitingModelForDictation else { return }
+        // The Models lab is holding the microphone (recording a test clip or a
+        // benchmark sample) — starting a second capture would rip it away.
+        guard !state.micReservedByModelLab else {
+            state.showToast("Finish the recording in Models first.")
+            return
+        }
+        applyAutomaticModelSelection()
         do {
             try recorder.start()
             isRecording = true
@@ -388,6 +419,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // reverted to hold-to-talk).
         guard liveDictationActive else { return }
         guard !isDictating, !isRecording, !isFinishingDictation else { return }
+        guard !state.micReservedByModelLab else {
+            state.showToast("Finish the recording in Models first.")
+            return
+        }
         // The model must be resident before the live loop starts — otherwise
         // the loop bails on its first tick, leaving `isDictating` stuck true.
         // `ensureLoaded()` drives `state.isLoadingModel`, which surfaces the
@@ -501,15 +536,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 1) Bias the engine with short dictionary context (a nudge).
         let bias = DictionaryStore.shared.biasingTerms()
         let raw: String
+        // Local, private usage metrics for the Models page (§41). Nothing about
+        // the audio or the text is recorded — only how long it took.
+        let usedModelId = settings.modelId
+        let audioSeconds = Double(samples.count) / AudioFileImport.sampleRate
+        let startedAt = Date()
         do {
             raw = try await transcriber.transcribe(samples, biasTerms: bias)
         } catch {
             await MainActor.run {
+                ModelBenchmarkService.shared.recordUsage(
+                    modelId: usedModelId, audioSeconds: audioSeconds,
+                    processingSeconds: Date().timeIntervalSince(startedAt), failed: true
+                )
                 state.mode = .error
                 state.statusMessage = "Transcription failed: \(error.localizedDescription)"
                 endActivity()
             }
             return
+        }
+        await MainActor.run {
+            ModelBenchmarkService.shared.recordUsage(
+                modelId: usedModelId, audioSeconds: audioSeconds,
+                processingSeconds: Date().timeIntervalSince(startedAt)
+            )
+            ModelRegistry.shared.noteUsed(usedModelId)
         }
         // 2) Guaranteed correction pass (longest match first, glued words OK).
         let (final, changes) = DictionaryStore.shared.applyCorrections(raw)
@@ -572,23 +623,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// and a dictation started during the download would try to load a
     /// half-finished model.
     func requestDownload(modelId: String) {
-        // Re-entrancy guard: a double-click (or clicking a second model while
-        // one is downloading) must not start two writers on the same file.
-        guard !state.isDownloading, downloadTask == nil else { return }
-        downloadTask = Task { [weak self] in
-            guard let self else { return }
-            defer { self.downloadTask = nil }
-            guard await self.transcriber.download(modelId: modelId) else { return }
-            self.settings.modelId = modelId
-            // Load it directly here (coalesced inside Transcriber). Deliberately
-            // NOT also posting `.modelChanged`: that observer would kick off a
-            // second, racing load of the same model.
-            _ = await self.transcriber.ensureLoaded(modelId: modelId)
-        }
+        // Single entry point: everything goes through the install queue, which
+        // owns ordering, verification and activation-on-finish. Enqueuing the
+        // same model twice is a no-op there, so a double-click is harmless.
+        ModelDownloadQueue.shared.enqueue(
+            ModelRegistry.shared.descriptor(for: modelId)
+        )
     }
-    private var downloadTask: Task<Void, Never>?
+
+    /// Re-route the hotkey (and end any live session) after the active model
+    /// changed by a path that already handled loading.
+    ///
+    /// The install queue activates a finished download itself and deliberately
+    /// does *not* post `.modelChanged` — that observer would start a second,
+    /// racing load of the model it just loaded. But the hotkey still has to be
+    /// re-installed, because a model that can't stream falls back to
+    /// hold-to-talk regardless of the live-dictation setting.
+    func reconcileAfterModelChange() {
+        if !liveDictationActive, isDictating { stopDictation() }
+        installHotkey()
+    }
 
     var transcriberRef: Transcriber { transcriber }
+
+    /// The one microphone owner in the app. The model test playground records
+    /// through this rather than opening a second engine on the same device.
+    var recorderRef: AudioRecorder { recorder }
 
     // MARK: - Local LLM helpers
 

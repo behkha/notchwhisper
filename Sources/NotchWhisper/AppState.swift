@@ -33,6 +33,11 @@ enum NotchMode: Equatable {
     @Published var recordingStart: Date? = nil
     @Published var statusMessage: String = ""
 
+    /// Held while the model test playground or a benchmark owns the
+    /// microphone. There is one shared `AudioRecorder`, so dictation must not
+    /// start a second capture session on top of it.
+    @Published var micReservedByModelLab = false
+
     // MARK: Model lifecycle
     @Published var modelStatus: ModelStatus = .unknown
     /// True while a model is being loaded into memory (distinct from
@@ -58,6 +63,11 @@ enum NotchMode: Equatable {
     @Published var downloadSpeedBps: Double = 0
     /// Estimated seconds remaining (0 = unknown).
     @Published var downloadEtaSeconds: Double = 0
+    /// Files finished / total in the current model installation. A model
+    /// repository is many files; the UI shows "3 of 7 files" rather than naming
+    /// each HTTP request.
+    @Published var downloadFilesDone: Int = 0
+    @Published var downloadFilesTotal: Int = 0
 
     // MARK: Download stats helpers
 
@@ -68,6 +78,8 @@ enum NotchMode: Equatable {
         downloadBytesTotal = 0
         downloadSpeedBps = 0
         downloadEtaSeconds = 0
+        downloadFilesDone = 0
+        downloadFilesTotal = 0
     }
 
     /// Best-available progress fraction.

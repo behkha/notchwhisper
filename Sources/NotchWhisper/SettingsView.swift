@@ -166,27 +166,50 @@ struct SettingsView: View {
     }
 
     // MARK: Model
+    //
+    // Settings keeps only what belongs to *behaviour*: which model is active and
+    // how it is loaded. Discovery, installation, storage and benchmarking all
+    // live on the Models page, so neither surface duplicates the other.
 
     private var modelGroup: some View {
-        let downloaded = downloadedModelIds
+        let installed = ModelRegistry.shared.installedDescriptors
         return SettingsGroup(title: "Model",
-                             footnote: "Manage the full catalog — with a compatibility check for this Mac — on the Models page.") {
+                             footnote: "Install, benchmark, compare and remove models on the Models page.") {
             SettingRow(icon: "cpu", title: "Active model",
                        subtitle: activeModelSubtitle) {
                 Picker("", selection: $settings.modelId) {
-                    ForEach(downloaded, id: \.self) { id in
-                        Text(Self.modelDisplayName(id)).tag(id)
+                    ForEach(installed) { model in
+                        Text(model.displayName).tag(model.id)
                     }
-                    if !downloaded.contains(settings.modelId) {
-                        Text("\(Self.modelDisplayName(settings.modelId)) · not downloaded").tag(settings.modelId)
+                    if !installed.contains(where: { $0.id == settings.modelId }) {
+                        Text("\(Self.modelDisplayName(settings.modelId)) · not installed")
+                            .tag(settings.modelId)
                     }
                 }
                 .labelsHidden()
-                .frame(maxWidth: 180)
-                .disabled(state.isDownloading || state.isLoadingModel)
+                .frame(maxWidth: 200)
+                .disabled(state.isDownloading || state.isLoadingModel || settings.autoSelectModel)
                 .onChange(of: settings.modelId) { _, _ in
                     NotificationCenter.default.post(name: .modelChanged, object: nil)
                 }
+            }
+
+            SettingRow(icon: "wand.and.stars", title: "Choose the best model automatically",
+                       subtitle: "NotchWhisper picks the best installed model for each dictation, based on your Mac, your language and whether you're on battery. It never changes model while you're recording.") {
+                Toggle("", isOn: $settings.autoSelectModel)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+            }
+
+            SettingRow(icon: "memorychip", title: "Keep model loaded",
+                       subtitle: settings.modelPreload.explanation) {
+                Picker("", selection: $settings.modelPreload) {
+                    ForEach(Settings.ModelPreloadPolicy.allCases) { policy in
+                        Text(policy.label).tag(policy)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 200)
             }
 
             if state.isDownloading || state.isLoadingModel {
@@ -211,14 +234,15 @@ struct SettingsView: View {
                 .padding(.vertical, Tokens.Space.x3)
             } else {
                 HStack {
-                    Text(downloadedSummary).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
-                    Spacer()
-                    Button(downloaded.contains(settings.modelId) ? "Reload" : "Download") {
-                        AppDelegate.shared?.requestDownload(modelId: settings.modelId)
-                    }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.captionSB)
-                    .foregroundStyle(Tokens.Color.accent)
+                    Text(installedSummary)
+                        .font(Tokens.TypeScale.caption)
+                        .foregroundStyle(Tokens.Color.textSec)
+                        .lineLimit(2)
+                    Spacer(minLength: Tokens.Space.x3)
+                    Button("Open Models") { AppDelegate.shared?.showMainWindow() }
+                        .buttonStyle(.plain)
+                        .font(Tokens.TypeScale.captionSB)
+                        .foregroundStyle(Tokens.Color.accent)
                 }
                 .padding(.horizontal, Tokens.Space.x4)
                 .padding(.vertical, Tokens.Space.x3)
@@ -226,37 +250,23 @@ struct SettingsView: View {
         }
     }
 
-    private var downloadedModelIds: [String] {
-        let folders = AppDelegate.shared?.transcriberRef.availableLocalModels() ?? []
-        var ids = folders.map { WhisperModelOption.bareId($0) }
-        if !ids.contains(WhisperModelOption.default.id) { ids.append(WhisperModelOption.default.id) }
-        var whisper = Array(Set(ids)).sorted {
-            WhisperModelOption.find(id: $0).englishWERValue < WhisperModelOption.find(id: $1).englishWERValue
-        }
-        whisper += (AppDelegate.shared?.transcriberRef.availableLocalLlamaModelIds() ?? []).sorted()
-        return whisper
-    }
-    private var downloadedSummary: String {
-        let local = AppDelegate.shared?.transcriberRef.availableLocalModels() ?? []
-        let llama = AppDelegate.shared?.transcriberRef.availableLocalLlamaModelIds() ?? []
-        let names = local.map { WhisperModelOption.find(id: $0).display }
-            + llama.compactMap { LlamaModelOption.find(id: $0)?.display }
-        if names.isEmpty { return "No models downloaded yet." }
-        return "On disk: " + names.joined(separator: ", ")
+    private var installedSummary: String {
+        let names = ModelRegistry.shared.installedDescriptors.map(\.displayName)
+        if names.isEmpty { return "No models installed yet." }
+        return "Installed: " + names.joined(separator: ", ")
     }
 
-    /// Display name for any model id (Whisper catalog or `llama:*` Qwen3-ASR).
+    /// Display name for any model id, whichever engine it belongs to.
     static func modelDisplayName(_ id: String) -> String {
-        if let l = LlamaModelOption.find(id: id) { return l.display }
-        return WhisperModelOption.find(id: id).display
+        ModelRegistry.shared.descriptor(for: id).displayName
     }
 
     private var activeModelSubtitle: String {
-        if let l = LlamaModelOption.find(id: settings.modelId) {
-            return "Qwen3-ASR · \(l.sizeLabel) · hold-to-talk"
-        }
-        let m = WhisperModelOption.find(id: settings.modelId)
-        return "\(m.lang) · \(ModelCatalog.shared.sizeLabel(for: m))"
+        let model = ModelRegistry.shared.descriptor(for: settings.modelId)
+        var parts = [model.capabilities.languageCountLabel]
+        if model.resources.diskBytes > 0 { parts.append(model.resources.diskLabel) }
+        if !model.capabilities.streaming { parts.append("hold-to-talk only") }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: Local LLM

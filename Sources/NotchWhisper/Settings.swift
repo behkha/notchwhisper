@@ -11,6 +11,8 @@ import ServiceManagement
     // MARK: - Keys
     private enum Key {
         static let modelId        = "modelId"
+        static let modelPreload   = "modelPreloadPolicy"
+        static let autoSelectModel = "autoSelectModel"
         static let hotkeyCode     = "hotkeyCode"
         static let hotkeyMods     = "hotkeyModifiers"
         static let autoType       = "autoTypeEnabled"
@@ -34,6 +36,46 @@ import ServiceManagement
     // MARK: - Model
     @Published var modelId: String {
         didSet { defaults.set(modelId, forKey: Key.modelId) }
+    }
+
+    /// When the active model's weights are brought into memory (§48). Keeping a
+    /// model resident starts dictation instantly but holds its memory the whole
+    /// time the app is running.
+    enum ModelPreloadPolicy: String, CaseIterable, Identifiable {
+        case automatic          // load at launch, keep resident (default)
+        case keepLoaded         // load at launch and never release
+        case onFirstDictation   // don't touch memory until the user speaks
+
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .automatic:        return "Automatically"
+            case .keepLoaded:       return "Keep active model loaded"
+            case .onFirstDictation: return "Load on first dictation"
+            }
+        }
+        var explanation: String {
+            switch self {
+            case .automatic:
+                return "Loads the model shortly after launch and keeps it resident."
+            case .keepLoaded:
+                return "Always resident — dictation starts instantly, at the cost of the model's memory."
+            case .onFirstDictation:
+                return "Frees memory until you first speak; the first dictation waits for the model to load."
+            }
+        }
+        /// Whether the model is brought in at launch.
+        var preloadsAtLaunch: Bool { self != .onFirstDictation }
+    }
+
+    @Published var modelPreload: ModelPreloadPolicy {
+        didSet { defaults.set(modelPreload.rawValue, forKey: Key.modelPreload) }
+    }
+
+    /// Let the app pick the best installed model for each dictation (§38).
+    /// Never applied while a recording is in flight.
+    @Published var autoSelectModel: Bool {
+        didSet { defaults.set(autoSelectModel, forKey: Key.autoSelectModel) }
     }
 
     // MARK: - Hotkey
@@ -144,6 +186,9 @@ import ServiceManagement
     private init() {
         let d = UserDefaults.standard
         self.modelId        = d.string(forKey: Key.modelId) ?? WhisperModelOption.default.id
+        self.modelPreload   = ModelPreloadPolicy(rawValue: d.string(forKey: Key.modelPreload) ?? "")
+            ?? .automatic
+        self.autoSelectModel = d.bool(forKey: Key.autoSelectModel)
 
         // Right-Option default: code 61 with NO modifier mask (see Hotkey note above).
         let storedCode = d.integer(forKey: Key.hotkeyCode)

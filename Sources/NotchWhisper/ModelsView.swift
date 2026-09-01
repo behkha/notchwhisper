@@ -1,996 +1,1293 @@
 import SwiftUI
-import WhisperKit
+import AppKit
 
-/// Models browser — the single place to manage models (merges the old grid
-/// and the former "Find Models" tab):
+// MARK: - Discovery filters
+//
+// §12: combinable, compact, and driven by real model metadata rather than a
+// hardcoded list in the view.
+
+struct DiscoveryFilters: Equatable {
+    enum SizeBucket: String, CaseIterable, Identifiable {
+        case underHalfGB, halfToOne, oneToTwo, twoToFive, overFive
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .underHalfGB: return "Under 500 MB"
+            case .halfToOne:   return "500 MB – 1 GB"
+            case .oneToTwo:    return "1 – 2 GB"
+            case .twoToFive:   return "2 – 5 GB"
+            case .overFive:    return "Over 5 GB"
+            }
+        }
+        func contains(_ bytes: Int64) -> Bool {
+            let mb = Double(bytes) / 1_048_576
+            switch self {
+            case .underHalfGB: return mb < 500
+            case .halfToOne:   return mb >= 500 && mb < 1024
+            case .oneToTwo:    return mb >= 1024 && mb < 2048
+            case .twoToFive:   return mb >= 2048 && mb < 5120
+            case .overFive:    return mb >= 5120
+            }
+        }
+    }
+
+    enum Performance: String, CaseIterable, Identifiable {
+        case fast, balanced, accurate
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .fast:     return "Fast"
+            case .balanced: return "Balanced"
+            case .accurate: return "Accurate"
+            }
+        }
+    }
+
+    enum CompatibilityFilter: String, CaseIterable, Identifiable {
+        case compatible, needsMemory, unsupported
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .compatible:  return "Compatible"
+            case .needsMemory: return "Requires more RAM"
+            case .unsupported: return "Unsupported"
+            }
+        }
+    }
+
+    var language: String?
+    var size: SizeBucket?
+    var performance: Performance?
+    var format: ModelFileFormat?
+    var engine: ModelEngine?
+    var trust: ModelTrust?
+    var compatibility: CompatibilityFilter?
+
+    var isEmpty: Bool {
+        language == nil && size == nil && performance == nil && format == nil
+            && engine == nil && trust == nil && compatibility == nil
+    }
+
+    mutating func clear() { self = DiscoveryFilters() }
+
+    /// Does a model survive every active filter?
+    func matches(_ model: ModelDescriptor, compatibility verdict: ModelCompatibility.Verdict) -> Bool {
+        if let language, !model.capabilities.supports(languageCode: language) { return false }
+        if let size {
+            guard model.resources.diskBytes > 0, size.contains(model.resources.diskBytes) else { return false }
+        }
+        if let performance {
+            guard let speed = model.speed.fraction else { return false }
+            switch performance {
+            case .fast:     guard speed >= 0.65 else { return false }
+            case .balanced: guard speed >= 0.3 && speed < 0.65 else { return false }
+            case .accurate: guard speed < 0.3 else { return false }
+            }
+        }
+        if let format, model.format != format { return false }
+        if let engine, model.engine != engine { return false }
+        if let trust, model.trust != trust { return false }
+        if let compatibility {
+            switch compatibility {
+            case .compatible:  guard verdict <= .tight else { return false }
+            case .needsMemory: guard verdict == .needsMoreMemory else { return false }
+            case .unsupported: guard verdict == .unsupported else { return false }
+            }
+        }
+        return true
+    }
+}
+
+/// Ordering for discovery results (§53).
+enum ModelSortOrder: String, CaseIterable, Identifiable {
+    case recommended, quality, speed, size, popularity, recentlyUpdated
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .recommended:     return "Recommended"
+        case .quality:         return "Quality"
+        case .speed:           return "Speed"
+        case .size:            return "Size"
+        case .popularity:      return "Popularity"
+        case .recentlyUpdated: return "Recently updated"
+        }
+    }
+}
+
+// MARK: - Sheets
+
+enum ModelsRoute: Identifiable, Equatable {
+    case test(String)
+    case benchmark(String)
+    case compare([String])
+    case importModel
+    case storage
+    case downloads
+    case pasteURL
+
+    var id: String {
+        switch self {
+        case .test(let id):      return "test-\(id)"
+        case .benchmark(let id): return "bench-\(id)"
+        case .compare(let ids):  return "compare-\(ids.joined(separator: ","))"
+        case .importModel:       return "import"
+        case .storage:           return "storage"
+        case .downloads:         return "downloads"
+        case .pasteURL:          return "paste"
+        }
+    }
+}
+
+// MARK: - Models page
+
+/// Model Hub + Model Manager.
 ///
-///   1. BUILT-IN section: the argmaxinc/whisperkit-coreml catalog as cards
-///      with accuracy/speed guidance, each opening a detail page.
-///   2. SEARCH HUGGING FACE section: live HF search (server-side filtered to
-///      automatic-speech-recognition + CoreML, so only voice-to-text-usable
-///      models appear). Expanding a repo lists its downloadable folders with
-///      EXACT sizes, downloads, likes, license and dates straight from the
-///      HF API. Downloading adds the model to the same list as built-ins
-///      (id = "<repoId>:<folder>").
+/// The page answers three questions in order: what engine is running, what is
+/// installed, and what else could I be using. Everything technical lives one
+/// level down, in the detail view.
 struct ModelsView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
+
+    @ObservedObject private var registry = ModelRegistry.shared
+    @ObservedObject private var queue = ModelDownloadQueue.shared
+    @ObservedObject private var benchmarks = ModelBenchmarkService.shared
+    @ObservedObject private var metadata = HFMetadataCache.shared
+    @ObservedObject private var importer = ModelImporter.shared
+    @ObservedObject private var storageLocation = ModelStorageLocation.shared
     @ObservedObject private var catalog = ModelCatalog.shared
 
-    @State private var selected: WhisperModelOption?
-    @State private var onlyCompatible = false
+    // Navigation
+    @State private var detailModel: ModelDescriptor?
+    @State private var route: ModelsRoute?
+    @State private var removalTarget: ModelDescriptor?
+    @State private var removalRefusal: String?
+
+    // Discovery
+    @State private var query = ""
+    @State private var debouncedQuery = ""
+    @State private var searchTask: Task<Void, Never>?
+    @State private var remoteResults: [ModelDescriptor] = []
+    @State private var isSearching = false
+    @State private var searchError: String?
+    @State private var filters = DiscoveryFilters()
+    @State private var sort: ModelSortOrder = .recommended
+    @State private var showAllDiscover = false
+
+    // Storage
+    @State private var storageReport = ModelStorageReport()
+
+    // Interaction
+    @FocusState private var searchFocused: Bool
+    @State private var selectedInstalledId: String?
+    @State private var isDropTargeted = false
 
     private let hw = HardwareInfo.current
 
-    /// Catalog ordered best-fit-for-this-Mac first, then by accuracy.
-    private var orderedModels: [WhisperModelOption] {
-        let list = onlyCompatible
-            ? WhisperModelOption.all.filter { $0.fit(on: hw) >= .tight }
-            : WhisperModelOption.all
-        return list.sorted { a, b in
-            let fa = a.fit(on: hw), fb = b.fit(on: hw)
-            if fa != fb { return fa > fb }
-            return a.englishWERValue < b.englishWERValue
-        }
-    }
-
     var body: some View {
-        if let model = selected {
-            ModelDetailView(model: model, onBack: { selected = nil })
+        ZStack {
+            if !registry.hasScanned {
+                loadingSkeleton
+            } else if registry.installedIds.isEmpty && queue.activeJobs.isEmpty {
+                firstRunView
+            } else {
+                mainScroll
+            }
+            if isDropTargeted { dropOverlay }
+        }
+        .background(keyboardShortcuts)
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { importer.handleDrop($0) }
+        .onChange(of: importer.candidate?.id) { _, new in if new != nil { route = .importModel } }
+        .onChange(of: query) { _, new in debounceSearch(new) }
+        .onChange(of: registry.installedIds) { _, _ in Task { await refreshStorage() } }
+        .onChange(of: settings.modelId) { _, _ in Task { await refreshStorage() } }
+        .task {
+            catalog.refreshIfNeeded()
+            await registry.scan()
+            await refreshStorage()
+            prefetchActiveMetadata()
+        }
+        // Detail lives in a sheet at every width, so a narrow window never has
+        // to scroll sideways to reach it (§55).
+        .sheet(item: $detailModel) { model in
+            ModelDetailSheet(model: model, actions: actions) { detailModel = nil }
                 .environmentObject(state)
                 .environmentObject(settings)
-        } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: Tokens.Space.x6) {
-                    SectionHeader("Models", eyebrow: "on-device · private",
-                                  subtitle: "Whisper models run entirely on your Mac. Nothing is uploaded.")
-
-                    hardwareBanner
-
-                    if state.isLoadingModel { ModelLoadBar() }
-
-                    HFSearchSection(onUse: { selected = $0 })
-
-                    VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-                        Text("BUILT-IN CATALOG")
-                            .font(Tokens.TypeScale.eyebrow).tracking(1.2)
-                            .foregroundStyle(Tokens.Color.textTert)
-                        LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: 270, maximum: 360), spacing: Tokens.Space.x4)],
-                            spacing: Tokens.Space.x4
-                        ) {
-                            ForEach(orderedModels) { m in
-                                Button { selected = m } label: {
-                                    ModelCard(model: m, isActive: settings.modelId == m.id, hw: hw)
-                                }
-                                .buttonStyle(Pressable(scale: 0.985))
-                            }
-                        }
-                    }
-
-                    if hw.isAppleSilicon {
-                        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-                            Text("QWEN3-ASR · LLAMA.CPP")
-                                .font(Tokens.TypeScale.eyebrow).tracking(1.2)
-                                .foregroundStyle(Tokens.Color.textTert)
-                            Text("Qwen's multilingual speech model, run on the Metal GPU via llama.cpp. Hold-to-talk only — live dictation uses Whisper.")
-                                .font(Tokens.TypeScale.caption)
-                                .foregroundStyle(Tokens.Color.textSec)
-                            LazyVGrid(
-                                columns: [GridItem(.adaptive(minimum: 270, maximum: 360), spacing: Tokens.Space.x4)],
-                                spacing: Tokens.Space.x4
-                            ) {
-                                ForEach(LlamaModelOption.all) { m in
-                                    LlamaModelCard(model: m, hw: hw)
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(Tokens.Space.x8)
-                .frame(maxWidth: 1000, alignment: .leading)
-                .frame(maxWidth: .infinity)
+        }
+        .sheet(item: $route) { route in
+            routeSheet(route)
+                .environmentObject(state)
+                .environmentObject(settings)
+        }
+        .confirmationDialog(
+            removalTarget.map { "Remove \($0.displayName)?" } ?? "Remove model?",
+            isPresented: Binding(get: { removalTarget != nil },
+                                 set: { if !$0 { removalTarget = nil } }),
+            titleVisibility: .visible
+        ) {
+            if let target = removalTarget {
+                Button("Remove model", role: .destructive) { performRemove(target) }
             }
-            .scrollIndicators(.never)
-            .onAppear { catalog.refreshIfNeeded() }
+            Button("Cancel", role: .cancel) { removalTarget = nil }
+        } message: {
+            if let target = removalTarget {
+                Text(removalMessage(target))
+            }
+        }
+        .alert("Can't remove this model", isPresented: Binding(
+            get: { removalRefusal != nil }, set: { if !$0 { removalRefusal = nil } }
+        )) {
+            Button("OK", role: .cancel) { removalRefusal = nil }
+        } message: {
+            Text(removalRefusal ?? "")
         }
     }
 
-    /// This-Mac summary + a filter for models that actually fit it (req 4).
-    private var hardwareBanner: some View {
-        HStack(spacing: Tokens.Space.x3) {
-            IconTile(hw.isAppleSilicon ? "memorychip.fill" : "cpu")
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Your Mac")
-                    .font(Tokens.TypeScale.micro)
-                    .foregroundStyle(Tokens.Color.textTert)
-                Text(hw.summary)
-                    .font(Tokens.TypeScale.captionSB)
-                    .foregroundStyle(Tokens.Color.text)
+    // MARK: Main scroll
+
+    private var mainScroll: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Tokens.Space.x6) {
+                header
+                banners
+                activeSection
+                recentlyUsedStrip
+                installedSection
+                recommendedSection
+                discoverSection
+                storageSection
             }
-            Spacer()
-            Toggle("Fits this Mac", isOn: $onlyCompatible)
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textSec)
-        }
-        .padding(Tokens.Space.x4)
-        .card(padding: nil, elevated: false)
-    }
-}
-
-// MARK: - HF search section (the merged "Find Models")
-
-/// Live Hugging Face search embedded at the top of the Models page. Only
-/// automatic-speech-recognition CoreML repos are returned by the API (the
-/// filter is server-side), and every repo expands to its downloadable model
-/// folders with exact sizes + full repo metadata from HF.
-struct HFSearchSection: View {
-    @EnvironmentObject private var state: AppState
-    @EnvironmentObject private var settings: Settings
-    /// Lets a downloaded custom model open the (enriched) detail page.
-    var onUse: (WhisperModelOption) -> Void
-
-    @State private var query = ""
-    @State private var results: [HFModelSearch.Repo] = []
-    @State private var isSearching = false
-    @State private var searchError: String?
-    @State private var expandedRepo: String?
-    @State private var folders: [String: [HFModelSearch.FolderInfo]] = [:]   // repoId → folders
-    @State private var loadingFolders = Set<String>()
-    @State private var folderErrors: [String: String] = [:]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            HStack {
-                Text("SEARCH HUGGING FACE")
-                    .font(Tokens.TypeScale.eyebrow).tracking(1.2)
-                    .foregroundStyle(Tokens.Color.textTert)
-                Spacer()
-                Text("any Whisper / CoreML speech model")
-                    .font(Tokens.TypeScale.micro)
-                    .foregroundStyle(Tokens.Color.textTert)
-            }
-
-            HStack(spacing: Tokens.Space.x2) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Tokens.Color.textTert)
-                TextField("e.g. whisper, distil-whisper, <org>/<model>", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(Tokens.TypeScale.body)
-                    .onSubmit { Task { await runSearch() } }
-                if isSearching {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Button {
-                        Task { await runSearch() }
-                    } label: {
-                        Image(systemName: "arrow.right.circle.fill").font(.system(size: 18))
-                    }
-                    .buttonStyle(Pressable())
-                    .foregroundStyle(Tokens.Color.accent)
-                    .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
-            .padding(.horizontal, Tokens.Space.x3)
-            .padding(.vertical, 9)
-            .background(Tokens.Color.fillQuiet, in: Capsule())
-            .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
-
-            if let err = searchError {
-                Label(err, systemImage: "exclamationmark.triangle")
-                    .font(Tokens.TypeScale.caption)
-                    .foregroundStyle(Tokens.Color.danger)
-            }
-
-            if !results.isEmpty {
-                Text("\(results.count) speech-recognition CoreML repos · press ⏎ to refresh")
-                    .font(Tokens.TypeScale.micro)
-                    .foregroundStyle(Tokens.Color.textTert)
-                LazyVStack(alignment: .leading, spacing: Tokens.Space.x2) {
-                    ForEach(results) { repo in
-                        repoRow(repo)
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: Repo row (full HF metadata)
-
-    @ViewBuilder
-    private func repoRow(_ repo: HFModelSearch.Repo) -> some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
-            Button {
-                toggleExpand(repo)
-            } label: {
-                HStack(spacing: Tokens.Space.x2) {
-                    Image(systemName: expandedRepo == repo.repoId ? "chevron.down.circle.fill" : "chevron.right.circle.fill")
-                        .foregroundStyle(Tokens.Color.textTert)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(repo.repoId)
-                            .font(Tokens.TypeScale.headline)
-                            .foregroundStyle(Tokens.Color.text)
-                        // Full metadata line, straight from the HF API.
-                        HStack(spacing: Tokens.Space.x2) {
-                            Label("\(repo.downloads)", systemImage: "arrow.down.circle")
-                            Label("\(repo.likes)", systemImage: "heart")
-                            if !repo.lastModified.isEmpty { Text("· \(repo.lastModified)") }
-                            if let lib = repo.library { Text("· \(lib)") }
-                            if let lic = repo.license { Text("· \(lic)") }
-                            if repo.isGated { Text("· gated").foregroundStyle(Tokens.Color.record) }
-                        }
-                        .font(Tokens.TypeScale.micro)
-                        .foregroundStyle(Tokens.Color.textTert)
-                    }
-                    Spacer()
-                    Text("ASR · CoreML")
-                        .font(Tokens.TypeScale.micro)
-                        .foregroundStyle(Tokens.Color.success)
-                }
-                .padding(Tokens.Space.x3)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if expandedRepo == repo.repoId {
-                if loadingFolders.contains(repo.repoId) {
-                    HStack { ProgressView().controlSize(.small); Text("Loading models…").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert) }
-                        .padding(.leading, Tokens.Space.x4)
-                } else if let err = folderErrors[repo.repoId] {
-                    Label(err, systemImage: "exclamationmark.triangle")
-                        .font(Tokens.TypeScale.caption)
-                        .foregroundStyle(Tokens.Color.danger)
-                        .padding(.leading, Tokens.Space.x4)
-                } else if let list = folders[repo.repoId] {
-                    ForEach(list.filter { $0.hasWeights }) { f in
-                        folderRow(repoId: repo.repoId, folder: f)
-                    }
-                    if list.filter({ $0.hasWeights }).isEmpty {
-                        Text("No complete CoreML model folders in this repo (single-file or config-only repos can't be loaded).")
-                            .font(Tokens.TypeScale.caption)
-                            .foregroundStyle(Tokens.Color.textTert)
-                            .padding(.leading, Tokens.Space.x4)
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, Tokens.Space.x2)
-        // Liquid Glass row — tappable, so it gets the system's interactive
-        // pointer response on macOS 26.
-        .glassRow()
-    }
-
-    // MARK: Downloadable folder row inside an expanded repo
-
-    @ViewBuilder
-    private func folderRow(repoId: String, folder: HFModelSearch.FolderInfo) -> some View {
-        let modelId = "\(repoId):\(folder.name)"
-        let isDownloadingThis = state.downloadingModelId == modelId
-        let isLocal = !isDownloadingThis
-            && (AppDelegate.shared?.transcriberRef.hasLocalModelFolder(folder.name) ?? false)
-        let isActive = settings.modelId == modelId
-
-        HStack(spacing: Tokens.Space.x2) {
-            Image(systemName: isActive ? "checkmark.circle.fill" : (isLocal ? "circle.circle" : "arrow.down.circle"))
-                .foregroundStyle(isActive ? Tokens.Color.success : (isLocal ? Tokens.Color.textSec : Tokens.Color.accent))
-            Text(folder.name)
-                .font(Tokens.TypeScale.callout)
-                .foregroundStyle(Tokens.Color.text)
-            Text("· \(folder.sizeLabel)")                    // exact size from HF
-                .font(Tokens.TypeScale.micro)
-                .foregroundStyle(Tokens.Color.textTert)
-            Spacer()
-            if isActive {
-                Text("ACTIVE").font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.success)
-            } else if isDownloadingThis {
-                Text("Downloading… \(Int(state.displayProgress * 100))%")
-                    .font(Tokens.TypeScale.captionSB)
-                    .monospacedDigit()
-                    .foregroundStyle(Tokens.Color.accent)
-            } else if isLocal {
-                Button("Use") {
-                    settings.modelId = modelId
-                    NotificationCenter.default.post(name: .modelChanged, object: nil)
-                }
-                .buttonStyle(.borderless)
-                .font(Tokens.TypeScale.captionSB)
-            } else {
-                Button(state.isDownloading ? "…" : "Download") {
-                    Task { await downloadRepoModel(repoId: repoId, folder: folder) }
-                }
-                .buttonStyle(.borderless)
-                .font(Tokens.TypeScale.captionSB)
-                .foregroundStyle(Tokens.Color.accent)
-                .disabled(state.isDownloading)
-            }
-        }
-        .padding(.horizontal, Tokens.Space.x4)
-        .padding(.vertical, Tokens.Space.x1)
-    }
-
-    // MARK: Actions
-
-    private func runSearch() async {
-        let q = query.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { return }
-        isSearching = true
-        searchError = nil
-        defer { isSearching = false }
-        do {
-            results = try await HFModelSearch.search(q, limit: 30)
-            if results.isEmpty { searchError = "No speech-recognition CoreML repos matched “\(q)”." }
-        } catch {
-            searchError = "Search failed: \(error.localizedDescription) — check your connection."
-        }
-    }
-
-    private func toggleExpand(_ repo: HFModelSearch.Repo) {
-        if expandedRepo == repo.repoId {
-            expandedRepo = nil
-            return
-        }
-        expandedRepo = repo.repoId
-        if folders[repo.repoId] != nil { return }   // cached
-        loadingFolders.insert(repo.repoId)
-        Task {
-            do {
-                let list = try await HFModelSearch.listModelFolders(repoId: repo.repoId)
-                folders[repo.repoId] = list
-                loadingFolders.remove(repo.repoId)
-            } catch {
-                folderErrors[repo.repoId] = "Couldn't list models: \(error.localizedDescription)"
-                loadingFolders.remove(repo.repoId)
-            }
-        }
-    }
-
-    private func downloadRepoModel(repoId: String, folder: HFModelSearch.FolderInfo) async {
-        // WhisperKit's bareId convention: strip the publisher prefix so the
-        // "*<variant>/*" glob resolves inside the custom repo.
-        let variant = folder.name
-            .replacingOccurrences(of: "openai_whisper-", with: "whisper-")
-            .replacingOccurrences(of: "distil-whisper_", with: "distil-")
-        let modelId = "\(repoId):\(folder.name)"
-        let transcriber = AppDelegate.shared?.transcriberRef
-        state.isDownloading = true
-        state.downloadingModelId = modelId
-        state.downloadProgress = 0
-        state.downloadLabel = "Downloading \(folder.name)…"
-        state.resetDownloadStats()
-        // Byte-accurate stats sampled from disk. The total comes straight
-        // from the HF API (FolderInfo.sizeBytes) so it is exact here.
-        let base = transcriber?.modelDir
-            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("NotchWhisper/Models")
-        let repoRoot = base
-            .appendingPathComponent("models", isDirectory: true)
-            .appendingPathComponent(repoId, isDirectory: true)
-        let sampler = transcriber?.startDownloadStatsSampler(
-            repoRoot: repoRoot,
-            folder: folder.name,
-            totalBytes: folder.sizeBytes
-        )
-        defer {
-            sampler?.cancel()
-            state.isDownloading = false
-            state.downloadingModelId = nil
-            state.downloadLabel = ""
-        }
-        do {
-            _ = try await WhisperKit.download(
-                variant: variant,
-                downloadBase: transcriber?.modelDir,
-                from: repoId,
-                token: Keychain.getToken()
-            ) { progress in
-                let f = progress.fractionCompleted
-                Task { @MainActor in
-                    let p = AppState.shared.downloadProgress
-                    if f > p { AppState.shared.downloadProgress = f }
-                }
-            }
-            // Verify the weights actually landed before calling it done, then
-            // activate + load it directly (parity with the built-in path — the
-            // old code just told the user to go pick it manually).
-            if transcriber?.hasLocalModelFolder(folder.name) == true {
-                settings.modelId = modelId
-                _ = await transcriber?.ensureLoaded(modelId: modelId)
-                state.showToast("Downloaded and activated \(folder.name).")
-            } else {
-                state.showToast("Download finished but the model files look incomplete — try again.")
-            }
-        } catch {
-            state.showToast("Download failed: \(error.localizedDescription)")
-        }
-    }
-}
-
-/// A single model card in the grid: name, size, accuracy & speed at a glance.
-struct ModelCard: View {
-    @EnvironmentObject private var state: AppState
-    @EnvironmentObject private var settings: Settings
-    @ObservedObject private var theme = Tokens.ThemeManager.shared
-    @ObservedObject private var catalog = ModelCatalog.shared
-    let model: WhisperModelOption
-    let isActive: Bool
-    var hw: HardwareInfo = .current
-
-    var body: some View {
-        let _ = theme.theme   // card accent re-tints on theme change
-        let _ = catalog.sizeByFolder
-        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            HStack(alignment: .top, spacing: Tokens.Space.x2) {
-                VStack(alignment: .leading, spacing: Tokens.Space.x1) {
-                    HStack(spacing: Tokens.Space.x2) {
-                        Text(model.display)
-                            .font(Tokens.TypeScale.title2)
-                            .foregroundStyle(Tokens.Color.text)
-                        if isActive {
-                            Text("ACTIVE")
-                                .font(Tokens.TypeScale.micro)
-                                .foregroundStyle(Tokens.Color.success)
-                                .padding(.horizontal, Tokens.Space.x2)
-                                .padding(.vertical, Tokens.Space.x1)
-                                .background(Capsule().fill(Tokens.Color.success.opacity(0.16)))
-                        } else if state.downloadingModelId == model.id {
-                            Text("DOWNLOADING")
-                                .font(Tokens.TypeScale.micro)
-                                .foregroundStyle(Tokens.Color.accent)
-                                .padding(.horizontal, Tokens.Space.x2)
-                                .padding(.vertical, Tokens.Space.x1)
-                                .background(Capsule().fill(Tokens.Color.accent.opacity(0.16)))
-                        }
-                    }
-                    Text(model.quality)
-                        .font(Tokens.TypeScale.captionSB)
-                        .foregroundStyle(Tokens.Color.accent)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: isActive ? "checkmark.circle.fill" : "chevron.right.circle.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(isActive ? Tokens.Color.success : Tokens.Color.textTert)
-            }
-
-            ModelFitBadge(fit: model.fit(on: hw))
-
-            Text(model.blurb)
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textSec)
-                .fixedSize(horizontal: false, vertical: true)
-                .lineLimit(3)
-
-            // Decision tag (ChatGPT rec: lead with the verdict)
-            HStack(spacing: Tokens.Space.x2) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 11)).foregroundStyle(Tokens.Color.accent)
-                Text(model.decision)
-                    .font(Tokens.TypeScale.captionSB)
-                    .foregroundStyle(Tokens.Color.accent)
-                Spacer(minLength: 0)
-            }
-
-            // Accuracy + speed bars
-            MetricBar(label: "Accuracy", value: model.accuracyFraction,
-                      display: "WER \(model.englishWER)", tone: .good)
-            MetricBar(label: "Speed", value: model.speedFraction,
-                      display: model.speedLabel, tone: .accent)
-
-            // Two-axis Accuracy <-> Speed marker + time estimate (ChatGPT rec)
-            AxisMarker(accuracy: model.accuracyFraction, speed: model.speedFraction)
-            HStack(spacing: Tokens.Space.x2) {
-                Image(systemName: "timer")
-                    .font(.system(size: 11)).foregroundStyle(Tokens.Color.textTert)
-                Text(model.secPerMin)
-                    .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
-            }
-
-            HStack(spacing: Tokens.Space.x2) {
-                Image(systemName: "arrow.down.circle")
-                    .font(.system(size: 11)).foregroundStyle(Tokens.Color.textTert)
-                Text(catalog.sizeLabel(for: model)).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
-                Spacer(minLength: 0)
-                Image(systemName: model.englishOnly ? "globe.americas" : "globe")
-                    .font(.system(size: 11)).foregroundStyle(Tokens.Color.textTert)
-                Text(model.lang)
-                    .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
-            }
-
-            Divider().overlay(Tokens.Color.hairline)
-            ModelAttribution(
-                org: model.attribution.org, display: model.attribution.display,
-                note: model.attribution.note, link: model.attribution.url,
-                compact: true, showLink: false     // card is one big Button
-            )
-        }
-        .padding(Tokens.Space.x4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Liquid Glass card — the system's own hover/press response and depth
-        // replace the hand-drawn border + hover shadow. Interactive glass
-        // degrades to a plain frosted panel on macOS 14/15.
-        .glassSurface(interactive: true)
-        .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous))
-        // VoiceOver: one coherent element naming the model, not a pile of text.
-        .accessibilityElement(children: .combine)
-        .accessibilityHint("Shows model details")
-    }
-}
-
-/// A card for a GGUF Qwen3-ASR model (llama.cpp engine). Simpler than
-/// `ModelCard` — Qwen3-ASR has no per-model WER/speed table.
-struct LlamaModelCard: View {
-    @EnvironmentObject private var state: AppState
-    @EnvironmentObject private var settings: Settings
-    let model: LlamaModelOption
-    var hw: HardwareInfo = .current
-
-    private var isActive: Bool { settings.modelId == model.id }
-    private var isDownloadingThis: Bool { state.downloadingModelId == model.id }
-    private var isLocal: Bool {
-        !isDownloadingThis && GGUFDownloader.isDownloaded(model)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            HStack(alignment: .top, spacing: Tokens.Space.x2) {
-                VStack(alignment: .leading, spacing: Tokens.Space.x1) {
-                    HStack(spacing: Tokens.Space.x2) {
-                        Text(model.display)
-                            .font(Tokens.TypeScale.title2)
-                            .foregroundStyle(Tokens.Color.text)
-                        if isActive {
-                            Text("ACTIVE")
-                                .font(Tokens.TypeScale.micro)
-                                .foregroundStyle(Tokens.Color.success)
-                                .padding(.horizontal, Tokens.Space.x2).padding(.vertical, Tokens.Space.x1)
-                                .background(Capsule().fill(Tokens.Color.success.opacity(0.16)))
-                        }
-                    }
-                    Text("\(model.quant) · llama.cpp")
-                        .font(Tokens.TypeScale.captionSB)
-                        .foregroundStyle(Tokens.Color.accent)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: isActive ? "checkmark.circle.fill" : "waveform")
-                    .font(.system(size: 18))
-                    .foregroundStyle(isActive ? Tokens.Color.success : Tokens.Color.textTert)
-            }
-
-            ModelFitBadge(fit: model.fit(on: hw))
-
-            Text(model.blurb)
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textSec)
-                .fixedSize(horizontal: false, vertical: true)
-                .lineLimit(4)
-
-            HStack(spacing: Tokens.Space.x2) {
-                Image(systemName: "arrow.down.circle").font(.system(size: 11)).foregroundStyle(Tokens.Color.textTert)
-                Text(model.sizeLabel).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
-                Spacer(minLength: 0)
-                Image(systemName: "memorychip").font(.system(size: 11)).foregroundStyle(Tokens.Color.textTert)
-                Text("~\(model.ramLabel) RAM").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
-            }
-
-            Divider().overlay(Tokens.Color.hairline)
-            // Maker (Qwen) + the GGUF repo actually downloaded (ggml-org).
-            ModelAttribution(
-                org: model.makerOrg, display: model.makerDisplay,
-                note: "GGUF by ggml-org", link: model.ggufURL, compact: true
-            )
-
-            if isDownloadingThis {
-                VStack(alignment: .leading, spacing: Tokens.Space.x1) {
-                    ProgressView(value: max(state.displayProgress, 0.02))
-                        .tint(Tokens.Color.accent)
-                    if !state.downloadDetailText.isEmpty {
-                        Text(state.downloadDetailText)
-                            .font(Tokens.TypeScale.micro).monospacedDigit()
-                            .foregroundStyle(Tokens.Color.textTert)
-                    }
-                }
-            } else {
-                Button {
-                    if isActive { return }
-                    if isLocal {
-                        settings.modelId = model.id
-                        NotificationCenter.default.post(name: .modelChanged, object: nil)
-                    } else {
-                        AppDelegate.shared?.requestDownload(modelId: model.id)
-                    }
-                } label: {
-                    HStack(spacing: Tokens.Space.x2) {
-                        Image(systemName: isActive ? "checkmark.circle.fill"
-                              : (isLocal ? "checkmark.circle" : "arrow.down.circle.fill"))
-                        Text(isActive ? "Active" : (isLocal ? "Use this model" : "Download & use"))
-                    }
-                    .font(Tokens.TypeScale.captionSB)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(isActive ? Tokens.Color.success : Tokens.Color.accent)
-                .disabled(state.isDownloading || model.fit(on: hw) == .notRecommended)
-            }
-        }
-        .padding(Tokens.Space.x4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassSurface(interactive: false)
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// A labeled progress bar used on cards and the detail page.
-struct MetricBar: View {
-    let label: String
-    let value: Double        // 0…1
-    let display: String
-    let tone: Tone
-
-    enum Tone { case good, accent }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x1) {
-            HStack {
-                Text(label)
-                    .font(Tokens.TypeScale.caption)
-                    .foregroundStyle(Tokens.Color.textTert)
-                Spacer(minLength: 0)
-                Text(display)
-                    .font(Tokens.TypeScale.caption)
-                    .foregroundStyle(Tokens.Color.textSec)
-            }
-            GeometryReader { geo in
-                Capsule()
-                    .fill(Tokens.Color.fillQuiet)
-                    .overlay(alignment: .leading) {
-                        Capsule()
-                            .fill(fill)
-                            .frame(width: max(6, geo.size.width * CGFloat(min(max(value, 0), 1))))
-                    }
-            }
-            .frame(height: 6)
-            // Values change when the active model switches — morph the fill
-            // instead of jumping (Reduce Motion: quick fade, no travel).
-            .animation(Tokens.Motion.quick(reduceMotion: Tokens.A11y.reduceMotion), value: value)
-        }
-    }
-
-    private var fill: SwiftUI.Color {
-        switch tone {
-        case .good:   return Tokens.Color.success
-        case .accent: return Tokens.Color.accent
-        }
-    }
-}
-
-/// Two-axis Accuracy <-> Speed marker (ChatGPT rec): a single dot positioned by
-/// speed (x, left=fast) and accuracy (y, top=accurate) is more intuitive than
-/// two separate bars for non-technical users.
-struct AxisMarker: View {
-    let accuracy: Double   // 0…1, higher = more accurate
-    let speed: Double       // 0…1, higher = faster
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x1) {
-            Text("Accuracy  ↔  Speed")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textTert)
-            GeometryReader { geo in
-                let w = geo.size.width
-                let h = max(34, geo.size.height)
-                ZStack(alignment: .topLeading) {
-                    RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
-                        .fill(Tokens.Color.fillQuiet)
-                    // faint diagonal hint: fast+accurate is top-right
-                    Path { p in
-                        p.move(to: CGPoint(x: 0, y: h))
-                        p.addLine(to: CGPoint(x: w, y: 0))
-                    }
-                    .stroke(Tokens.Color.separator, lineWidth: 1)
-                    .opacity(0.6)
-                    Circle()
-                        .fill(Tokens.Color.accent)
-                        .frame(width: 11, height: 11)
-                        .overlay(Circle().stroke(Tokens.Color.surface, lineWidth: 2))
-                        .position(
-                            x: CGFloat(speed) * (w - 14) + 7,
-                            y: (1 - CGFloat(accuracy)) * (h - 14) + 7
-                        )
-                        .animation(Tokens.Motion.meter, value: accuracy)
-                        .animation(Tokens.Motion.meter, value: speed)
-                }
-                .frame(height: h)
-            }
-            .frame(height: 40)
-            HStack {
-                Text("Fast").font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
-                Spacer(minLength: 0)
-                Text("Accurate").font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
-            }
-        }
-    }
-}
-
-/// Full model detail page (req 7).
-struct ModelDetailView: View {
-    @EnvironmentObject private var state: AppState
-    @EnvironmentObject private var settings: Settings
-    @ObservedObject private var catalog = ModelCatalog.shared
-    let model: WhisperModelOption
-    let onBack: () -> Void
-
-    private var isActive: Bool { settings.modelId == model.id }
-    /// True while THIS model is the one being downloaded.
-    private var isDownloadingThis: Bool { state.downloadingModelId == model.id }
-    private var isLocal: Bool {
-        // A model currently downloading is by definition not complete yet —
-        // never consult the disk check for it (its bundle directories appear
-        // long before its weights do).
-        guard !isDownloadingThis else { return false }
-        return (AppDelegate.shared?.transcriberRef.availableLocalModels() ?? []).contains(model.folderName)
-    }
-
-    var body: some View {
-        let _ = catalog.sizeByFolder   // re-render when HF sizes land
-        return ScrollView {
-            VStack(alignment: .leading, spacing: Tokens.Space.x5) {
-                Button(action: onBack) {
-                    Label("Models", systemImage: "chevron.left")
-                        .font(Tokens.TypeScale.caption.weight(.semibold))
-                        .foregroundStyle(Tokens.Color.textSec)
-                }
-                .buttonStyle(.plain)
-
-                // Header
-                HStack(alignment: .top, spacing: Tokens.Space.x3) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(model.quality.uppercased())
-                            .font(Tokens.TypeScale.eyebrow).tracking(1.2)
-                            .foregroundStyle(Tokens.Color.accent)
-                        HStack(spacing: Tokens.Space.x2) {
-                            Text(model.display)
-                                .font(Tokens.TypeScale.largeTitle)
-                                .foregroundStyle(Tokens.Color.text)
-                            if isActive {
-                                Chip(text: "Active", tint: Tokens.Color.success)
-                            }
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    statusBadge
-                }
-
-                Text(model.blurb)
-                    .font(Tokens.TypeScale.body)
-                    .foregroundStyle(Tokens.Color.textSec)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                ModelAttribution(
-                    org: model.attribution.org, display: model.attribution.display,
-                    note: model.attribution.note, link: model.attribution.url
-                )
-                .padding(Tokens.Space.x3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .glassRow(cornerRadius: Tokens.Radius.md)
-
-                // Big metrics
-                HStack(spacing: Tokens.Space.x4) {
-                    MetricBar(label: "Accuracy (English WER)", value: model.accuracyFraction,
-                              display: model.englishWER, tone: .good)
-                        .frame(maxWidth: .infinity)
-                    MetricBar(label: "Speed", value: model.speedFraction,
-                              display: model.speedLabel, tone: .accent)
-                        .frame(maxWidth: .infinity)
-                }
-                .padding(.horizontal, Tokens.Space.x4)
-
-                // Compatibility with THIS Mac (req 4)
-                compatibilitySection
-                    .padding(.horizontal, Tokens.Space.x4)
-
-                // Spec grid
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: Tokens.Space.x4)],
-                          spacing: Tokens.Space.x4) {
-                    SpecTile(title: "Parameters", value: model.params)
-                    SpecTile(title: "Download size", value: ModelCatalog.shared.sizeLabel(for: model))
-                    SpecTile(title: "Runtime RAM", value: model.ram)
-                    SpecTile(title: "English WER", value: model.englishWER)
-                    SpecTile(title: "Multilingual WER", value: model.multiWER)
-                    SpecTile(title: "Language", value: model.lang)
-                }
-                .padding(.horizontal, Tokens.Space.x4)
-
-                // Recommendation
-                VStack(alignment: .leading, spacing: Tokens.Space.x2) {
-                    Label("When to use this model", systemImage: "lightbulb.fill")
-                        .font(Tokens.TypeScale.headline)
-                        .foregroundStyle(Tokens.Color.text)
-                    Text(model.recommendation.isEmpty ? "A good general-purpose choice." : model.recommendation)
-                        .font(Tokens.TypeScale.callout)
-                        .foregroundStyle(Tokens.Color.textSec)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(Tokens.Space.x4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .glassSurface()
-                .padding(.horizontal, Tokens.Space.x4)
-
-                // Action
-                actionButton
-                    .padding(.horizontal, Tokens.Space.x4)
-
-                if state.isDownloading, state.downloadingModelId == model.id {
-                    VStack(alignment: .leading, spacing: Tokens.Space.x1) {
-                        ProgressView(value: state.displayProgress) {
-                            Text(state.downloadLabel).font(Tokens.TypeScale.caption)
-                        }
-                        if !state.downloadDetailText.isEmpty {
-                            Text(state.downloadDetailText)
-                                .font(Tokens.TypeScale.micro)
-                                .monospacedDigit()
-                                .foregroundStyle(Tokens.Color.textTert)
-                        }
-                    }
-                    .frame(width: 360, alignment: .leading)
-                    .padding(.horizontal, Tokens.Space.x4)
-                } else if state.isLoadingModel {
-                    // Load progress (req 3) — shown after a download completes
-                    // and while switching to an already-downloaded model.
-                    ModelLoadBar()
-                        .frame(maxWidth: 420, alignment: .leading)
-                        .padding(.horizontal, Tokens.Space.x4)
-                }
-            }
-            .padding(.vertical, Tokens.Space.x6)
-            .padding(.horizontal, Tokens.Space.x5)
-            .frame(maxWidth: 860, alignment: .leading)
+            .padding(Tokens.Space.x8)
+            .frame(maxWidth: 1040, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.never)
     }
 
-    /// "Runs great / Tight fit / Not recommended" with a plain-language reason
-    /// and a disk-space check for the download.
-    @ViewBuilder
-    private var compatibilitySection: some View {
-        let hw = HardwareInfo.current
-        let fit = model.fit(on: hw)
-        let need = ModelCatalog.shared.downloadTotalBytes(for: model)
-        let free = HardwareInfo.freeDiskBytes()
-        let lowDisk = need > 0 && free > 0 && free < need + 500_000_000
+    // MARK: Header (§4)
 
-        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
-            HStack(spacing: Tokens.Space.x2) {
-                Label("On your Mac", systemImage: "checkmark.seal")
-                    .font(Tokens.TypeScale.headline)
-                    .foregroundStyle(Tokens.Color.text)
-                Spacer(minLength: 0)
-                ModelFitBadge(fit: fit)
+    private var header: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.x4) {
+            HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.x4) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Models")
+                        .font(Tokens.TypeScale.largeTitle)
+                        .foregroundStyle(Tokens.Color.text)
+                    Text("Manage the speech recognition engines installed on your Mac.")
+                        .font(Tokens.TypeScale.callout)
+                        .foregroundStyle(Tokens.Color.textSec)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .layoutPriority(1)
+                Spacer(minLength: Tokens.Space.x4)
+                HStack(spacing: Tokens.Space.x2) {
+                    // At a narrow window width the labels are dropped rather
+                    // than wrapped; the tooltips and VoiceOver labels stay.
+                    ViewThatFits(in: .horizontal) {
+                        headerActions(iconOnly: false)
+                        headerActions(iconOnly: true)
+                    }
+                    Menu {
+                        Button("Model storage…") { route = .storage }
+                        Button("Compare models…") { openCompare() }
+                        Divider()
+                        Button("Add from Hugging Face URL…") { route = .pasteURL }
+                        Button("Reveal models folder") { storageLocation.revealInFinder() }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Tokens.Color.textSec)
+                            .frame(width: 30, height: 26)
+                            .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+                            .contentShape(Capsule())
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .accessibilityLabel("More model options")
+                }
             }
-            Text(model.fitExplanation(on: hw))
-                .font(Tokens.TypeScale.callout)
-                .foregroundStyle(Tokens.Color.textSec)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("This Mac: \(hw.summary)")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textTert)
-            if lowDisk {
-                Label("Low disk space — needs \(ByteCountFormatter.string(fromByteCount: need, countStyle: .file)), \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) free.",
-                      systemImage: "externaldrive.badge.exclamationmark")
+
+            HStack(spacing: Tokens.Space.x3) {
+                Label(hw.summary, systemImage: hw.isAppleSilicon ? "memorychip" : "cpu")
                     .font(Tokens.TypeScale.caption)
-                    .foregroundStyle(Tokens.Color.warn)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(Tokens.Color.textTert)
+                if let freshness = metadata.freshnessLabel, metadata.isOnline {
+                    Text("·").foregroundStyle(Tokens.Color.textTert)
+                    Text(freshness)
+                        .font(Tokens.TypeScale.caption)
+                        .foregroundStyle(Tokens.Color.textTert)
+                }
+                Spacer(minLength: 0)
             }
         }
-        .padding(Tokens.Space.x4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassSurface()
     }
+
+    /// The header's action cluster, in full-label and icon-only forms.
+    @ViewBuilder
+    private func headerActions(iconOnly: Bool) -> some View {
+        HStack(spacing: Tokens.Space.x2) {
+            if queue.activeCount > 0 {
+                ToolbarIconButton(icon: "arrow.down.circle", label: "Downloads",
+                                  badge: queue.activeCount, iconOnly: iconOnly) { route = .downloads }
+            }
+            ToolbarIconButton(icon: "arrow.clockwise", label: "Refresh",
+                              iconOnly: iconOnly) { refreshAll() }
+            ToolbarIconButton(icon: "square.and.arrow.down", label: "Import Model",
+                              iconOnly: iconOnly) { importer.presentOpenPanel() }
+            ToolbarIconButton(icon: "magnifyingglass", label: "Browse Models",
+                              iconOnly: iconOnly) {
+                showAllDiscover = true
+                searchFocused = true
+            }
+        }
+    }
+
+    // MARK: Banners
 
     @ViewBuilder
-    private var statusBadge: some View {
-        if isDownloadingThis {
-            Text("Downloading…")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.accent)
-                .padding(.horizontal, Tokens.Space.x3)
-                .padding(.vertical, Tokens.Space.x1)
-                .background(Capsule().fill(Tokens.Color.accent.opacity(0.14)))
-        } else {
-            Text(isLocal ? "Downloaded" : "Not downloaded")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(isLocal ? Tokens.Color.success : Tokens.Color.textTert)
-                .padding(.horizontal, Tokens.Space.x3)
-                .padding(.vertical, Tokens.Space.x1)
-                .background(Capsule().fill((isLocal ? Tokens.Color.success : Tokens.Color.textTert).opacity(0.14)))
+    private var banners: some View {
+        VStack(spacing: Tokens.Space.x2) {
+            if !metadata.isOnline {
+                InlineBanner(
+                    kind: .info,
+                    title: "You're offline",
+                    message: "Your installed models still work, and benchmarks and testing are unaffected. New downloads resume when you reconnect.",
+                    actionTitle: "Retry",
+                    action: { refreshAll() }
+                )
+            }
+            if let completed = queue.lastCompleted,
+               registry.installedIds.contains(completed.id) {
+                InlineBanner(
+                    kind: .success,
+                    title: "\(completed.name) is ready",
+                    message: completed.id == registry.activeId
+                        ? "It's now your active model." : nil,
+                    actionTitle: completed.id == registry.activeId ? "Dismiss" : "Use this model",
+                    action: {
+                        if completed.id == registry.activeId { queue.dismissFinished() }
+                        else { actions.activate(completed.id) }
+                    },
+                    secondaryTitle: completed.id == registry.activeId ? nil : "Dismiss",
+                    secondaryAction: completed.id == registry.activeId ? nil : { queue.dismissFinished() }
+                )
+            }
+            if let advice = batteryAdvice {
+                InlineBanner(
+                    kind: .info,
+                    title: "Running on battery",
+                    message: advice.text,
+                    actionTitle: "Use \(advice.model.displayName)",
+                    action: { actions.activate(advice.model.id) }
+                )
+            }
+            if storageReport.freeBytes > 0, storageReport.freeBytes < 6_000_000_000 {
+                InlineBanner(
+                    kind: storageReport.freeBytes < 2_000_000_000 ? .error : .warning,
+                    title: storageReport.freeBytes < 2_000_000_000 ? "Not enough disk space" : "Low disk space",
+                    message: "\(ModelStorageReport.label(storageReport.freeBytes)) available. Larger models need several gigabytes.",
+                    actionTitle: "Manage storage",
+                    action: { route = .storage }
+                )
+            }
+            if let error = importer.error {
+                InlineBanner(
+                    kind: .error, title: "Couldn't import that model", message: error,
+                    actionTitle: "Dismiss", action: { importer.error = nil }
+                )
+            }
         }
     }
 
-    private var actionButton: some View {
-        // Native prominent button — Liquid Glass on macOS 26 (tinted by the
-        // theme), borderedProminent on older releases. The system styles the
-        // label; no custom capsule or on-accent color math needed.
-        Button {
-            if isActive, isLocal {
-                // already active + local: nothing to do
-            } else if isLocal {
-                settings.modelId = model.id
-                NotificationCenter.default.post(name: .modelChanged, object: nil)
-            } else {
-                AppDelegate.shared?.requestDownload(modelId: model.id)
+    private var batteryAdvice: (model: ModelDescriptor, text: String)? {
+        ModelRecommender.batteryAdvice(
+            active: registry.descriptor(for: registry.activeId),
+            installed: registry.installedDescriptors
+        )
+    }
+
+    // MARK: Active model (§5)
+
+    private var activeSection: some View {
+        let model = registry.descriptor(for: registry.activeId)
+        return VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+            ModelSectionHeader("Active model") {
+                if registry.defaultId != registry.activeId {
+                    Button("Set as default") { registry.defaultId = registry.activeId }
+                        .buttonStyle(.plain)
+                        .font(Tokens.TypeScale.micro)
+                        .foregroundStyle(Tokens.Color.accent)
+                        .help("The model each new dictation starts with.")
+                }
             }
-        } label: {
-            HStack(spacing: Tokens.Space.x2) {
-                if isDownloadingThis {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Downloading… \(Int(state.displayProgress * 100))%")
-                        .monospacedDigit()
+            ActiveModelPanel(
+                model: model,
+                lifecycle: registry.lifecycle(of: model.id),
+                compatibility: ModelCompatibility.evaluate(model, hw: hw),
+                actions: actions
+            )
+        }
+    }
+
+    // MARK: Recently used (§36 — subtle, never competing with Active)
+
+    @ViewBuilder
+    private var recentlyUsedStrip: some View {
+        let recent = registry.recentlyUsed(limit: 3)
+        if !recent.isEmpty {
+            HStack(spacing: Tokens.Space.x3) {
+                Text("Recently used")
+                    .font(Tokens.TypeScale.micro)
+                    .foregroundStyle(Tokens.Color.textTert)
+                ForEach(recent, id: \.0.id) { model, date in
+                    Button { actions.activate(model.id) } label: {
+                        HStack(spacing: 5) {
+                            Text(model.displayName).font(Tokens.TypeScale.micro.weight(.medium))
+                            Text(Self.relative(date)).font(Tokens.TypeScale.micro)
+                                .foregroundStyle(Tokens.Color.textTert)
+                        }
+                        .foregroundStyle(Tokens.Color.textSec)
+                        .padding(.horizontal, Tokens.Space.x2)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Tokens.Color.fillQuieter))
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(Pressable(scale: 0.97))
+                    .help("Switch to \(model.displayName)")
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    // MARK: Installed (§6)
+
+    private var installedSection: some View {
+        let installed = registry.installedDescriptors
+        let corrupted = registry.corruptedIds.subtracting(registry.installedIds)
+            .map { registry.descriptor(for: $0) }
+        let all = installed + corrupted
+
+        return VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+            ModelSectionHeader("Installed", count: countLabel(all.count, "model")) {
+                if installed.count >= 2 {
+                    Button("Compare") { openCompare() }
+                        .buttonStyle(.plain)
+                        .font(Tokens.TypeScale.micro)
+                        .foregroundStyle(Tokens.Color.accent)
+                }
+            }
+
+            VStack(spacing: 0) {
+                if registry.isScanning && all.isEmpty {
+                    ForEach(0..<3, id: \.self) { _ in ModelRowSkeleton() }
                 } else {
-                    Image(systemName: isActive && isLocal ? "checkmark.circle.fill"
-                                    : (isLocal ? "checkmark.circle" : "arrow.down.circle.fill"))
-                    Text(isActive && isLocal ? "Active"
-                            : (isLocal ? "Use this model" : "Download & use"))
+                    ForEach(Array(all.enumerated()), id: \.element.id) { index, model in
+                        InstalledModelRow(
+                            model: model,
+                            lifecycle: registry.lifecycle(of: model.id),
+                            actions: actions,
+                            isSelected: selectedInstalledId == model.id
+                        )
+                        if index < all.count - 1 {
+                            Rectangle().fill(Tokens.Color.hairline)
+                                .frame(height: 1).padding(.horizontal, Tokens.Space.x3)
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, Tokens.Space.x1)
+            .card(padding: nil, elevated: false)
+            // Arrow keys move the selection, Return activates, Delete removes.
+            .focusable()
+            .onMoveCommand { direction in moveSelection(direction, in: all) }
+            .onKeyPress(.return) {
+                guard let id = selectedInstalledId else { return .ignored }
+                actions.activate(id)
+                return .handled
+            }
+            .onKeyPress(.delete) {
+                guard let id = selectedInstalledId else { return .ignored }
+                actions.requestRemove(registry.descriptor(for: id))
+                return .handled
+            }
+            .onKeyPress(.space) {
+                guard let id = selectedInstalledId else { return .ignored }
+                detailModel = registry.descriptor(for: id)
+                return .handled
+            }
+            .accessibilityLabel("Installed models")
+        }
+    }
+
+    // MARK: Recommended (§10, §18)
+
+    @ViewBuilder
+    private var recommendedSection: some View {
+        let candidates = ModelCatalogService.builtIn + remoteResults
+        let recommendations = ModelRecommender.awards(from: candidates, hw: hw)
+            .filter { registry.lifecycle(of: $0.model.id) != .active }
+        if !recommendations.isEmpty {
+            VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+                ModelSectionHeader("Recommended for your Mac") {
+                    if let summary = LanguageProfile.shared.summary {
+                        Text("Optimized for \(summary)")
+                            .font(Tokens.TypeScale.micro)
+                            .foregroundStyle(Tokens.Color.textTert)
+                    }
+                }
+                ScrollView(.horizontal) {
+                    HStack(alignment: .top, spacing: Tokens.Space.x3) {
+                        ForEach(recommendations) { rec in
+                            RecommendationCard(
+                                recommendation: rec,
+                                lifecycle: registry.lifecycle(of: rec.model.id),
+                                actions: actions
+                            )
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
+    }
+
+    // MARK: Discover (§10–§13)
+
+    private var discoverSection: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+            ModelSectionHeader("Discover models", count: discoverCountLabel) {
+                Menu {
+                    Picker("Sort by", selection: $sort) {
+                        ForEach(ModelSortOrder.allCases) { Text($0.label).tag($0) }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("Sort: \(sort.label)").font(Tokens.TypeScale.micro)
+                        Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+                    }
+                    .foregroundStyle(Tokens.Color.textSec)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+            }
+
+            searchBar
+            filterBar
+            activeFilterChips
+
+            if let searchError {
+                InlineBanner(
+                    kind: .warning,
+                    title: "Couldn't search Hugging Face",
+                    message: searchError + " Built-in models are still listed below.",
+                    actionTitle: "Retry",
+                    action: { runRemoteSearch(debouncedQuery) }
+                )
+            }
+
+            let results = discoverResults
+            if results.isEmpty {
+                discoverEmptyState
+            } else {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 300, maximum: 460), spacing: Tokens.Space.x3)],
+                    spacing: Tokens.Space.x3
+                ) {
+                    ForEach(results) { model in
+                        DiscoverModelCard(
+                            model: model,
+                            lifecycle: registry.lifecycle(of: model.id),
+                            compatibility: ModelCompatibility.evaluate(model, hw: hw),
+                            award: nil,
+                            actions: actions
+                        )
+                    }
+                }
+                if isSearching {
+                    HStack(spacing: Tokens.Space.x2) {
+                        ProgressView().controlSize(.small)
+                        Text("Searching Hugging Face…")
+                            .font(Tokens.TypeScale.caption)
+                            .foregroundStyle(Tokens.Color.textTert)
+                    }
+                }
+                if !showAllDiscover, hiddenDiscoverCount > 0 {
+                    Button("Browse all \(allDiscoverCandidates.count) models") {
+                        withAnimation(Tokens.Motion.ease(reduceMotion: Tokens.A11y.reduceMotion)) {
+                            showAllDiscover = true
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .font(Tokens.TypeScale.captionSB)
+                    .foregroundStyle(Tokens.Color.accent)
                 }
             }
         }
-        .glassButton(prominent: true)
-        .tint(isActive && isLocal ? Tokens.Color.success : Tokens.Color.accent)
-        .controlSize(.large)
-        .disabled(state.isDownloading)
     }
-}
 
-/// A spec tile on the model detail page.
-struct SpecTile: View {
-    let title: String
-    let value: String
-    var body: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x1) {
-            Text(title)
+    private var searchBar: some View {
+        HStack(spacing: Tokens.Space.x2) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Tokens.Color.textTert)
+            TextField("Search models, providers, languages or repositories", text: $query)
+                .textFieldStyle(.plain)
+                .font(Tokens.TypeScale.body)
+                .foregroundStyle(Tokens.Color.text)
+                .focused($searchFocused)
+                .onSubmit { runRemoteSearch(query) }
+                .accessibilityLabel("Search models")
+            if isSearching {
+                ProgressView().controlSize(.small)
+            } else if !query.isEmpty {
+                Button { query = ""; remoteResults = []; searchError = nil } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(Tokens.Color.textTert)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, Tokens.Space.x3)
+        .padding(.vertical, 9)
+        .background(Tokens.Color.fillQuiet, in: Capsule())
+        .overlay(Capsule().strokeBorder(
+            searchFocused ? Tokens.Color.accent.opacity(0.5) : Tokens.Color.hairline, lineWidth: 1))
+    }
+
+    private var filterBar: some View {
+        FlowLayout {
+            filterMenu("Language", selection: filters.language.map(ModelCapabilities.languageName)) {
+                Button("All languages") { filters.language = nil }
+                Divider()
+                ForEach(availableLanguages, id: \.self) { code in
+                    Button(ModelCapabilities.languageName(code)) { filters.language = code }
+                }
+            }
+            filterMenu("Size", selection: filters.size?.label) {
+                Button("Any size") { filters.size = nil }
+                Divider()
+                ForEach(DiscoveryFilters.SizeBucket.allCases) { bucket in
+                    Button(bucket.label) { filters.size = bucket }
+                }
+            }
+            filterMenu("Performance", selection: filters.performance?.label) {
+                Button("Any") { filters.performance = nil }
+                Divider()
+                ForEach(DiscoveryFilters.Performance.allCases) { p in
+                    Button(p.label) { filters.performance = p }
+                }
+            }
+            filterMenu("Format", selection: filters.format?.displayName) {
+                Button("Any format") { filters.format = nil }
+                Divider()
+                // Only formats a shipped runtime can load are offered (§12).
+                ForEach(ModelRuntimeRegistry.supportedFormats) { format in
+                    Button(format.displayName) { filters.format = format }
+                }
+            }
+            filterMenu("Runtime", selection: filters.engine?.displayName) {
+                Button("Any runtime") { filters.engine = nil }
+                Divider()
+                ForEach(ModelRuntimeRegistry.all) { runtime in
+                    Button(runtime.engine.detailName) { filters.engine = runtime.engine }
+                }
+            }
+            filterMenu("Source", selection: filters.trust?.label) {
+                Button("Any source") { filters.trust = nil }
+                Divider()
+                ForEach(ModelTrust.allCases) { trust in
+                    Button(trust.label) { filters.trust = trust }
+                }
+            }
+            filterMenu("Compatibility", selection: filters.compatibility?.label) {
+                Button("Any") { filters.compatibility = nil }
+                Divider()
+                ForEach(DiscoveryFilters.CompatibilityFilter.allCases) { c in
+                    Button(c.label) { filters.compatibility = c }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func filterMenu<Content: View>(_ title: String, selection: String?,
+                                           @ViewBuilder content: () -> Content) -> some View {
+        Menu {
+            content()
+        } label: {
+            HStack(spacing: 4) {
+                Text(selection ?? title)
+                    .font(Tokens.TypeScale.micro.weight(selection == nil ? .regular : .semibold))
+                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
+            }
+            .foregroundStyle(selection == nil ? Tokens.Color.textSec : Tokens.Color.accent)
+            .padding(.horizontal, Tokens.Space.x2)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(selection == nil ? Tokens.Color.fillQuieter
+                                       : Tokens.Color.accent.opacity(0.12)))
+            .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel("\(title) filter, \(selection ?? "not set")")
+    }
+
+    @ViewBuilder
+    private var activeFilterChips: some View {
+        if !filters.isEmpty {
+            FlowLayout {
+                if let language = filters.language {
+                    FilterChip(text: ModelCapabilities.languageName(language)) { filters.language = nil }
+                }
+                if let size = filters.size { FilterChip(text: size.label) { filters.size = nil } }
+                if let p = filters.performance { FilterChip(text: p.label) { filters.performance = nil } }
+                if let f = filters.format { FilterChip(text: f.displayName) { filters.format = nil } }
+                if let e = filters.engine { FilterChip(text: e.displayName) { filters.engine = nil } }
+                if let t = filters.trust { FilterChip(text: t.label) { filters.trust = nil } }
+                if let c = filters.compatibility { FilterChip(text: c.label) { filters.compatibility = nil } }
+                Button("Clear all") { filters.clear() }
+                    .buttonStyle(.plain)
+                    .font(Tokens.TypeScale.micro)
+                    .foregroundStyle(Tokens.Color.textTert)
+            }
+        }
+    }
+
+    private var discoverEmptyState: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+            Text(query.isEmpty ? "Nothing matches these filters"
+                 : "No models found for “\(query)”")
+                .font(Tokens.TypeScale.headline)
+                .foregroundStyle(Tokens.Color.text)
+            Text("Try:")
                 .font(Tokens.TypeScale.caption)
                 .foregroundStyle(Tokens.Color.textTert)
-            Text(value)
-                .font(Tokens.TypeScale.callout)
-                .foregroundStyle(Tokens.Color.text)
-                .fixedSize(horizontal: false, vertical: true)
+            FlowLayout {
+                ForEach(["Whisper", "Qwen", "multilingual", "Arabic", "French", "fast"], id: \.self) { suggestion in
+                    Button(suggestion) {
+                        filters.clear()
+                        query = suggestion
+                    }
+                    .buttonStyle(.plain)
+                    .font(Tokens.TypeScale.micro)
+                    .foregroundStyle(Tokens.Color.accent)
+                    .padding(.horizontal, Tokens.Space.x2)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Tokens.Color.accent.opacity(0.12)))
+                }
+            }
+            if !filters.isEmpty {
+                Button("Clear filters") { filters.clear() }
+                    .buttonStyle(.plain)
+                    .font(Tokens.TypeScale.captionSB)
+                    .foregroundStyle(Tokens.Color.accent)
+            }
         }
-        .padding(Tokens.Space.x4)
+        .padding(Tokens.Space.x5)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Spec tile as a small Liquid Glass chip (frosted vibrancy on <26).
-        .glassRow(cornerRadius: Tokens.Radius.md)
+        .card(padding: nil, elevated: false)
     }
-}
 
-/// Compatibility verdict pill for a model on this Mac (req 4).
-struct ModelFitBadge: View {
-    let fit: ModelFit
+    // MARK: Storage (§23)
 
-    private var tone: SwiftUI.Color {
-        switch fit {
-        case .great:          return Tokens.Color.success
-        case .ok:             return Tokens.Color.success
-        case .tight:          return Tokens.Color.warn
-        case .notRecommended: return Tokens.Color.danger
+    private var storageSection: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+            ModelSectionHeader("Storage") {
+                Button("Manage storage") { route = .storage }
+                    .buttonStyle(.plain)
+                    .font(Tokens.TypeScale.micro)
+                    .foregroundStyle(Tokens.Color.accent)
+            }
+            VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+                StorageBar(report: storageReport)
+                VStack(spacing: 0) {
+                    ForEach(storageReport.items.prefix(5)) { item in
+                        HStack(spacing: Tokens.Space.x2) {
+                            Text(item.name)
+                                .font(Tokens.TypeScale.caption)
+                                .foregroundStyle(Tokens.Color.textSec)
+                                .lineLimit(1)
+                            if item.id == registry.activeId {
+                                Text("Active").font(Tokens.TypeScale.micro)
+                                    .foregroundStyle(Tokens.Color.success)
+                            }
+                            Spacer(minLength: Tokens.Space.x3)
+                            Text(ModelStorageReport.label(item.bytes))
+                                .font(Tokens.TypeScale.caption)
+                                .monospacedDigit()
+                                .foregroundStyle(Tokens.Color.textTert)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    if storageReport.incompleteBytes > 0 {
+                        HStack(spacing: Tokens.Space.x2) {
+                            Text("Interrupted downloads")
+                                .font(Tokens.TypeScale.caption)
+                                .foregroundStyle(Tokens.Color.warn)
+                            Spacer(minLength: Tokens.Space.x3)
+                            Text(ModelStorageReport.label(storageReport.incompleteBytes))
+                                .font(Tokens.TypeScale.caption)
+                                .monospacedDigit()
+                                .foregroundStyle(Tokens.Color.textTert)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            .padding(Tokens.Space.x4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .card(padding: nil, elevated: false)
         }
     }
 
-    var body: some View {
-        HStack(spacing: Tokens.Space.x1) {
-            Image(systemName: fit.symbol).font(.system(size: 10))
-            Text(fit.label).font(Tokens.TypeScale.micro)
+    // MARK: First run / empty (§45, §46)
+
+    private var firstRunView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Tokens.Space.x6) {
+                VStack(alignment: .leading, spacing: Tokens.Space.x2) {
+                    Text("Choose your speech model")
+                        .font(Tokens.TypeScale.largeTitle)
+                        .foregroundStyle(Tokens.Color.text)
+                    Text("Install an on-device model to start transcribing. Everything runs on your Mac — audio never leaves it.")
+                        .font(Tokens.TypeScale.callout)
+                        .foregroundStyle(Tokens.Color.textSec)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: Tokens.Space.x3) {
+                    IconTile(hw.isAppleSilicon ? "memorychip.fill" : "cpu", size: 32)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("We detected")
+                            .font(Tokens.TypeScale.micro)
+                            .foregroundStyle(Tokens.Color.textTert)
+                        Text(hw.summary)
+                            .font(Tokens.TypeScale.captionSB)
+                            .foregroundStyle(Tokens.Color.text)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(Tokens.Space.x4)
+                .card(padding: nil, elevated: false)
+
+                if let recommended = ModelRecommender.awards(from: ModelCatalogService.builtIn, hw: hw)
+                    .first(where: { $0.award == .bestForYourMac }) {
+                    VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+                        ModelSectionHeader("Recommended")
+                        RecommendationCard(
+                            recommendation: recommended,
+                            lifecycle: registry.lifecycle(of: recommended.model.id),
+                            actions: actions
+                        )
+                        .frame(maxWidth: 420)
+                    }
+                }
+
+                HStack(spacing: Tokens.Space.x3) {
+                    Button("Choose another model") {
+                        showAllDiscover = true
+                        searchFocused = true
+                    }
+                    .secondaryAction()
+                    Button("Import model") { importer.presentOpenPanel() }
+                        .buttonStyle(.plain)
+                        .font(Tokens.TypeScale.captionSB)
+                        .foregroundStyle(Tokens.Color.textSec)
+                    Spacer(minLength: 0)
+                }
+
+                if showAllDiscover { discoverSection }
+                if !queue.activeJobs.isEmpty {
+                    VStack(alignment: .leading, spacing: Tokens.Space.x2) {
+                        ModelSectionHeader("Installing")
+                        ForEach(queue.activeJobs) { job in
+                            DownloadProgressPanel(
+                                job: job,
+                                onPause: { queue.pause(job.id) },
+                                onResume: { queue.resume(job.id) },
+                                onCancel: { queue.cancel(job.id) },
+                                onRetry: { queue.retry(job.id) }
+                            )
+                        }
+                    }
+                }
+            }
+            .padding(Tokens.Space.x8)
+            .frame(maxWidth: 900, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
-        .foregroundStyle(tone)
-        .padding(.horizontal, Tokens.Space.x2)
-        .padding(.vertical, Tokens.Space.x1)
-        .background(Capsule().fill(tone.opacity(0.14)))
+        .scrollIndicators(.never)
+    }
+
+    // MARK: Loading (§83)
+
+    /// The page's real shell with placeholder rows, so nothing jumps when the
+    /// first disk scan lands.
+    private var loadingSkeleton: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.x6) {
+            header
+            VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+                ModelSectionHeader("Active model")
+                ModelRowSkeleton()
+                    .padding(Tokens.Space.x4)
+                    .card(padding: nil, elevated: false)
+            }
+            VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+                ModelSectionHeader("Installed")
+                VStack(spacing: 0) {
+                    ForEach(0..<3, id: \.self) { _ in ModelRowSkeleton() }
+                }
+                .card(padding: nil, elevated: false)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(Tokens.Space.x8)
+        .frame(maxWidth: 1040, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    // MARK: Drop target (§34)
+
+    private var dropOverlay: some View {
+        ZStack {
+            Tokens.Color.bgDeep.opacity(0.7)
+            VStack(spacing: Tokens.Space.x3) {
+                Image(systemName: "square.and.arrow.down.fill")
+                    .font(.system(size: 34, weight: .light))
+                    .foregroundStyle(Tokens.Color.accent)
+                Text("Drop to import model")
+                    .font(Tokens.TypeScale.title2)
+                    .foregroundStyle(Tokens.Color.text)
+                Text("Core ML Whisper folder or GGUF speech model")
+                    .font(Tokens.TypeScale.caption)
+                    .foregroundStyle(Tokens.Color.textSec)
+            }
+        }
+        .ignoresSafeArea()
+        .transition(.opacity)
+        .allowsHitTesting(false)
+    }
+
+    // MARK: Keyboard (§56)
+
+    private var keyboardShortcuts: some View {
+        VStack(spacing: 0) {
+            Button("") { searchFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+            Button("") { refreshAll() }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    private func moveSelection(_ direction: MoveCommandDirection, in models: [ModelDescriptor]) {
+        guard !models.isEmpty else { return }
+        guard direction == .up || direction == .down else { return }
+        let current = selectedInstalledId.flatMap { id in models.firstIndex { $0.id == id } }
+        let next: Int
+        if let current {
+            next = direction == .down ? min(current + 1, models.count - 1) : max(current - 1, 0)
+        } else {
+            next = 0
+        }
+        selectedInstalledId = models[next].id
+    }
+
+    // MARK: Discovery data
+
+    /// Everything discoverable: the shipped catalog plus whatever the current
+    /// search turned up. The catalog is always present, so discovery keeps
+    /// working with no network (§26).
+    private var allDiscoverCandidates: [ModelDescriptor] {
+        let installed = registry.installedIds
+        let builtIn = ModelCatalogService.builtIn.filter { !installed.contains($0.id) }
+        let remote = remoteResults.filter { model in
+            !installed.contains(model.id) && !builtIn.contains { $0.id == model.id }
+        }
+        return builtIn + remote
+    }
+
+    private var discoverResults: [ModelDescriptor] {
+        let q = debouncedQuery.trimmingCharacters(in: .whitespaces).lowercased()
+        var models = allDiscoverCandidates.filter { model in
+            let verdict = ModelCompatibility.verdict(for: model, hw: hw)
+            guard filters.matches(model, compatibility: verdict) else { return false }
+            guard !q.isEmpty else { return true }
+            return matchesQuery(model, q)
+        }
+        models = sorted(models)
+        // The default view stays curated; "Browse all" opens the full list (§10).
+        if !showAllDiscover, q.isEmpty, filters.isEmpty {
+            models = Array(models.prefix(6))
+        }
+        return models
+    }
+
+    private var hiddenDiscoverCount: Int {
+        max(0, allDiscoverCandidates.count - discoverResults.count)
+    }
+
+    private var discoverCountLabel: String? {
+        let total = allDiscoverCandidates.count
+        guard total > 0 else { return nil }
+        let shown = discoverResults.count
+        return shown == total ? countLabel(total, "model") : "\(shown) of \(total)"
+    }
+
+    /// §11: name, provider, language, architecture, repository id and tags.
+    private func matchesQuery(_ model: ModelDescriptor, _ q: String) -> Bool {
+        if model.displayName.lowercased().contains(q) { return true }
+        if model.provider.lowercased().contains(q) { return true }
+        if model.repositoryId.lowercased().contains(q) { return true }
+        if model.engine.displayName.lowercased().contains(q) { return true }
+        if model.format.displayName.lowercased().contains(q) { return true }
+        if model.tags.contains(where: { $0.lowercased().contains(q) }) { return true }
+        if model.blurb.lowercased().contains(q) { return true }
+        if model.capabilities.languages.contains(where: {
+            $0 == q || ModelCapabilities.languageName($0).lowercased().contains(q)
+        }) { return true }
+        if q == "multilingual", model.capabilities.isMultilingual { return true }
+        return false
+    }
+
+    private func sorted(_ models: [ModelDescriptor]) -> [ModelDescriptor] {
+        switch sort {
+        case .recommended:
+            return models.sorted { ModelRecommender.score($0, hw: hw) > ModelRecommender.score($1, hw: hw) }
+        case .quality:
+            return models.sorted { ($0.accuracy.fraction ?? -1) > ($1.accuracy.fraction ?? -1) }
+        case .speed:
+            return models.sorted { ($0.speed.fraction ?? -1) > ($1.speed.fraction ?? -1) }
+        case .size:
+            return models.sorted {
+                ($0.resources.diskBytes == 0 ? Int64.max : $0.resources.diskBytes)
+                    < ($1.resources.diskBytes == 0 ? Int64.max : $1.resources.diskBytes)
+            }
+        case .popularity, .recentlyUpdated:
+            // Hub-side ordering already applied to remote results; the shipped
+            // catalog has no popularity signal, so it keeps its curated order.
+            return models
+        }
+    }
+
+    private var availableLanguages: [String] {
+        ModelLanguageSets.filterLanguages(from: ModelCatalogService.builtIn + remoteResults)
+    }
+
+    // MARK: Search
+
+    private func debounceSearch(_ text: String) {
+        searchTask?.cancel()
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 280_000_000)
+            guard !Task.isCancelled else { return }
+            debouncedQuery = text
+            let trimmed = text.trimmingCharacters(in: .whitespaces)
+            if trimmed.count >= 2 { runRemoteSearch(trimmed) }
+            else { remoteResults = []; searchError = nil }
+        }
+    }
+
+    private func runRemoteSearch(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        guard metadata.isOnline else {
+            searchError = "You're offline."
+            return
+        }
+        isSearching = true
+        searchError = nil
+        Task {
+            defer { isSearching = false }
+            do {
+                let hubSort: HFModelSearch.SortOrder = sort == .recentlyUpdated
+                    ? .recentlyUpdated : (sort == .popularity ? .popularity : .recommended)
+                let repos = try await HFModelSearch.discover(query: trimmed, sort: hubSort)
+                remoteResults = repos.map(ModelCatalogService.descriptor(forRepo:))
+                if remoteResults.isEmpty, !ModelCatalogService.builtIn.contains(where: {
+                    matchesQuery($0, trimmed.lowercased())
+                }) {
+                    searchError = nil
+                }
+            } catch {
+                searchError = error.localizedDescription
+            }
+        }
+    }
+
+    private func refreshAll() {
+        catalog.refreshIfNeeded(force: true)
+        metadata.ensure(registry.descriptor(for: registry.activeId).repositoryId, force: true)
+        if !debouncedQuery.isEmpty { runRemoteSearch(debouncedQuery) }
+        Task {
+            await registry.scan()
+            await refreshStorage()
+        }
+    }
+
+    private func prefetchActiveMetadata() {
+        // One background fetch for the models the user actually has, so update
+        // detection and licence data are ready without a per-render request.
+        for model in registry.installedDescriptors.prefix(6) where !model.repositoryId.isEmpty {
+            metadata.ensure(model.repositoryId)
+        }
+    }
+
+    private func refreshStorage() async {
+        storageReport = await registry.storageReport()
+    }
+
+    // MARK: Actions
+
+    private var actions: ModelActions {
+        ModelActions(
+            activate: { id in
+                registry.activate(id)
+                LanguageProfile.shared.record(settings.language)
+            },
+            install: { model in installFlow(model) },
+            openDetails: { model in detailModel = model },
+            test: { id in route = .test(id) },
+            benchmark: { id in route = .benchmark(id) },
+            compare: { id in
+                let others = registry.installedDescriptors.map(\.id).filter { $0 != id }
+                route = .compare([id] + Array(others.prefix(1)))
+            },
+            requestRemove: { model in
+                switch registry.canRemove(model.id) {
+                case .success: removalTarget = model
+                case .failure(let refusal): removalRefusal = refusal.localizedDescription
+                }
+            },
+            repair: { model in
+                Task {
+                    _ = await registry.verify(model.id)
+                    queue.enqueue(model, activate: model.id == registry.activeId)
+                }
+            },
+            update: { model in
+                metadata.ensure(model.repositoryId, force: true)
+                detailModel = model
+            },
+            reveal: { model in
+                let path = registry.installations[model.id]?.installedPath
+                if let path, !path.isEmpty {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                } else {
+                    storageLocation.revealInFinder()
+                }
+            },
+            toggleFavorite: { id in registry.toggleFavorite(id) },
+            openRepository: { model in NSWorkspace.shared.open(model.repositoryURL) },
+            copyIdentifier: { model in
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(model.repositoryId, forType: .string)
+                state.showToast("Copied \(model.repositoryId)")
+            },
+            pause: { id in queue.pause(id) },
+            resume: { id in queue.resume(id) },
+            cancel: { id in queue.cancel(id) },
+            retry: { id in queue.retry(id) }
+        )
+    }
+
+    /// Install, with the pre-download checks the user needs to see first (§9, §87).
+    private func installFlow(_ model: ModelDescriptor) {
+        let compat = ModelCompatibility.evaluate(model, hw: hw)
+        // A genuine runtime incompatibility, or not enough disk to finish, are
+        // the only cases that stop the download — memory pressure is a warning
+        // shown on the detail page, never a block.
+        if compat.verdict.isBlocking || compat.diskIsCritical {
+            detailModel = model
+            return
+        }
+        queue.enqueue(model)
+    }
+
+    private func performRemove(_ model: ModelDescriptor) {
+        removalTarget = nil
+        Task {
+            let freed = await registry.remove(model.id)
+            await refreshStorage()
+            if freed > 0 {
+                state.showToast("Removed \(model.displayName) — \(ModelStorageReport.label(freed)) freed.")
+            }
+        }
+    }
+
+    private func removalMessage(_ model: ModelDescriptor) -> String {
+        let bytes = registry.removableBytes(model.id)
+        var text = bytes > 0
+            ? "This will free \(ModelStorageReport.label(bytes)) of disk space."
+            : "The model's files will be deleted."
+        if benchmarks.result(for: model.id) != nil {
+            text += " Your benchmark history will be kept."
+        }
+        return text
+    }
+
+    private func openCompare() {
+        let ids = registry.installedDescriptors.map(\.id)
+        guard ids.count >= 2 else { return }
+        route = .compare(Array(ids.prefix(2)))
+    }
+
+    // MARK: Sheets
+
+    @ViewBuilder
+    private func routeSheet(_ route: ModelsRoute) -> some View {
+        switch route {
+        case .test(let id):
+            ModelTestSheet(modelId: id) { self.route = nil }
+        case .benchmark(let id):
+            ModelBenchmarkSheet(modelId: id) { self.route = nil }
+        case .compare(let ids):
+            ModelCompareSheet(initialIds: ids) { self.route = nil }
+        case .importModel:
+            ModelImportSheet { self.route = nil }
+        case .storage:
+            ModelStorageSheet(report: storageReport,
+                              onRefresh: { Task { await refreshStorage() } }) { self.route = nil }
+        case .downloads:
+            DownloadCenterSheet { self.route = nil }
+        case .pasteURL:
+            PasteRepositorySheet(onInstall: { model in
+                self.route = nil
+                detailModel = model
+            }, onClose: { self.route = nil })
+        }
+    }
+
+    // MARK: Formatting
+
+    private func countLabel(_ count: Int, _ noun: String) -> String {
+        "\(count) \(noun)\(count == 1 ? "" : "s")"
+    }
+
+    static func relative(_ date: Date) -> String {
+        // RelativeDateTimeFormatter renders a just-happened event as "in 0s",
+        // which reads as a future time. Anything inside a minute is "just now".
+        let interval = Date().timeIntervalSince(date)
+        if interval < 60 { return "just now" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
 
-/// Indeterminate-but-phased progress bar for a model LOAD (req 3). WhisperKit
-/// gives only coarse state transitions, so this shows the phase text plus a
-/// stepped bar that always advances.
+// MARK: - Model load bar
+
+/// Stepped progress for a model LOAD (distinct from a download). WhisperKit
+/// reports only coarse state transitions, so this shows the phase plus a bar
+/// that always advances.
 struct ModelLoadBar: View {
     @EnvironmentObject private var state: AppState
 
@@ -1014,6 +1311,9 @@ struct ModelLoadBar: View {
         }
         .padding(Tokens.Space.x3)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassRow(cornerRadius: Tokens.Radius.md)
+        .background(Tokens.Color.fillQuieter,
+                    in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Loading model, \(Int(state.modelLoadProgress * 100)) percent")
     }
 }

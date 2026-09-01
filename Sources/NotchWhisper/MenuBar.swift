@@ -103,7 +103,7 @@ private struct MenuPanel: View {
                     Text(statusText)
                         .font(Tokens.TypeScale.body.weight(.semibold))
                         .foregroundStyle(Tokens.Color.text)
-                    Text("\(WhisperModelOption.find(id: settings.modelId).display) · \(settings.hotkeyDisplay)")
+                    Text("\(ModelRegistry.shared.descriptor(for: settings.modelId).displayName) · \(settings.hotkeyDisplay)")
                         .font(Tokens.TypeScale.micro)
                         .foregroundStyle(Tokens.Color.textTert)
                 }

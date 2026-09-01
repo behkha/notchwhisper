@@ -57,13 +57,31 @@ struct HardwareInfo {
 
     var memoryGB: Double { Double(physicalMemory) / 1_073_741_824 }
 
-    /// Free space on the volume holding Application Support (for download
-    /// feasibility checks).
-    static func freeDiskBytes() -> Int64 {
-        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-        return Int64(values?.volumeAvailableCapacityForImportantUsage ?? 0)
+    /// Free space on the volume holding the models (for download feasibility
+    /// checks).
+    ///
+    /// Cached for a few seconds: compatibility is evaluated for every visible
+    /// model on every render, and a filesystem query per card per frame is a
+    /// cost the Models page shouldn't pay. Free space doesn't move fast enough
+    /// for the staleness to matter, and the pre-download check re-reads it.
+    static func freeDiskBytes(maxAge: TimeInterval = 5) -> Int64 {
+        diskCacheLock.lock()
+        defer { diskCacheLock.unlock() }
+        if let cached = cachedFreeDisk, Date().timeIntervalSince(cached.at) < maxAge {
+            return cached.bytes
+        }
+        let url = ModelStorageLocation.currentRoot
+        let target = FileManager.default.fileExists(atPath: url.path)
+            ? url
+            : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let values = try? target.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        let bytes = Int64(values?.volumeAvailableCapacityForImportantUsage ?? 0)
+        cachedFreeDisk = (bytes, Date())
+        return bytes
     }
+
+    private nonisolated(unsafe) static var cachedFreeDisk: (bytes: Int64, at: Date)?
+    private static let diskCacheLock = NSLock()
 
     var summary: String {
         let gb = memoryGB

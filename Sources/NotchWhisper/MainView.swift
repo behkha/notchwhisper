@@ -252,7 +252,7 @@ struct HomeView: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     HStack(spacing: Tokens.Space.x2) {
-                        Chip(text: WhisperModelOption.find(id: settings.modelId).display,
+                        Chip(text: ModelRegistry.shared.descriptor(for: settings.modelId).displayName,
                              systemImage: "cpu", tint: Tokens.Color.accent)
                         Chip(text: settings.liveDictation ? "Live dictation" : "Hold to talk",
                              systemImage: settings.liveDictation ? "dot.radiowaves.left.and.right" : "hand.tap",
@@ -356,7 +356,7 @@ struct HomeView: View {
                 StatCard(title: "This week", value: "\(s.week)", icon: "calendar")
                 StatCard(title: "Words dictated", value: s.words, icon: "textformat.abc")
                 StatCard(title: "Dictionary fixes", value: "\(s.corrections)", icon: "wand.and.sparkles")
-                StatCard(title: "Active model", value: WhisperModelOption.find(id: settings.modelId).display, icon: "cpu")
+                StatCard(title: "Active model", value: ModelRegistry.shared.descriptor(for: settings.modelId).displayName, icon: "cpu")
             }
         }
     }
