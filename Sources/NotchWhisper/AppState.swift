@@ -32,6 +32,10 @@ enum NotchMode: Equatable {
     @Published var audioChunk: [Float] = []
     @Published var recordingStart: Date? = nil
     @Published var statusMessage: String = ""
+    /// Which app profile and which hotkey binding shaped the dictation in
+    /// flight — "Slack · Clean prose". Empty when neither had anything to say.
+    /// Set when the mic opens, cleared when the transcript lands.
+    @Published var sessionLabel: String = ""
 
     /// Held while the model test playground or a benchmark owns the
     /// microphone. There is one shared `AudioRecorder`, so dictation must not

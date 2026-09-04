@@ -189,81 +189,9 @@ struct HFRepoMetadata: Codable, Hashable {
     }
 }
 
-// MARK: - Search results
+// MARK: - Repository metadata
 
 extension HFModelSearch {
-    /// How discovery results are ordered (§53). Recommended is the default —
-    /// never download count, which just entrenches whatever is already popular.
-    enum SortOrder: String, CaseIterable, Identifiable {
-        case recommended, popularity, size, recentlyUpdated
-        var id: String { rawValue }
-        var label: String {
-            switch self {
-            case .recommended:     return "Recommended"
-            case .popularity:      return "Popularity"
-            case .size:            return "Size"
-            case .recentlyUpdated: return "Recently updated"
-            }
-        }
-        /// The Hub-side sort key, when the order maps onto one.
-        var hubKey: String {
-            switch self {
-            case .popularity, .recommended: return "downloads"
-            case .recentlyUpdated:          return "lastModified"
-            case .size:                     return "downloads"
-            }
-        }
-    }
-
-    /// Stage-1 discovery listing (§77): enough to render a card, nothing more.
-    /// Files, revisions and technical metadata are fetched only when a model is
-    /// actually opened.
-    static func discover(query: String, sort: SortOrder = .recommended,
-                         limit: Int = 40) async throws -> [Repo] {
-        var comps = URLComponents(string: "https://huggingface.co/api/models")!
-        var items: [URLQueryItem] = [
-            URLQueryItem(name: "pipeline_tag", value: "automatic-speech-recognition"),
-            URLQueryItem(name: "sort", value: sort.hubKey),
-            URLQueryItem(name: "direction", value: "-1"),
-            URLQueryItem(name: "limit", value: String(limit)),
-            URLQueryItem(name: "full", value: "true"),
-        ]
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
-        if !trimmed.isEmpty { items.append(URLQueryItem(name: "search", value: trimmed)) }
-        comps.queryItems = items
-        guard let url = comps.url else { return [] }
-
-        let (data, resp) = try await URLSession.shared.data(from: url)
-        guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
-        guard let arr = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
-        return arr.compactMap { dict in
-            guard let repoId = dict["id"] as? String else { return nil }
-            let tags = ((dict["tags"] as? [String]) ?? []).map { $0.lowercased() }
-            // Only formats a shipped runtime can load are offered for install;
-            // everything else is filtered here rather than failing later.
-            let looksInstallable = tags.contains("coreml") || tags.contains("gguf")
-                || repoId.lowercased().contains("coreml") || repoId.lowercased().contains("gguf")
-            guard looksInstallable else { return nil }
-            return Repo(
-                repoId: repoId,
-                downloads: (dict["downloads"] as? Int) ?? 0,
-                likes: (dict["likes"] as? Int) ?? 0,
-                lastModified: humanDateString((dict["lastModified"] as? String) ?? ""),
-                pipelineTag: dict["pipeline_tag"] as? String,
-                license: tags.first(where: { $0.hasPrefix("license:") })
-                    .map { String($0.dropFirst("license:".count)) },
-                library: dict["library_name"] as? String,
-                isGated: (dict["gated"] as? String).map { $0 != "false" && !$0.isEmpty }
-                    ?? (dict["gated"] as? Bool ?? false),
-                isCoreML: tags.contains("coreml") || repoId.lowercased().contains("coreml"),
-                isWhisper: repoId.lowercased().contains("whisper")
-                    || tags.contains(where: { $0.contains("whisper") })
-            )
-        }
-    }
-
     /// Full metadata for one repository (§77 stage 3).
     static func fetchMetadata(repoId: String, revision: String? = nil) async throws -> HFRepoMetadata {
         let ref = revision.flatMap { $0.isEmpty ? nil : $0 }
@@ -326,7 +254,7 @@ extension HFModelSearch {
             tags: tags.filter { !$0.contains(":") },
             downloads: (dict["downloads"] as? Int) ?? 0,
             likes: (dict["likes"] as? Int) ?? 0,
-            lastModified: (dict["lastModified"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) },
+            lastModified: HFHub.parseDate(dict["lastModified"] as? String),
             isGated: (dict["gated"] as? String).map { $0 != "false" && !$0.isEmpty }
                 ?? (dict["gated"] as? Bool ?? false),
             files: files.sorted { $0.path < $1.path },
@@ -347,11 +275,6 @@ extension HFModelSearch {
                 return "There's no Hugging Face repository called \(repo)."
             }
         }
-    }
-
-    fileprivate static func humanDateString(_ raw: String) -> String {
-        guard !raw.isEmpty, let d = ISO8601DateFormatter().date(from: raw) else { return raw }
-        return DateFormatter.localizedString(from: d, dateStyle: .medium, timeStyle: .none)
     }
 
     /// Accepts a bare repo id or any Hugging Face URL the user pastes (§63).

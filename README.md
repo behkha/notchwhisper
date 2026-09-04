@@ -133,31 +133,37 @@ The prebuilt llama.cpp libraries are vendored in `vendor/llama/` (pinned to a ll
 
 > Optional. Off by default. Requires a local OpenAI-compatible server (e.g. [Ollama](https://ollama.com), [LM Studio](https://lmstudio.ai), Unsloth) — nothing leaves your machine.
 
-After a transcript is produced, NotchWhisper can send it to a local model for a cleanup pass before insertion. Configure it in **Settings → Local LLM**:
+After a transcript is produced, NotchWhisper can send it to a model for a
+processing pass before insertion. Two things set that up, both on the **AI**
+page of the main window:
 
-| Field | What it is |
+| Page | What it holds |
 | --- | --- |
-| **Enable text processing** | Master switch. When off, the pipeline is exactly Voice → Transcribe → Insert. |
-| **Model** | The model name served by your local app (e.g. `llama3`). |
-| **Endpoint** | Base URL, e.g. `http://localhost:11434/v1` (Ollama) or `http://localhost:1234/v1` (LM Studio). Auto-normalized to `…/v1/chat/completions`. |
-| **API key** | Optional; stored in your login Keychain. Leave empty when the server needs none. |
-| **Processing mode** | See below. |
-| **Custom instruction** | Shown when *Custom* mode is selected. |
+| **AI → Connections** | *Where* text is sent — any OpenAI-compatible endpoint (Ollama, LM Studio, llama.cpp, a hosted provider). Address, model name, and an optional API key stored in your login Keychain. One connection is active at a time; an app profile can pin a different one. |
+| **AI → Modes** | *What* is done to it. A mode is a name, an icon, instructions in your own words, and how much latitude the model gets (Precise / Balanced / Creative). Modes that produce ONE document (a summary, a checklist) can say so, and long dictations are merged by a second pass instead of concatenated. |
 
-**Processing modes**
+**Settings → Text processing** carries the master switch and the mode that runs
+by default. Picking **No processing** inserts the transcript exactly as
+dictated — no AI, nothing leaves the Mac.
+
+**Modes are yours.** There are no fixed built-in modes: six are installed on
+first launch as ordinary modes you can read, edit, rename, duplicate or delete.
 
 | Mode | What it does |
 | --- | --- |
-| Original | Insert the transcript unchanged (no LLM call). |
 | Clean Up | Fix filler words, punctuation, and obvious mistakes while keeping your voice. |
 | Markdown | Format into clean Markdown without changing the wording. |
 | Rewrite | Polish spoken language into natural written prose. |
 | Summarize | Condense long dictations into a concise summary. |
 | Structured Notes | Organize free-form speech into sensible sections. |
 | Extract Actions | Pull tasks, deadlines, and follow-ups into an actionable list. |
-| Custom | Apply your own instruction to the transcript. |
 
-You can also switch the mode for a single dictation straight from the menu-bar item (**Text Processing** submenu) without opening Settings.
+Upgrades keep what you had: a mode selected before this change — globally, in an
+app profile, or on a shortcut — resolves to the mode that replaced it, and the
+old single "Custom" instruction becomes a mode called **My instruction**.
+
+You can switch the mode for the next dictation straight from the menu-bar item,
+and override it per app (**Apps**) or per shortcut (**Shortcuts**).
 
 **Guarantees:** the original transcription is *never* replaced by an empty or failed result — if the server errors, you keep your text and are told what happened. Long transcripts are processed in paragraph-sized chunks (never truncated).
 

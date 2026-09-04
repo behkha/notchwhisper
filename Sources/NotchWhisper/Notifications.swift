@@ -14,4 +14,12 @@ extension Notification.Name {
     static let dictationChanged = Notification.Name("NotchWhisper.dictationChanged")
     /// The local LLM model set changed (download/delete/select) — views repaint.
     static let llmModelsChanged = Notification.Name("NotchWhisper.llmModelsChanged")
+    /// Open the AI page in the main window. `object` may carry an `AITab` raw
+    /// value ("connections" / "modes") to land on a specific tab.
+    static let openAIPage = Notification.Name("NotchWhisper.openAIPage")
+    /// Open the Apps page (app profiles) in the main window.
+    static let openAppsPage = Notification.Name("NotchWhisper.openAppsPage")
+    /// Open the Hugging Face browser window. `object` may carry a `String` to
+    /// seed the search field with.
+    static let openHubBrowser = Notification.Name("NotchWhisper.openHubBrowser")
 }

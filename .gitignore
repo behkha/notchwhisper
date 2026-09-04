@@ -16,3 +16,6 @@ build/
 .agents/
 .claude/
 .workbuddy-ai/
+
+# Feature specs (local only)
+specs/

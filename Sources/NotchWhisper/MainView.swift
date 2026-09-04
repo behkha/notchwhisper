@@ -11,10 +11,11 @@ struct MainView: View {
     @ObservedObject private var theme = Tokens.ThemeManager.shared
 
     @State private var nav: Nav = .home
+    @State private var aiTab: AITab = .connections
     @Namespace private var pill
 
     enum Nav: String, CaseIterable, Identifiable {
-        case home, upload, transcripts, dictionary, models
+        case home, upload, transcripts, dictionary, models, apps, ai
         var id: String { rawValue }
         var label: String {
             switch self {
@@ -23,6 +24,8 @@ struct MainView: View {
             case .transcripts: return "Transcripts"
             case .dictionary: return "Dictionary"
             case .models: return "Models"
+            case .apps: return "Apps"
+            case .ai: return "AI"
             }
         }
         var icon: String {
@@ -32,6 +35,8 @@ struct MainView: View {
             case .transcripts: return "text.line.first.and.arrowtriangle.forward"
             case .dictionary: return "character.book.closed.fill"
             case .models: return "cpu.fill"
+            case .apps: return "app.badge"
+            case .ai: return "sparkles"
             }
         }
     }
@@ -49,6 +54,15 @@ struct MainView: View {
         .tint(Tokens.Color.accent)
         .environment(\.colorScheme, .dark)
         .focusEffectDisabled()
+        .onReceive(NotificationCenter.default.publisher(for: .openAIPage)) { note in
+            if let raw = note.object as? String, let requested = AITab(rawValue: raw) {
+                aiTab = requested
+            }
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) { nav = .ai }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openAppsPage)) { _ in
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) { nav = .apps }
+        }
     }
 
     // MARK: Sidebar
@@ -179,6 +193,8 @@ struct MainView: View {
             case .transcripts: TranscriptsView()
             case .dictionary:  DictView()
             case .models:      ModelsView()
+            case .apps:        AppsView()
+            case .ai:          AIView(tab: $aiTab)
             }
         }
         .environmentObject(state)
@@ -194,6 +210,7 @@ struct HomeView: View {
     @EnvironmentObject private var settings: Settings
     @ObservedObject private var theme = Tokens.ThemeManager.shared
     @ObservedObject private var history = HistoryStore.shared
+    @ObservedObject private var hotkeys = HotkeyBindingStore.shared
     @Binding var nav: MainView.Nav
 
     @State private var copiedID: UUID?
@@ -244,9 +261,7 @@ struct HomeView: View {
                             .font(Tokens.TypeScale.title2)
                             .foregroundStyle(Tokens.Color.text)
                     }
-                    Text(settings.liveDictation
-                         ? "Press \(settings.hotkeyDisplay) to start live dictation — press again to stop. Words appear as you speak."
-                         : "Hold \(settings.hotkeyDisplay) anywhere and talk. Release to transcribe and type.")
+                    Text(hotkeys.hint(long: true))
                         .font(Tokens.TypeScale.callout)
                         .foregroundStyle(Tokens.Color.textSec)
                         .fixedSize(horizontal: false, vertical: true)
@@ -381,9 +396,7 @@ struct HomeView: View {
                 EmptyStateView(
                     icon: "waveform",
                     title: "No transcripts yet",
-                    message: settings.liveDictation
-                        ? "Press \(settings.hotkeyDisplay), speak, then press again to stop."
-                        : "Hold \(settings.hotkeyDisplay) anywhere and start talking."
+                    message: hotkeys.hint(long: false)
                 )
                 .frame(height: 220)
                 .card(padding: nil)

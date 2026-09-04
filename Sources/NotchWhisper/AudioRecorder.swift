@@ -103,6 +103,32 @@ import WhisperKit
     /// Whether the mic tap is currently installed (recording in progress).
     var isCapturing: Bool { engine != nil }
 
+    // MARK: - Synthetic capture (offline self-tests)
+
+    /// Begins a capture session fed by `feed(_:)` instead of the microphone.
+    /// `--live-selftest` replays a WAV through the real live-dictation loop
+    /// with no mic and no permission, so the loop's timing can be measured.
+    func startSynthetic() {
+        if engine != nil { _ = stop() }
+        bufferLock.lock()
+        audioSamples = []
+        bufferLock.unlock()
+    }
+
+    /// Appends one chunk of 16 kHz mono audio as though the mic tap produced
+    /// it, including the level ring the live loop reads for its pause detector.
+    func feed(_ chunk: [Float]) {
+        guard !chunk.isEmpty else { return }
+        bufferLock.lock()
+        audioSamples.append(contentsOf: chunk)
+        bufferLock.unlock()
+
+        var sum: Float = 0
+        for s in chunk { sum += s * s }
+        let rms = sqrt(sum / Float(chunk.count))
+        pushLevel(min(1.0, max(0.06, rms * 7.0)))
+    }
+
     /// Copy of everything captured so far (16 kHz mono) — read by the live
     /// dictation loop without stopping the stream. Lock-guarded: the tap
     /// callback appends on the audio thread while this runs on the MainActor.

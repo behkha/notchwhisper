@@ -18,6 +18,7 @@ import ServiceManagement
         static let autoType       = "autoTypeEnabled"
         static let insertNewline  = "insertNewline"
         static let liveDictation  = "liveDictation"
+        static let terminalPaste  = "pasteIntoTerminalTools"
         static let language       = "language"        // nil = auto-detect
         static let task           = "task"            // "transcribe" | "translate"
         static let launchAtLogin  = "launchAtLogin"
@@ -25,12 +26,10 @@ import ServiceManagement
         static let reactiveGlow   = "reactiveGlow"
         static let visualizer     = "visualizerStyle"
         static let themeColor     = Tokens.Theme.defaultsKey
-        // Local LLM post-processing
+        // AI post-processing
         static let llmEnabled      = "llmEnabled"
-        static let llmMode         = "llmMode"            // LLMMode raw
-        static let llmCustomPrompt = "llmCustomPrompt"
-        static let llmEndpoint     = "llmServerEndpoint"
-        static let llmServerModel  = "llmServerModel"
+        static let llmMode         = "llmMode"            // legacy: bare built-in raw
+        static let llmSelection    = "llmModeSelection"   // ProcessingMode storage key
     }
 
     // MARK: - Model
@@ -103,6 +102,14 @@ import ServiceManagement
     @Published var liveDictation: Bool {
         didSet { defaults.set(liveDictation, forKey: Key.liveDictation) }
     }
+    /// In a terminal, deliver text to a running PROGRAM (Claude Code, Codex,
+    /// vim) by pasting rather than typing. Typing sends every newline as a
+    /// Return, which submits the line instead of writing it. A bare shell
+    /// prompt is still typed — a command line is one line, and the clipboard
+    /// stays untouched.
+    @Published var pasteIntoTerminalTools: Bool {
+        didSet { defaults.set(pasteIntoTerminalTools, forKey: Key.terminalPaste) }
+    }
     @Published var language: String? {   // nil = auto-detect
         didSet { defaults.set(language, forKey: Key.language) }
     }
@@ -134,34 +141,32 @@ import ServiceManagement
         }
     }
 
-    // MARK: - Local LLM post-processing
+    // MARK: - AI post-processing
+    //
+    // WHERE the text is sent lives in `LLMConnectionStore` (the AI page); WHAT
+    // happens to it lives here, as the selected `ProcessingMode`.
+
     /// Master switch. When OFF the pipeline is exactly as before:
     /// Voice → Transcribe → Insert at cursor.
     @Published var llmEnabled: Bool {
         didSet { defaults.set(llmEnabled, forKey: Key.llmEnabled) }
     }
-    /// Default processing mode (quick switch from the menu bar overrides it
-    /// for a single dictation).
-    @Published var llmMode: LLMMode {
-        didSet { defaults.set(llmMode.rawValue, forKey: Key.llmMode) }
+    /// Selected mode — one of the user's own, or `.off` (quick switch from the
+    /// menu bar changes it for subsequent dictations).
+    @Published var processingMode: ProcessingMode {
+        didSet { defaults.set(processingMode.storageKey, forKey: Key.llmSelection) }
     }
-    /// Custom instruction shown when Custom mode is selected.
-    @Published var customPrompt: String {
-        didSet { defaults.set(customPrompt, forKey: Key.llmCustomPrompt) }
-    }
-    /// Server base URL, e.g. `http://localhost:11434/v1` or
-    /// `http://127.0.0.1:1234/v1`. Empty until the user configures one.
-    @Published var llmServerEndpoint: String {
-        didSet { defaults.set(llmServerEndpoint, forKey: Key.llmEndpoint) }
-    }
-    /// Model served by that endpoint (name only; no path).
-    @Published var llmServerModel: String {
-        didSet { defaults.set(llmServerModel, forKey: Key.llmServerModel) }
-    }
-    /// Convenience: the transcript is processed only when LLM processing is
-    /// enabled AND the active mode is not passthrough.
+    /// Convenience: the transcript is processed only when processing is on, the
+    /// mode isn't passthrough, AND there is a connection able to run it.
     var llmActiveForCurrentMode: Bool {
-        llmEnabled && !llmMode.isPassthrough
+        llmEnabled && !processingMode.isPassthrough
+            && LLMConnectionStore.shared.hasUsableConnection
+    }
+    /// Processing is switched on but can't run — the UI says so instead of
+    /// failing on every dictation.
+    var llmNeedsConnection: Bool {
+        llmEnabled && !processingMode.isPassthrough
+            && !LLMConnectionStore.shared.hasUsableConnection
     }
 
     // MARK: - Launch at login (SMAppService, macOS 13+)
@@ -206,6 +211,7 @@ import ServiceManagement
         self.autoTypeEnabled = d.object(forKey: Key.autoType) != nil ? d.bool(forKey: Key.autoType) : true
         self.insertNewline   = d.bool(forKey: Key.insertNewline)
         self.liveDictation   = d.object(forKey: Key.liveDictation) != nil ? d.bool(forKey: Key.liveDictation) : false
+        self.pasteIntoTerminalTools = d.object(forKey: Key.terminalPaste) != nil ? d.bool(forKey: Key.terminalPaste) : true
         self.language        = d.string(forKey: Key.language)
         self.task            = d.string(forKey: Key.task) ?? "transcribe"
         self.launchAtLogin   = d.object(forKey: Key.launchAtLogin) != nil ? d.bool(forKey: Key.launchAtLogin) : true
@@ -213,13 +219,14 @@ import ServiceManagement
         self.reactiveGlow    = d.object(forKey: Key.reactiveGlow) != nil ? d.bool(forKey: Key.reactiveGlow) : true
         self.visualizerStyle = VisualizerStyle(raw: d.string(forKey: Key.visualizer))
         self.themeColor      = Tokens.Theme(rawValue: d.string(forKey: Key.themeColor) ?? "") ?? .ember
-        // Local LLM (all defaults OFF / passthrough so the app works exactly
-        // as before until the user enables post-processing).
+        // AI processing (all defaults OFF so the app works exactly as before
+        // until the user turns post-processing on).
         self.llmEnabled      = d.object(forKey: Key.llmEnabled) != nil ? d.bool(forKey: Key.llmEnabled) : false
-        self.llmMode         = LLMMode(rawValue: d.string(forKey: Key.llmMode) ?? "") ?? .cleanup
-        self.customPrompt      = d.string(forKey: Key.llmCustomPrompt) ?? ""
-        self.llmServerEndpoint = d.string(forKey: Key.llmEndpoint) ?? ""
-        self.llmServerModel    = d.string(forKey: Key.llmServerModel) ?? ""
+        // New key first; fall back to the pre-custom-modes `llmMode` raw value,
+        // which `ProcessingMode` maps onto the mode that replaced it.
+        self.processingMode  = ProcessingMode(storageKey: d.string(forKey: Key.llmSelection) ?? "")
+            ?? ProcessingMode(storageKey: d.string(forKey: Key.llmMode) ?? "")
+            ?? .initial
     }
 
     // MARK: - Helpers

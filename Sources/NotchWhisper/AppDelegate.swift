@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var updateWindow: NSWindow?
+    private var hubWindow: NSWindow?
 
     private var isRecording = false
     /// True while a continuous live-dictation session is running (Settings →
@@ -38,6 +39,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// shared `AudioRecorder`, which the live teardown then rips out mid-phrase
     /// (the "types as I speak, then types the whole thing again" bug).
     private var isFinishingDictation = false
+    /// Where the CURRENT dictation is going, captured when the mic opened.
+    /// The user chooses a destination by looking at it and pressing the key, so
+    /// an app switch mid-dictation must not change how the sentence is written.
+    private var pendingContext = AppContext.empty
+    /// Settings for the current dictation after the matching app profile had
+    /// its say. Resolved once, so nothing can change under a recording.
+    private var pendingEffective: EffectiveSettings?
     /// App Nap assertion held only while recording/transcribing, so the 60 Hz
     /// waveform timer and the audio pipeline are never throttled while the app
     /// is backgrounded. Ended as soon as we return to idle.
@@ -273,6 +281,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateWindow?.makeKeyAndOrderFront(nil)
     }
 
+    /// The Hugging Face browser. A window rather than a sheet: browsing the Hub
+    /// is open-ended, and a macOS SwiftUI sheet can't be resized by the user.
+    /// Built on demand — most sessions never open it.
+    @objc func showHubBrowser() {
+        if hubWindow == nil {
+            let root = HubBrowserWindow()
+                .environmentObject(state)
+                .environmentObject(settings)
+            // The minimums match the browser view's own frame, so dragging the
+            // window small can never clip its search controls.
+            let win = makeAuroraWindow(root, width: 1100, height: 820,
+                                       minW: 780, minH: 600, title: "Hugging Face")
+            win.level = .normal
+            hubWindow = win
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        hubWindow?.makeKeyAndOrderFront(nil)
+    }
+
     /// Menu command: check, then open the window with whatever came back.
     @objc func checkForUpdates() {
         UpdateChecker.shared.check()
@@ -280,38 +307,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Hotkey
-    /// Routes the hotkey by the live-dictation setting:
-    ///  · OFF (default) — hold-to-talk: press-and-hold records, release transcribes.
-    ///  · ON — the hotkey becomes a toggle: press once to START a continuous
-    ///    live session that types as you speak, press again to STOP.
-    /// Called at launch and whenever the setting (or key) changes.
+    /// Arms every enabled binding on ONE event tap. Each binding carries its own
+    /// activation:
+    ///  · holdToTalk — press-and-hold records, release transcribes;
+    ///  · toggleLive — press once to START a continuous live session that types
+    ///    as you speak, press again to STOP.
+    /// Called at launch, whenever the table changes, and defensively on wake.
     private func installHotkey() {
-        if liveDictationActive {
-            hotkey = HotkeyMonitor(
-                onDown: { [weak self] in Task { @MainActor in self?.toggleRecord() } },
-                onUp: {},
-                onPermissionNeeded: { [weak self] in
-                    Task { @MainActor in self?.promptInputMonitoring() }
-                }
-            )
-        } else {
-            hotkey = HotkeyMonitor(
-                onDown: { [weak self] in Task { @MainActor in self?.startRecording() } },
-                onUp: { [weak self] in Task { @MainActor in self?.stopRecording() } },
-                onPermissionNeeded: { [weak self] in
-                    Task { @MainActor in self?.promptInputMonitoring() }
-                }
-            )
-        }
+        hotkey = HotkeyMonitor(
+            onDown: { [weak self] id in Task { @MainActor in self?.hotkeyDown(id) } },
+            onUp:   { [weak self] id in Task { @MainActor in self?.hotkeyUp(id) } },
+            onPermissionNeeded: { [weak self] in
+                Task { @MainActor in self?.promptInputMonitoring() }
+            }
+        )
         // Proactively request the permission so the app registers itself in
         // System Settings (Input Monitoring, with Accessibility as a reliable
         // fallback that covers a global keyboard monitor).
         HotkeyMonitor.requestPermission()
-        hotkey?.install(code: settings.hotkeyCode, carbonModifiers: settings.hotkeyModifiers)
+        hotkey?.install(HotkeyBindingStore.shared.installable)
+    }
+
+    /// A binding asking for a live session on a model that cannot stream falls
+    /// back to hold-to-talk. Same rule `reconcileAfterModelChange()` has always
+    /// applied to the single hotkey, now decided per binding.
+    func activation(for binding: HotkeyBinding) -> HotkeyBinding.Activation {
+        binding.effectiveActivation == .toggleLive && canStreamLive ? .toggleLive : .holdToTalk
+    }
+
+    private func hotkeyDown(_ id: UUID) {
+        guard let binding = HotkeyBindingStore.shared.binding(id: id) else { return }
+        switch activation(for: binding) {
+        case .toggleLive: trigger(binding: binding)
+        case .holdToTalk: startRecording(binding: binding)
+        }
+    }
+
+    private func hotkeyUp(_ id: UUID) {
+        // A live-session binding is a toggle — its release means nothing. The
+        // binding is looked up again rather than remembered, so a table edit
+        // mid-press can never strand a recording.
+        guard let binding = HotkeyBindingStore.shared.binding(id: id),
+              activation(for: binding) == .holdToTalk else { return }
+        stopRecording()
     }
 
     @MainActor
-    private func promptInputMonitoring() {
+    func promptInputMonitoring() {
         // Input Monitoring is the ideal permission, but macOS only adds the app to
         // that list after a tap is attempted. Accessibility is declared too and covers
         // the same global-keyboard-event need — requesting it pops the system prompt
@@ -344,45 +386,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         NotificationCenter.default.addObserver(forName: .hotkeyChanged, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
-                guard let self else { return }
-                self.hotkey?.install(code: self.settings.hotkeyCode,
-                                     carbonModifiers: self.settings.hotkeyModifiers)
+                self?.hotkey?.install(HotkeyBindingStore.shared.installable)
             }
+        }
+        // "Hotkey dead after the lid opened": the tap usually survives sleep and
+        // the disable path covers the rest, but re-arming on wake is cheap and
+        // removes a whole class of report.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.installHotkey() }
         }
         NotificationCenter.default.addObserver(forName: .modelChanged, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                // A llama:* model can't do live dictation — end any running
-                // session and flip the hotkey back to hold-to-talk.
-                if !self.liveDictationActive, self.isDictating { self.stopDictation() }
-                self.installHotkey()
+                // A llama:* model can't stream — end any running live session,
+                // whichever key started it. Every toggleLive binding falls back
+                // to hold-to-talk while that model is active.
+                if !self.canStreamLive, self.isDictating { self.stopDictation() }
                 _ = await self.transcriber.ensureLoaded()
+            }
+        }
+        NotificationCenter.default.addObserver(forName: .openHubBrowser, object: nil,
+                                               queue: .main) { [weak self] note in
+            let seed = (note.object as? String) ?? ""
+            Task { @MainActor in
+                HubBrowserOpener.shared.request(seed: seed)
+                self?.showHubBrowser()
             }
         }
         NotificationCenter.default.addObserver(forName: .dictationChanged, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                // Turning the feature OFF mid-session ends the live session.
-                if !self.settings.liveDictation, self.isDictating {
-                    self.stopDictation()
+                // Turning the global switch OFF ends any live session the
+                // switch itself is holding up: the Record button's, and a
+                // shortcut's if that shortcut inherits its activation (it just
+                // became hold-to-talk, so pressing it again would no longer
+                // stop the session). A shortcut that PINNED "Live session" is
+                // not the global setting's to end — that key is still armed and
+                // is still the way to stop it.
+                guard !self.settings.liveDictation, self.isDictating else { return }
+                if let binding = self.pendingEffective?.sourceBinding,
+                   HotkeyBindingStore.shared.binding(id: binding.id)?.activation != nil {
+                    return
                 }
-                self.installHotkey()
+                self.stopDictation()
             }
         }
     }
 
     /// Live dictation streams partials and needs segment timestamps — only
-    /// WhisperKit provides them. With a `llama:*` Qwen3-ASR model active the
-    /// hotkey/button falls back to hold-to-talk regardless of the setting.
-    var liveDictationActive: Bool {
-        settings.liveDictation && !LlamaModelOption.isLlamaId(settings.modelId)
-    }
+    /// WhisperKit provides them. With a `llama:*` Qwen3-ASR model active every
+    /// trigger falls back to hold-to-talk regardless of what it asked for.
+    var canStreamLive: Bool { !LlamaModelOption.isLlamaId(settings.modelId) }
+
+    /// What the Record button and the menu bar do: they have no binding of
+    /// their own, so they follow the global live-dictation setting.
+    var liveDictationActive: Bool { settings.liveDictation && canStreamLive }
 
     func toggleRecord() {
         if isDictating { stopDictation(); return }
         if isFinishingDictation { return }   // teardown in flight — ignore
         if liveDictationActive { startDictation(); return }
         if isRecording { stopRecording() } else { startRecording() }
+    }
+
+    /// One press of a `toggleLive` binding: stop whatever is running, or start
+    /// a live session shaped by that binding.
+    func trigger(binding: HotkeyBinding?) {
+        if isDictating { stopDictation(); return }
+        if isFinishingDictation { return }   // teardown in flight — ignore
+        if isRecording { stopRecording(); return }
+        startDictation(binding: binding)
     }
 
     /// Automatic model selection (§38): pick the best installed model for the
@@ -402,7 +477,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.showToast("Switched to \(best.displayName) for this dictation.")
     }
 
-    func startRecording() {
+    /// Model choice for a dictation. An app profile's explicit model beats
+    /// automatic selection — the user named it, the recommender only guessed.
+    private func applyModelSelection(_ effective: EffectiveSettings) {
+        guard effective.modelFromProfile else {
+            applyAutomaticModelSelection()
+            return
+        }
+        guard effective.modelId != settings.modelId, !state.isDownloading else { return }
+        settings.modelId = effective.modelId
+        NotificationCenter.default.post(name: .modelChanged, object: nil)
+        let model = ModelRegistry.shared.descriptor(for: effective.modelId).displayName
+        state.showToast("Using \(model) for \(effective.profileName ?? "this app").")
+    }
+
+    /// Captures the destination and resolves the profile for a dictation about
+    /// to start, then lets the binding that started it override the profile.
+    /// Consumes a pending one-off "ignore app profile" request.
+    @discardableResult
+    private func beginContext(binding: HotkeyBinding? = nil) -> EffectiveSettings {
+        let context = AppContext.current()
+        let effective = AppProfileStore.shared.resolveForDictation(context: context, binding: binding)
+        pendingContext = context
+        pendingEffective = effective
+        // Both chips, so the notch says which key AND which app shaped this.
+        state.sessionLabel = effective.sessionLabel ?? ""
+        return effective
+    }
+
+    func startRecording(binding: HotkeyBinding? = nil) {
         guard !isRecording, !isDictating, !isFinishingDictation, !awaitingModelForDictation else { return }
         // The Models lab is holding the microphone (recording a test clip or a
         // benchmark sample) — starting a second capture would rip it away.
@@ -410,7 +513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.showToast("Finish the recording in Models first.")
             return
         }
-        applyAutomaticModelSelection()
+        applyModelSelection(beginContext(binding: binding))
         do {
             try recorder.start()
             isRecording = true
@@ -430,22 +533,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard isRecording else { return }
         isRecording = false
         let samples = recorder.stop()
+        let effective = pendingEffective ?? AppProfileStore.shared.effective(for: pendingContext)
+        let context = pendingContext
         state.mode = .transcribing
-        Task { await transcribe(samples: samples, source: .button) }
+        let source: TranscriptRecord.Source = effective.sourceBinding == nil ? .button : .hotkey
+        Task { await transcribe(samples: samples, source: source, effective: effective, context: context) }
     }
 
     // MARK: - Live dictation (continuous, types as you speak)
 
     /// Starts a continuous live-dictation session. The hotkey / Record button
     /// act as a toggle while the "Live dictation" setting is ON.
-    func startDictation() {
-        // Re-check the setting on every entry. This method re-enters itself
-        // asynchronously after a model load (below), and `.dictationChanged`
-        // can turn the feature OFF while that load is in flight — without this
-        // guard the deferred call would start a live session the user has
-        // already disabled, with no hotkey left to stop it (the hotkey has
-        // reverted to hold-to-talk).
-        guard liveDictationActive else { return }
+    func startDictation(binding: HotkeyBinding? = nil) {
+        // Re-check the routing on every entry. This method re-enters itself
+        // asynchronously after a model load (below), and `.dictationChanged` (or
+        // a table edit) can revoke the live session while that load is in
+        // flight — without this guard the deferred call would start a live
+        // session nothing is left to stop.
+        if let binding {
+            guard let current = HotkeyBindingStore.shared.binding(id: binding.id),
+                  activation(for: current) == .toggleLive else { return }
+        } else {
+            guard liveDictationActive else { return }
+        }
         guard !isDictating, !isRecording, !isFinishingDictation else { return }
         guard !state.micReservedByModelLab else {
             state.showToast("Finish the recording in Models first.")
@@ -466,10 +576,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     state.statusMessage = "Model not loaded."
                     return
                 }
-                startDictation()
+                // The binding id is carried through the parked start, so the
+                // deferred session is still the one the user pressed for.
+                startDictation(binding: binding)
             }
             return
         }
+        let effective = beginContext(binding: binding)
+        live.autoTypeOverride = (effective.sourceProfile == nil && effective.sourceBinding == nil)
+            ? nil : effective.autoType
+        transcriber.languageOverride = effective.language
         do {
             try recorder.start()
             isDictating = true
@@ -500,7 +616,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func finishDictation() async {
         // Cleared only once the mic is actually released — guards the whole
         // async teardown against a concurrent hold-to-talk start.
-        defer { isFinishingDictation = false }
+        defer {
+            isFinishingDictation = false
+            // Never let a binding's language leak into the next dictation or
+            // into a file transcription started from the Upload page.
+            transcriber.languageOverride = nil
+            live.autoTypeOverride = nil
+            state.sessionLabel = ""
+        }
         let result = await live.stop()
         // Idempotent: guarantees the mic tap is released even if the loop
         // failed to load the model mid-session (in which case stop() returns
@@ -516,17 +639,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         state.mode = .done
         endActivity()
+        let effective = pendingEffective ?? AppProfileStore.shared.effective(for: pendingContext)
         HistoryStore.shared.add(
             raw: result.raw,
             final: result.final,
             corrections: result.corrections,
-            source: .button
+            source: effective.sourceBinding == nil ? .button : .hotkey,
+            profileName: effective.profileName
         )
         // "Newline after text" re-applies at the end of a dictation session,
         // so a full paragraph is followed by a Return press.
-        if settings.autoTypeEnabled, settings.insertNewline {
+        if effective.autoType, effective.insertNewline {
             AutoTyper.type("\n")
         }
+        pendingEffective = nil
     }
 
     // MARK: - App Nap
@@ -552,7 +678,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Transcribe + dictionary passes
-    private func transcribe(samples: [Float], source: TranscriptRecord.Source) async {
+    private func transcribe(samples: [Float], source: TranscriptRecord.Source,
+                            effective: EffectiveSettings,
+                            context: AppContext) async {
+        // A binding may have named a language for this dictation only. Cleared
+        // on every exit so it can never bleed into the next one.
+        transcriber.languageOverride = effective.language
+        defer {
+            transcriber.languageOverride = nil
+            state.sessionLabel = ""
+        }
         guard await transcriber.ensureLoaded() else {
             await MainActor.run {
                 state.mode = .error
@@ -597,15 +732,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ALWAYS the fallback: any failure keeps the corrected text and the
         // user is told what happened. LLM output can never empty the field.
         var insertText = final
-        var recordedLLMMode: LLMMode? = nil
+        var recordedMode: ProcessingMode? = nil
         var llmFailed = false
-        if settings.llmActiveForCurrentMode, !final.isEmpty {
-            recordedLLMMode = settings.llmMode
+        if effective.pinnedConnectionMissing, !final.isEmpty {
+            await MainActor.run {
+                state.statusMessage = "Original text inserted — the AI connection \"\(effective.profileName ?? "this profile")\" uses was deleted."
+            }
+        }
+        if effective.llmActive, !final.isEmpty {
+            let mode = effective.processingMode
+            recordedMode = mode
             await MainActor.run {
                 state.mode = .improving
                 state.statusMessage = "Improving…"
             }
-            let result = await llmRunner.process(final, mode: settings.llmMode)
+            let result = await llmRunner.process(final, mode: mode, connectionID: effective.connectionID)
             switch result {
             case .processed(let improved):
                 if !improved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -630,15 +771,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 state.mode = insertText.isEmpty ? .idle : .done
             }
             endActivity()
+            // Insertion always goes wherever focus is NOW — that is
+            // AutoTyper's contract. But if the user moved on, the profile that
+            // shaped this text no longer matches the destination, so the record
+            // says where it actually landed and the toast says so once.
+            let destination = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            let strayed = effective.sourceProfile != nil
+                && destination != nil
+                && destination != context.bundleID
             HistoryStore.shared.add(
                 raw: raw, final: insertText, corrections: changes,
-                source: source, llmMode: recordedLLMMode
+                source: source, mode: recordedMode,
+                profileName: effective.profileName,
+                insertedIntoBundleID: strayed ? destination : nil
             )
-            if settings.autoTypeEnabled {
+            if effective.autoType {
                 var text = insertText
-                if settings.insertNewline, !text.isEmpty { text += "\n" }
-                AutoTyper.type(text)
+                if effective.insertNewline, !text.isEmpty { text += "\n" }
+                AutoTyper.insert(text, mode: effective.insertionMode)
+                if strayed, let destination {
+                    state.showToast("Typed into \(AppCatalog.name(for: destination)) — profile was \(effective.profileName ?? "none").")
+                }
             }
+            pendingEffective = nil
         }
     }
 
@@ -659,17 +814,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    /// Re-route the hotkey (and end any live session) after the active model
-    /// changed by a path that already handled loading.
+    /// End any live session after the active model changed by a path that
+    /// already handled loading.
     ///
     /// The install queue activates a finished download itself and deliberately
     /// does *not* post `.modelChanged` — that observer would start a second,
-    /// racing load of the model it just loaded. But the hotkey still has to be
-    /// re-installed, because a model that can't stream falls back to
-    /// hold-to-talk regardless of the live-dictation setting.
+    /// racing load of the model it just loaded. The trigger table itself does
+    /// not change (activation is resolved per press, at press time), but a
+    /// running live session on a model that can no longer stream has to stop.
     func reconcileAfterModelChange() {
-        if !liveDictationActive, isDictating { stopDictation() }
-        installHotkey()
+        if !canStreamLive, isDictating { stopDictation() }
     }
 
     var transcriberRef: Transcriber { transcriber }

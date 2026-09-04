@@ -351,6 +351,7 @@ struct NotchView: View {
                     // Reduce Motion.
                     .scaleEffect(recordDotScale(t: t))
                     .shadow(color: Tokens.Color.record.opacity(0.6), radius: 4)
+                sessionChip
                 AudioVisualizer(
                     style: settings.visualizerStyle,
                     state: .speaking,
@@ -381,6 +382,7 @@ struct NotchView: View {
                         .frame(width: 7, height: 7)
                         .scaleEffect(recordDotScale(t: t))
                         .shadow(color: Tokens.Color.record.opacity(0.6), radius: 4)
+                    sessionChip
                     Text(state.partialText.isEmpty ? "Listening…" : state.partialText)
                         .font(Tokens.TypeScale.notchLabel)
                         .foregroundStyle(.white.opacity(0.92))
@@ -462,6 +464,24 @@ struct NotchView: View {
 
         case .idle:
             EmptyView()
+        }
+    }
+
+    /// "Slack · Clean prose" — which app profile and which hotkey binding are
+    /// shaping this dictation. Silent when neither had an opinion, so the
+    /// common case is exactly the island it has always been.
+    @ViewBuilder
+    private var sessionChip: some View {
+        if !state.sessionLabel.isEmpty {
+            Text(state.sessionLabel)
+                .font(Tokens.TypeScale.micro)
+                .foregroundStyle(.white.opacity(0.8))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(.white.opacity(0.12)))
+                .fixedSize()
         }
     }
 

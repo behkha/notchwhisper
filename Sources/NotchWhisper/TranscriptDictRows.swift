@@ -27,9 +27,18 @@ struct TranscriptRow: View {
                         Chip(text: "\(rec.corrections.count) fix\(rec.corrections.count == 1 ? "" : "es")",
                              systemImage: "wand.and.sparkles", tint: Tokens.Color.accent)
                     }
-                    if let mode = rec.llmMode, mode != .original {
-                        Chip(text: mode.displayName, systemImage: mode.symbolName,
+                    if let mode = rec.modeLabel {
+                        Chip(text: mode, systemImage: rec.modeSymbol,
                              tint: Tokens.Color.success, filled: false)
+                    }
+                    if let profile = rec.profileName {
+                        Chip(text: profile, systemImage: "app.badge",
+                             tint: Tokens.Color.textSec, filled: false)
+                    }
+                    if let strayed = rec.insertedIntoBundleID {
+                        Chip(text: "Typed into \(AppCatalog.name(for: strayed))",
+                             systemImage: "arrow.turn.down.right",
+                             tint: Tokens.Color.warn, filled: false)
                     }
                 }
             }

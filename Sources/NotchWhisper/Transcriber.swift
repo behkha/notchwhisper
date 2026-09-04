@@ -24,6 +24,14 @@ import WhisperKit
     private var loadTask: Task<Bool, Never>?
     private var loadingModelId: String?
 
+    /// Language for the CURRENT dictation, when a hotkey binding named one.
+    /// nil = fall back to the global setting. Set just before a transcription
+    /// and cleared after, so nothing leaks into the next one.
+    var languageOverride: String?
+
+    /// The language the engine is actually told to expect.
+    var effectiveLanguage: String? { languageOverride ?? settings.language }
+
     /// The configured model storage root (Models → Storage → Change Location…).
     /// Read through `ModelStorageLocation` so a relocation takes effect
     /// everywhere at once instead of leaving a stale path behind.
@@ -397,7 +405,7 @@ import WhisperKit
     /// dictionary terms as hotwords. Qwen3-ASR is trained to use this text.
     private func llamaContextPrompt(biasTerms: [String]) -> String {
         var lines: [String] = []
-        if let lang = settings.language, !lang.isEmpty, lang.lowercased() != "auto" {
+        if let lang = effectiveLanguage, !lang.isEmpty, lang.lowercased() != "auto" {
             lines.append("Language: \(lang).")
         }
         let terms = biasTerms
@@ -510,7 +518,7 @@ import WhisperKit
         let opts = DecodingOptions(
             verbose: false,
             task: settings.task == "translate" ? .translate : .transcribe,
-            language: settings.language,
+            language: effectiveLanguage,
             temperature: 0.0,
             temperatureFallbackCount: 3,
             usePrefillPrompt: true,
@@ -568,7 +576,7 @@ import WhisperKit
         let opts = DecodingOptions(
             verbose: false,
             task: settings.task == "translate" ? .translate : .transcribe,
-            language: settings.language,
+            language: effectiveLanguage,
             temperature: 0.0,
             temperatureFallbackCount: 0,   // single greedy pass → fast, low-latency
             usePrefillPrompt: true,
@@ -606,7 +614,7 @@ import WhisperKit
         let opts = DecodingOptions(
             verbose: false,
             task: settings.task == "translate" ? .translate : .transcribe,
-            language: settings.language,
+            language: effectiveLanguage,
             temperature: 0.0,
             temperatureFallbackCount: 3,
             usePrefillPrompt: true,
@@ -640,16 +648,27 @@ import WhisperKit
             if !ids.isEmpty { initialPrompt = ids }
         }
 
+        // One greedy pass, no temperature fallbacks: a retry costs a whole
+        // extra decode and live dictation cannot absorb an unpredictable
+        // multi-second pass. (Measured: letting the repetition check retry took
+        // one 1.6 s window from 0.3 s to 4.7 s, and the higher-temperature
+        // retry replaced the repetition with fluent invented prose — worse
+        // output, far worse latency.) Whisper's decoder loops are handled
+        // downstream instead, by `LiveTranscriber.deloop` and by never decoding
+        // a window too short to be in distribution.
         let opts = DecodingOptions(
             verbose: false,
             task: settings.task == "translate" ? .translate : .transcribe,
-            language: settings.language,
+            language: effectiveLanguage,
             temperature: 0.0,
-            temperatureFallbackCount: 0,   // single greedy pass → fast, low-latency
+            temperatureFallbackCount: 0,   // single greedy pass → predictable latency
             usePrefillPrompt: true,
             skipSpecialTokens: true,
             withoutTimestamps: false,      // timestamps REQUIRED for confirmation
-            promptTokens: initialPrompt
+            promptTokens: initialPrompt,
+            compressionRatioThreshold: 2.4,
+            logProbThreshold: nil,
+            firstTokenLogProbThreshold: nil
         )
         let results = try await w.transcribe(audioArray: samples, decodeOptions: opts)
         return results.flatMap { $0.segments }

@@ -173,6 +173,9 @@ struct ModelsView: View {
     @State private var filters = DiscoveryFilters()
     @State private var sort: ModelSortOrder = .recommended
     @State private var showAllDiscover = false
+    /// Bumped by "Browse Models" so the scroll reader can jump to Discover. The
+    /// section is already on the page, so without this the button looks dead.
+    @State private var browseRequests = 0
 
     // Storage
     @State private var storageReport = ModelStorageReport()
@@ -247,22 +250,32 @@ struct ModelsView: View {
 
     private var mainScroll: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Tokens.Space.x6) {
-                header
-                banners
-                activeSection
-                recentlyUsedStrip
-                installedSection
-                recommendedSection
-                discoverSection
-                storageSection
+            ScrollViewReader { proxy in
+                VStack(alignment: .leading, spacing: Tokens.Space.x6) {
+                    header
+                    banners
+                    activeSection
+                    recentlyUsedStrip
+                    installedSection
+                    recommendedSection
+                    discoverSection.id(Self.discoverAnchor)
+                    storageSection
+                }
+                .padding(Tokens.Space.x8)
+                .frame(maxWidth: 1040, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .onChange(of: browseRequests) { _, _ in
+                    withAnimation(Tokens.Motion.ease(reduceMotion: Tokens.A11y.reduceMotion)) {
+                        proxy.scrollTo(Self.discoverAnchor, anchor: .top)
+                    }
+                    searchFocused = true
+                }
             }
-            .padding(Tokens.Space.x8)
-            .frame(maxWidth: 1040, alignment: .leading)
-            .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.never)
     }
+
+    private static let discoverAnchor = "discover-section"
 
     // MARK: Header (§4)
 
@@ -291,6 +304,7 @@ struct ModelsView: View {
                         Button("Model storage…") { route = .storage }
                         Button("Compare models…") { openCompare() }
                         Divider()
+                        Button("Search Hugging Face…") { openHubBrowser() }
                         Button("Add from Hugging Face URL…") { route = .pasteURL }
                         Button("Reveal models folder") { storageLocation.revealInFinder() }
                     } label: {
@@ -338,7 +352,7 @@ struct ModelsView: View {
             ToolbarIconButton(icon: "magnifyingglass", label: "Browse Models",
                               iconOnly: iconOnly) {
                 showAllDiscover = true
-                searchFocused = true
+                browseRequests += 1
             }
         }
     }
@@ -559,6 +573,22 @@ struct ModelsView: View {
     private var discoverSection: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x3) {
             ModelSectionHeader("Discover models", count: discoverCountLabel) {
+                Button {
+                    openHubBrowser()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "sparkle.magnifyingglass").font(.system(size: 10, weight: .semibold))
+                        Text("Search Hugging Face").font(Tokens.TypeScale.micro.weight(.semibold))
+                    }
+                    .foregroundStyle(Tokens.Color.accent)
+                    .padding(.horizontal, Tokens.Space.x2)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Tokens.Color.accent.opacity(0.14)))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(Pressable(scale: 0.97))
+                .accessibilityLabel("Search all of Hugging Face")
+
                 Menu {
                     Picker("Sort by", selection: $sort) {
                         ForEach(ModelSortOrder.allCases) { Text($0.label).tag($0) }
@@ -576,6 +606,7 @@ struct ModelsView: View {
             }
 
             searchBar
+            hubHandoff
             filterBar
             activeFilterChips
 
@@ -656,6 +687,44 @@ struct ModelsView: View {
         .background(Tokens.Color.fillQuiet, in: Capsule())
         .overlay(Capsule().strokeBorder(
             searchFocused ? Tokens.Color.accent.opacity(0.5) : Tokens.Color.hairline, lineWidth: 1))
+    }
+
+    /// The bridge out of the page's local search and into the whole Hub. The
+    /// catalogue here is curated and small; the Hub has thousands of models,
+    /// and the user should never have to guess that.
+    @ViewBuilder
+    private var hubHandoff: some View {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        Button { openHubBrowser() } label: {
+            HStack(spacing: Tokens.Space.x2) {
+                Image(systemName: "sparkle.magnifyingglass")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Tokens.Color.accent)
+                Text(trimmed.isEmpty
+                     ? "Browse every speech model on Hugging Face"
+                     : "Search Hugging Face for “\(trimmed)”")
+                    .font(Tokens.TypeScale.caption)
+                    .foregroundStyle(Tokens.Color.textSec)
+                Spacer(minLength: 0)
+                Text("⇧⌘F")
+                    .font(Tokens.TypeScale.micro.monospacedDigit())
+                    .foregroundStyle(Tokens.Color.textTert)
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Tokens.Color.textTert)
+            }
+            .padding(.horizontal, Tokens.Space.x3)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
+                .fill(Tokens.Color.accent.opacity(0.07)))
+            .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
+                .strokeBorder(Tokens.Color.accent.opacity(0.18), lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
+        }
+        .buttonStyle(Pressable(scale: 0.995))
+        .accessibilityLabel(trimmed.isEmpty
+                            ? "Browse Hugging Face"
+                            : "Search Hugging Face for \(trimmed)")
     }
 
     private var filterBar: some View {
@@ -782,11 +851,17 @@ struct ModelsView: View {
                     .background(Capsule().fill(Tokens.Color.accent.opacity(0.12)))
                 }
             }
-            if !filters.isEmpty {
-                Button("Clear filters") { filters.clear() }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.captionSB)
-                    .foregroundStyle(Tokens.Color.accent)
+            HStack(spacing: Tokens.Space.x3) {
+                Button("Search Hugging Face") { openHubBrowser() }
+                .buttonStyle(.plain)
+                .font(Tokens.TypeScale.captionSB)
+                .foregroundStyle(Tokens.Color.accent)
+                if !filters.isEmpty {
+                    Button("Clear filters") { filters.clear() }
+                        .buttonStyle(.plain)
+                        .font(Tokens.TypeScale.captionSB)
+                        .foregroundStyle(Tokens.Color.textSec)
+                }
             }
         }
         .padding(Tokens.Space.x5)
@@ -982,6 +1057,8 @@ struct ModelsView: View {
                 .keyboardShortcut("f", modifiers: .command)
             Button("") { refreshAll() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
+            Button("") { openHubBrowser() }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
         }
         .opacity(0)
         .frame(width: 0, height: 0)
@@ -1108,19 +1185,32 @@ struct ModelsView: View {
         Task {
             defer { isSearching = false }
             do {
-                let hubSort: HFModelSearch.SortOrder = sort == .recentlyUpdated
-                    ? .recentlyUpdated : (sort == .popularity ? .popularity : .recommended)
-                let repos = try await HFModelSearch.discover(query: trimmed, sort: hubSort)
-                remoteResults = repos.map(ModelCatalogService.descriptor(forRepo:))
-                if remoteResults.isEmpty, !ModelCatalogService.builtIn.contains(where: {
-                    matchesQuery($0, trimmed.lowercased())
-                }) {
-                    searchError = nil
+                var hubQuery = HFHubQuery()
+                hubQuery.text = trimmed
+                switch sort {
+                case .recentlyUpdated: hubQuery.sort = .recentlyUpdated
+                case .popularity:      hubQuery.sort = .downloads
+                default:               hubQuery.sort = .trending
                 }
+                // The page's Discover grid stays curated: only builds a shipped
+                // runtime can load. Everything else on the Hub is one click
+                // away in the browser sheet, with the reason attached (§69).
+                let models = try await HFHub.searchInstallable(hubQuery)
+                remoteResults = models
+                    .filter(\.canInstall)
+                    .map(ModelCatalogService.descriptor(forHubModel:))
             } catch {
                 searchError = error.localizedDescription
             }
         }
+    }
+
+    /// The Hub browser is a window, not a sheet: browsing is open-ended, and a
+    /// macOS sheet can't be resized. `AppDelegate` owns the window.
+    private func openHubBrowser() {
+        NotificationCenter.default.post(
+            name: .openHubBrowser,
+            object: query.trimmingCharacters(in: .whitespaces))
     }
 
     private func refreshAll() {

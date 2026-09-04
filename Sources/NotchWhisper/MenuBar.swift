@@ -98,6 +98,10 @@ private struct MenuPanel: View {
     @EnvironmentObject private var settings: Settings
     @ObservedObject private var history = HistoryStore.shared
     @ObservedObject private var theme = Tokens.ThemeManager.shared
+    @ObservedObject private var modes = CustomModeStore.shared
+    @ObservedObject private var connections = LLMConnectionStore.shared
+    @ObservedObject private var profiles = AppProfileStore.shared
+    @ObservedObject private var hotkeys = HotkeyBindingStore.shared
     let close: () -> Void
 
     var body: some View {
@@ -110,7 +114,7 @@ private struct MenuPanel: View {
                     Text(statusText)
                         .font(Tokens.TypeScale.body.weight(.semibold))
                         .foregroundStyle(Tokens.Color.text)
-                    Text("\(ModelRegistry.shared.descriptor(for: settings.modelId).displayName) · \(settings.hotkeyDisplay)")
+                    Text(ModelRegistry.shared.descriptor(for: settings.modelId).displayName)
                         .font(Tokens.TypeScale.micro)
                         .foregroundStyle(Tokens.Color.textTert)
                 }
@@ -139,22 +143,65 @@ private struct MenuPanel: View {
                     .onChange(of: settings.liveDictation) { _, _ in
                         NotificationCenter.default.post(name: .dictationChanged, object: nil)
                     }
+                if profiles.enabledCount > 0 {
+                    Divider().overlay(Tokens.Color.hairline)
+                    toggleRow("app.badge", "Ignore app profile once",
+                              isOn: $profiles.bypassNextDictation)
+                }
                 if settings.llmEnabled {
                     Divider().overlay(Tokens.Color.hairline)
                     HStack(spacing: Tokens.Space.x2) {
-                        Image(systemName: "wand.and.stars").font(.system(size: 12)).foregroundStyle(Tokens.Color.accent).frame(width: 18)
-                        Text("Processing").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
+                        Image(systemName: modes.symbol(for: settings.processingMode))
+                            .font(.system(size: 12)).foregroundStyle(Tokens.Color.accent).frame(width: 18)
+                        Text("Mode").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
                         Spacer()
-                        Picker("", selection: $settings.llmMode) {
-                            ForEach(LLMMode.allCases) { Text($0.displayName).tag($0) }
+                        Menu {
+                            Button(ProcessingMode.offLabel) { settings.processingMode = .off }
+                            if !modes.modes.isEmpty {
+                                Section("Your modes") {
+                                    ForEach(modes.modes) { mode in
+                                        Button(mode.name) { settings.processingMode = .custom(mode.id) }
+                                    }
+                                }
+                            }
+                            Divider()
+                            Button("Manage modes…") {
+                                AppDelegate.shared?.showMainWindow()
+                                NotificationCenter.default.post(name: .openAIPage, object: AITab.modes.rawValue)
+                                close()
+                            }
+                        } label: {
+                            Text(modes.label(for: settings.processingMode)).lineLimit(1)
                         }
-                        .labelsHidden().pickerStyle(.menu).frame(width: 130)
+                        .menuStyle(.borderlessButton).frame(width: 140)
                     }
                     .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 6)
+
+                    if settings.llmNeedsConnection {
+                        Divider().overlay(Tokens.Color.hairline)
+                        Button {
+                            AppDelegate.shared?.showMainWindow()
+                            NotificationCenter.default.post(name: .openAIPage, object: AITab.connections.rawValue)
+                            close()
+                        } label: {
+                            HStack(spacing: Tokens.Space.x2) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 11)).foregroundStyle(Tokens.Color.warn).frame(width: 18)
+                                Text("Add an AI connection to run modes")
+                                    .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textSec)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 6)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
             .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous).strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+
+            shortcutList
 
             UpdateBanner(compact: true)
 
@@ -183,6 +230,11 @@ private struct MenuPanel: View {
             // Footer
             HStack(spacing: Tokens.Space.x4) {
                 footerButton("Open", "macwindow") { AppDelegate.shared?.showMainWindow(); close() }
+                footerButton("Apps", "app.badge") {
+                    AppDelegate.shared?.showMainWindow()
+                    NotificationCenter.default.post(name: .openAppsPage, object: nil)
+                    close()
+                }
                 footerButton("Settings", "gearshape") { AppDelegate.shared?.showSettings(); close() }
                 Spacer()
                 footerButton("Quit", "power") { NSApp.terminate(nil) }
@@ -197,6 +249,49 @@ private struct MenuPanel: View {
         // on the first focusable control (the record button). Every other
         // surface in the app suppresses it too.
         .focusEffectDisabled()
+    }
+
+    /// Every shortcut with its glyph, so "which key does what" is answerable
+    /// without opening Settings. Nothing here fires a recording — a hold-to-talk
+    /// binding has no meaning as a click.
+    @ViewBuilder
+    private var shortcutList: some View {
+        let enabled = hotkeys.bindings.filter { $0.enabled && $0.keyCode != 0 }
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("SHORTCUTS")
+                    .font(Tokens.TypeScale.eyebrow).tracking(1.2)
+                    .foregroundStyle(Tokens.Color.textTert)
+                Spacer()
+                Button("Edit") { AppDelegate.shared?.showSettings(); close() }
+                    .buttonStyle(.plain)
+                    .font(Tokens.TypeScale.micro)
+                    .foregroundStyle(Tokens.Color.accent)
+            }
+            if enabled.isEmpty {
+                Text("No shortcut set — use the button above.")
+                    .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
+            } else {
+                ForEach(enabled.prefix(5)) { binding in
+                    HStack(spacing: Tokens.Space.x2) {
+                        Image(systemName: binding.effectiveActivation.symbolName)
+                            .font(.system(size: 10)).foregroundStyle(Tokens.Color.accent).frame(width: 14)
+                        Text(binding.name.isEmpty ? "Untitled" : binding.name)
+                            .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textSec)
+                            .lineLimit(1)
+                        Spacer(minLength: Tokens.Space.x2)
+                        Text(binding.display)
+                            .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
+                            .lineLimit(1)
+                    }
+                }
+                if enabled.count > 5 {
+                    Text("+\(enabled.count - 5) more")
+                        .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
+                }
+            }
+        }
+        .padding(.horizontal, Tokens.Space.x2)
     }
 
     private func toggleRow(_ icon: String, _ title: String, isOn: Binding<Bool>) -> some View {

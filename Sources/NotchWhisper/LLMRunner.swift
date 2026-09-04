@@ -12,10 +12,12 @@ enum LLMProcessResult: Equatable {
 
 // MARK: - LLM Runner
 
-/// Runs local-server LLM post-processing on a finished transcription.
+/// Runs LLM post-processing on a finished transcription.
 ///
-/// The only backend is an OpenAI-compatible endpoint (Ollama, LM Studio,
-/// Unsloth, or any local / remote server exposing /v1/chat/completions).
+/// Where the text goes is decided by the ACTIVE connection in
+/// `LLMConnectionStore` — any OpenAI-compatible endpoint (Ollama, LM Studio,
+/// llama.cpp, OpenAI, OpenRouter…). What happens to it is decided by the
+/// selected `ProcessingMode`: one of the modes the user owns, or none at all.
 ///
 /// Guarantees:
 ///  · The original transcription is NEVER replaced by an empty/failed result.
@@ -32,30 +34,57 @@ enum LLMProcessResult: Equatable {
 
     // MARK: - Public entry point
 
-    /// Processes `transcript` with the configured mode/server, returning the
-    /// polished text or `.failed`. `.failed` ALWAYS carries the reason the
-    /// caller is expected to surface; the caller keeps the original.
-    func process(_ transcript: String, mode: LLMMode) async -> LLMProcessResult {
-        guard !transcript.isEmpty, mode != .original else {
+    /// Processes `transcript` with the selected mode, using the active LLM
+    /// connection. Returns the polished text or `.failed`; `.failed` ALWAYS
+    /// carries the reason the caller is expected to surface, and the caller
+    /// keeps the original text.
+    /// `connectionID` pins a specific connection — an app profile can send
+    /// work apps to the local endpoint while the global default is hosted.
+    /// A pinned connection that no longer exists FAILS rather than falling back
+    /// to the active one, which could be a different provider entirely.
+    func process(_ transcript: String, mode: ProcessingMode,
+                 connectionID: UUID? = nil) async -> LLMProcessResult {
+        guard !transcript.isEmpty, !mode.isPassthrough else {
             return .processed(transcript)
         }
-        return await processServer(transcript, mode: mode)
+        guard let resolved = CustomModeStore.shared.resolve(mode) else {
+            return .failed("The selected mode no longer exists. Pick a mode on the AI page.")
+        }
+        if let connectionID, LLMConnectionStore.shared.connection(id: connectionID) == nil {
+            return .failed("The AI connection this app profile uses was deleted. Pick another one on the Apps page.")
+        }
+        let pinned = connectionID.flatMap { LLMConnectionStore.shared.connection(id: $0) }
+        guard let connection = pinned ?? LLMConnectionStore.shared.active else {
+            return .failed("No AI connection is active. Add one on the AI page to use processing modes.")
+        }
+        guard connection.isUsable else {
+            return .failed("The \"\(connection.name)\" connection is incomplete — set its address and model name on the AI page.")
+        }
+        return await run(transcript, resolved: resolved, connection: connection, reportStatus: true)
+    }
+
+    /// One-shot run used by the mode editor's preview. Same pipeline, but it
+    /// never touches the app's status line.
+    func preview(_ transcript: String, mode: CustomMode, connection: LLMConnection) async -> LLMProcessResult {
+        let resolved = ResolvedMode(
+            displayName: mode.name,
+            symbolName: mode.symbolName,
+            temperature: mode.creativity.temperature,
+            reducesAcrossChunks: mode.singleDocument,
+            systemPrompt: LLMPrompts.systemPrompt(forCustom: mode),
+            reduceSystemPrompt: LLMPrompts.reduceSystemPrompt(forCustom: mode)
+        )
+        return await run(transcript, resolved: resolved, connection: connection, reportStatus: false)
     }
 
     // MARK: - Server path
 
-    private func processServer(_ transcript: String, mode: LLMMode) async -> LLMProcessResult {
-        let endpoint = settings.llmServerEndpoint
-        let apiKey = Keychain.get(account: ServerKeychainAccount.llmAPIKey)
-        guard LLMServerClient.chatURL(from: endpoint) != nil, !endpoint.isEmpty else {
-            return .failed("The LLM server hasn't been configured. In Settings → Local LLM, enter the server address and model name.")
-        }
-        let model = settings.llmServerModel
-        guard !model.isEmpty else {
-            return .failed("No model name is set for the server. In Settings → Local LLM, set the model name served by \"\(endpoint)\".")
-        }
+    private func run(_ transcript: String, resolved: ResolvedMode,
+                     connection: LLMConnection, reportStatus: Bool) async -> LLMProcessResult {
+        let endpoint = connection.endpoint
+        let model = connection.model
+        let apiKey = connection.apiKey
 
-        let system = LLMPrompts.systemPrompt(for: mode, custom: settings.customPrompt)
         // Conservative chunk size: Ollama defaults `num_ctx` to 4096 tokens, so
         // a chunk + system prompt + the model's own reply must fit well under
         // that. ~6000 chars ≈ 1800 tokens leaves room for the response.
@@ -63,15 +92,15 @@ enum LLMProcessResult: Equatable {
         var outputs: [String] = []
         let total = chunks.count
         for (index, chunk) in chunks.enumerated() {
-            updateStatus("Improving…", part: index + 1, total: total)
+            if reportStatus { updateStatus("Improving…", part: index + 1, total: total) }
             let messages = [
-                LLMServerClient.ChatMessage(role: "system", content: system),
+                LLMServerClient.ChatMessage(role: "system", content: resolved.systemPrompt),
                 LLMServerClient.ChatMessage(role: "user", content: LLMPrompts.userMessage(for: chunk)),
             ]
             do {
                 let completion = try await LLMServerClient.chat(
                     endpoint: endpoint, model: model, messages: messages, apiKey: apiKey,
-                    temperature: mode.temperature,
+                    temperature: resolved.temperature,
                     maxTokens: maxTokens(forInputChars: chunk.count)
                 )
                 let text = completion.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -79,15 +108,15 @@ enum LLMProcessResult: Equatable {
                     outputs.append(text)
                 }
             } catch {
-                state.statusMessage = ""
+                if reportStatus { state.statusMessage = "" }
                 if Task.isCancelled {
                     return .failed("Processing was cancelled.")
                 }
                 fputs("NotchWhisper: LLM server error: \(error)\n", stderr)
-                return .failed(friendlyMessage(from: error, endpoint: endpoint))
+                return .failed(friendlyMessage(from: error, connection: connection))
             }
         }
-        state.statusMessage = ""
+        if reportStatus { state.statusMessage = "" }
         // Never replace dictated text with an empty result.
         if outputs.isEmpty {
             return .failed("The server returned an empty response. The original transcription was kept.")
@@ -95,31 +124,29 @@ enum LLMProcessResult: Equatable {
         if outputs.count == 1 {
             return .processed(outputs[0])
         }
-        // Multi-chunk: summarize / actions / structured must be RE-REDUCED into
-        // one document, not concatenated (otherwise a long memo yields N
-        // disjoint summaries). Prose modes concatenate in order.
-        if mode.reducesAcrossChunks {
-            state.statusMessage = "Combining \(total) parts…"
+        // Multi-chunk: modes whose result is ONE document must be re-reduced,
+        // not concatenated (otherwise a long memo yields N disjoint summaries).
+        // Prose modes concatenate in order.
+        if resolved.reducesAcrossChunks {
+            if reportStatus { state.statusMessage = "Combining \(total) parts…" }
             let messages = [
-                LLMServerClient.ChatMessage(
-                    role: "system",
-                    content: LLMPrompts.reduceSystemPrompt(for: mode, custom: settings.customPrompt)),
+                LLMServerClient.ChatMessage(role: "system", content: resolved.reduceSystemPrompt),
                 LLMServerClient.ChatMessage(
                     role: "user", content: LLMPrompts.reduceUserMessage(for: outputs)),
             ]
             if let completion = try? await LLMServerClient.chat(
                 endpoint: endpoint, model: model, messages: messages, apiKey: apiKey,
-                temperature: mode.temperature,
+                temperature: resolved.temperature,
                 maxTokens: maxTokens(forInputChars: outputs.joined().count)
             ), !completion.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                state.statusMessage = ""
+                if reportStatus { state.statusMessage = "" }
                 return .processed(completion.text.trimmingCharacters(in: .whitespacesAndNewlines))
             }
             // Reduce pass failed — fall back to the ordered join rather than
             // losing everything.
         }
-        state.statusMessage = ""
-        return .processed(stitchedOutput(outputs, mode: mode))
+        if reportStatus { state.statusMessage = "" }
+        return .processed(outputs.joined(separator: "\n\n"))
     }
 
     /// Output token budget: roughly the input size (these tasks never need to
@@ -140,26 +167,13 @@ enum LLMProcessResult: Equatable {
         }
     }
 
-    /// Joins per-chunk outputs into the final result.
-    private func stitchedOutput(_ outputs: [String], mode: LLMMode) -> String {
-        _ = mode
-        return outputs.joined(separator: "\n\n")
-    }
-
-    private func friendlyMessage(from error: Error, endpoint: String) -> String {
+    private func friendlyMessage(from error: Error, connection: LLMConnection) -> String {
         if let llmErr = error as? LLMServerError, let desc = llmErr.errorDescription {
             return desc
         }
-        return "Processing failed — check that your server at \"\(endpoint)\" is running and supports OpenAI-compatible chat completions."
+        return "Processing failed — check that \"\(connection.name)\" is running at \(connection.endpoint) and supports OpenAI-compatible chat completions."
     }
 }
-
-// MARK: - Server keychain constant
-
-enum ServerKeychainAccount {
-    static let llmAPIKey = "llm_server_api_key"
-}
-
 
 // MARK: - Chunking
 

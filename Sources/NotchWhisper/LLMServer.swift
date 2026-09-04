@@ -189,6 +189,48 @@ enum LLMServerClient {
         )
     }
 
+    // MARK: Model listing
+
+    /// Asks the server what it can serve (`GET /v1/models`), so the connection
+    /// editor can offer a list instead of asking the user to type a model name
+    /// exactly right. Servers that don't implement it simply throw and the
+    /// editor keeps its free-text field.
+    static func listModels(endpoint: String, apiKey: String?) async throws -> [String] {
+        guard let chat = chatURL(from: endpoint) else {
+            throw LLMServerError.badEndpoint("the URL didn't parse: \"\(endpoint)\"")
+        }
+        // …/v1/chat/completions → …/v1/models
+        let url = chat
+            .deletingLastPathComponent()      // /v1/chat
+            .deletingLastPathComponent()      // /v1
+            .appendingPathComponent("models")
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        if let apiKey, !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+        let data: Data
+        let resp: URLResponse
+        do {
+            (data, resp) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw LLMServerError.unreachable
+        }
+        guard let http = resp as? HTTPURLResponse else { throw LLMServerError.unreachable }
+        switch http.statusCode {
+        case 200: break
+        case 401, 403: throw LLMServerError.authFailed
+        default: throw LLMServerError.serverError("HTTP \(http.statusCode)")
+        }
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = obj["data"] as? [[String: Any]]
+        else {
+            throw LLMServerError.serverError("the model list wasn't in the expected format")
+        }
+        let names = items.compactMap { $0["id"] as? String }
+        return names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
     // MARK: Connection test
 
     /// Ultra-light connectivity check: GET on the server base. Some servers

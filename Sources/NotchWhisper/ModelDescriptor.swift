@@ -778,40 +778,87 @@ enum ModelCatalogService {
     // MARK: Discovered repositories
 
     /// Stage-1 descriptor for a repository found on the Hub (§77): enough to
-    /// render a card. Resources stay unknown until the model is opened and its
-    /// file list is fetched — an unknown size shows as "—", never as a guess.
-    static func descriptor(forRepo repo: HFModelSearch.Repo) -> ModelDescriptor {
-        let org = repo.repoId.split(separator: "/").first.map(String.init) ?? repo.repoId
-        let name = repo.repoId.split(separator: "/").last.map(String.init) ?? repo.repoId
-        let knownOrgs: Set<String> = ["openai", "argmaxinc", "distil-whisper", "Qwen", "ggml-org",
-                                      "facebook", "nvidia", "microsoft", "mistralai"]
+    /// render a card without fetching the file list. Anything the Hub did not
+    /// publish stays unknown and renders as "—" — never as a guess (§13).
+    static func descriptor(forHubModel hub: HFHubModel) -> ModelDescriptor {
+        let org = hub.author
+        // Recognized upstream publishers. "Official" describes who published
+        // it, never whether this app has tested it (§ trust).
+        let knownOrgs: Set<String> = ["openai", "argmaxinc", "distil-whisper", "qwen", "ggml-org",
+                                      "facebook", "nvidia", "microsoft", "mistralai", "google",
+                                      "systran", "pyannote", "fluidinference"]
+        let format = hub.installability.format
+        let engine: ModelEngine = format == .gguf ? .llamaCPP : .whisperKit
+        let diskBytes = hub.ggufBytes ?? 0
+
         return ModelDescriptor(
-            id: repo.repoId,
-            displayName: name,
+            id: hub.repoId,
+            displayName: hub.displayName,
             provider: org,
             providerHandle: org,
-            repositoryId: repo.repoId,
-            repositoryURL: URL(string: "https://huggingface.co/\(repo.repoId)")!,
+            repositoryId: hub.repoId,
+            repositoryURL: hub.repositoryURL,
             revision: nil,
             folderName: nil,
-            engine: repo.isCoreML ? .whisperKit : .llamaCPP,
-            format: repo.isCoreML ? .coreML : .gguf,
-            trust: knownOrgs.contains(org) ? .official : .community,
-            license: repo.license,
+            engine: engine,
+            format: format,
+            trust: knownOrgs.contains(org.lowercased()) ? .official : .community,
+            license: hub.license,
             packagerNote: nil,
             capabilities: ModelCapabilities(
-                languages: [], languageSource: nil, speechToText: true,
-                translation: false, timestamps: repo.isCoreML, wordTimestamps: repo.isCoreML,
-                streaming: repo.isCoreML, diarization: false
+                languages: hub.languages,
+                languageSource: hub.languages.isEmpty ? nil : "Hugging Face model card",
+                speechToText: true,
+                translation: hub.tags.contains { $0.lowercased().contains("translation") },
+                timestamps: engine == .whisperKit,
+                wordTimestamps: engine == .whisperKit,
+                streaming: engine == .whisperKit,
+                diarization: hub.tags.contains { $0.lowercased().contains("diariz") }
             ),
-            resources: ModelResources(parameterCount: nil, diskBytes: 0,
-                                      memoryBytes: 0, quantization: nil),
-            accuracy: .unknown,
-            speed: .unknown,
-            blurb: "Speech recognition model published on Hugging Face by \(org).",
+            resources: ModelResources(
+                parameterCount: hub.parameterLabel,
+                diskBytes: diskBytes,
+                memoryBytes: diskBytes > 0
+                    ? ModelImporter.estimateMemory(diskBytes: diskBytes, engine: engine) : 0,
+                quantization: HFRepoMetadata.quantizationHint(hub.name)
+            ),
+            accuracy: Self.accuracyMetric(from: hub),
+            speed: Self.speedMetric(from: hub),
+            blurb: Self.blurb(for: hub),
             recommendation: "",
             isBuiltIn: false
         )
+    }
+
+    /// The publisher's own WER, mapped onto the app's rating scale with
+    /// `published` provenance so the UI can never present it as measured.
+    private static func accuracyMetric(from hub: HFHubModel) -> RatedMetric {
+        guard let wer = hub.headlineWER else { return .unknown }
+        // 2% WER is about as good as speech models get; 30% is unusable.
+        let fraction = max(0, min(1, 1 - (wer.value - 2) / 28))
+        return RatedMetric(display: String(format: "~%.1f%% WER", wer.value),
+                           fraction: fraction, provenance: .published)
+    }
+
+    /// The publisher's real-time factor, if they published one.
+    private static func speedMetric(from hub: HFHubModel) -> RatedMetric {
+        guard let rtfx = hub.headlineSpeed else { return .unknown }
+        // 10× real time is respectable, 250× is the fastest published today.
+        let fraction = max(0, min(1, log10(max(1, rtfx.value)) / log10(250)))
+        return RatedMetric(display: String(format: "~%.0f× real time", rtfx.value),
+                           fraction: fraction, provenance: .published)
+    }
+
+    private static func blurb(for hub: HFHubModel) -> String {
+        var parts: [String] = []
+        if let params = hub.parameterLabel { parts.append("\(params)-parameter") }
+        parts.append(hub.installability.format.displayName)
+        parts.append("speech model")
+        var text = parts.joined(separator: " ") + " published by \(hub.author)"
+        if let base = hub.baseModels.first, let relation = hub.baseModelRelation {
+            text += ", a \(relation) of \(base)"
+        }
+        return text + "."
     }
 
     /// Descriptor for one installable build inside a repository.

@@ -9,14 +9,11 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: Settings
     @ObservedObject private var theme = Tokens.ThemeManager.shared
 
-    @StateObject private var recorder = HotkeyRecorder()
     @ObservedObject private var updates = UpdateChecker.shared
 
-    @State private var showingAPIKey = false
-    @State private var apiKeyInput = ""
-    @State private var isTestingConnection = false
-    @State private var connectionTestResult: String?
-    @State private var showAllModes = false
+    @ObservedObject private var connections = LLMConnectionStore.shared
+    @ObservedObject private var customModes = CustomModeStore.shared
+
 
     var body: some View {
         let _ = theme.theme
@@ -26,7 +23,7 @@ struct SettingsView: View {
 
                 dictationGroup
                 appearanceGroup
-                hotkeyGroup
+                ShortcutsSection()
                 modelGroup
                 llmGroup
                 updatesGroup
@@ -40,14 +37,6 @@ struct SettingsView: View {
         .environment(\.colorScheme, .dark)
         .tint(Tokens.Color.accent)
         .focusEffectDisabled()
-        .onAppear {
-            recorder.onCommit = { code, mods in
-                settings.hotkeyCode = code
-                settings.hotkeyModifiers = mods
-                NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
-            }
-        }
-        .onDisappear { recorder.cancel() }
     }
 
     // MARK: General / dictation
@@ -57,7 +46,7 @@ struct SettingsView: View {
             SettingRow(icon: "dot.radiowaves.left.and.right", title: "Live dictation",
                        subtitle: LlamaModelOption.isLlamaId(settings.modelId)
                             ? "Not available with Qwen3-ASR — that model uses hold-to-talk. Switch to a Whisper model for live dictation."
-                            : "Type into the focused field as you speak. The hotkey becomes press-to-start / press-to-stop.") {
+                            : "Type into the focused field as you speak. The Record button, the menu bar and every shortcut become press-to-start / press-to-stop — unless a shortcut pins its own behaviour below.") {
                 Toggle("", isOn: $settings.liveDictation)
                     .labelsHidden().toggleStyle(.switch)
                     .disabled(LlamaModelOption.isLlamaId(settings.modelId))
@@ -68,6 +57,10 @@ struct SettingsView: View {
             SettingRow(icon: "return", title: "New line after each dictation",
                        subtitle: "Press Return once the transcript is inserted.") {
                 Toggle("", isOn: $settings.insertNewline).labelsHidden().toggleStyle(.switch)
+            }
+            SettingRow(icon: "terminal", title: "Paste into terminal programs",
+                       subtitle: "Claude Code, Codex, vim and friends read a typed newline as Return, which submits the line. Pasting keeps a multi-line dictation in one piece. A bare shell prompt is still typed, so your clipboard is left alone.") {
+                Toggle("", isOn: $settings.pasteIntoTerminalTools).labelsHidden().toggleStyle(.switch)
             }
             SettingRow(icon: "power", title: "Launch at login",
                        subtitle: "Start quietly in the menu bar when you log in.") {
@@ -134,51 +127,10 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: Hotkey
-
-    private var hotkeyGroup: some View {
-        SettingsGroup(title: "Hotkey",
-                      footnote: settings.liveDictation
-                        ? "Press this shortcut anywhere to start live dictation; press again to stop."
-                        : "Hold this shortcut anywhere to record; release to transcribe and type.") {
-            HStack(spacing: Tokens.Space.x3) {
-                IconTile("keyboard", tint: Tokens.Color.accent)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Trigger").font(Tokens.TypeScale.body.weight(.medium)).foregroundStyle(Tokens.Color.text)
-                    Text(recorder.isRecording
-                         ? "Press a key or hold a modifier combination — Esc cancels"
-                         : "Click the key cap, then press the key or combination you want")
-                        .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: Tokens.Space.x3)
-                Button { recorder.toggle() } label: {
-                    Text(recorder.capLabel(current: settings.hotkeyDisplay))
-                        .font(Tokens.TypeScale.title2)
-                        .lineLimit(1)
-                        .foregroundStyle(recorder.isRecording ? Tokens.Color.record : Tokens.Color.text)
-                        .padding(.horizontal, Tokens.Space.x3)
-                        .frame(minWidth: 110, minHeight: 40)
-                        .background(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-                            .fill(recorder.isRecording ? Tokens.Color.record.opacity(0.14) : Tokens.Color.fillQuiet))
-                        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-                            .strokeBorder(recorder.isRecording ? Tokens.Color.record.opacity(0.5) : Tokens.Color.hairline, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .help(recorder.isRecording ? "Recording — press Esc to cancel" : "Click to record a new shortcut")
-                Button {
-                    recorder.cancel()
-                    settings.hotkeyCode = 61; settings.hotkeyModifiers = 0
-                    NotificationCenter.default.post(name: .hotkeyChanged, object: nil)
-                } label: { Image(systemName: "arrow.counterclockwise") }
-                .buttonStyle(.plain)
-                .foregroundStyle(Tokens.Color.textSec)
-                .help("Reset to Right ⌥")
-            }
-            .padding(.horizontal, Tokens.Space.x4)
-            .padding(.vertical, Tokens.Space.x3)
-        }
-    }
+    // MARK: Shortcuts
+    //
+    // One shortcut per intent — dictate, clean up, start a live session — each
+    // with its own overrides. The list and its editor live in ShortcutsView.
 
     // MARK: Model
     //
@@ -332,173 +284,126 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: Local LLM
+    // MARK: AI processing
+    //
+    // Settings owns the *behaviour* switch and which mode runs. Connections and
+    // the modes themselves live on the AI page, so neither surface duplicates
+    // the other.
 
     @ViewBuilder
     private var llmGroup: some View {
         SettingsGroup(title: "Text processing",
                       footnote: settings.llmEnabled ? nil
-                        : "Optionally clean up, format, rewrite or summarize transcripts with a local model (Ollama, LM Studio, Unsloth…). Text never leaves your Mac.") {
-            SettingRow(icon: "wand.and.stars", title: "Process with a local AI model",
+                        : "Optionally clean up, format, rewrite or summarize transcripts with an AI model — or with a mode you write yourself. Set up a connection on the AI page.") {
+            SettingRow(icon: "wand.and.stars", title: "Process with AI",
                        subtitle: "Runs after transcription, before the text is inserted.") {
                 Toggle("", isOn: $settings.llmEnabled).labelsHidden().toggleStyle(.switch)
             }
 
             if settings.llmEnabled {
-                VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-                    labeledField("Model name", text: $settings.llmServerModel, placeholder: "llama3")
-                    labeledField("Endpoint", text: $settings.llmServerEndpoint, placeholder: "http://localhost:11434/v1")
-                    apiKeyRow
-                    HStack(spacing: Tokens.Space.x3) {
-                        Button { Task { await llmTestConnection() } } label: {
-                            HStack(spacing: 6) {
-                                if isTestingConnection { ProgressView().controlSize(.small) }
-                                Text(isTestingConnection ? "Testing…" : "Test connection")
-                            }
-                        }
-                        .secondaryAction()
-                        .disabled(settings.llmServerEndpoint.isEmpty || isTestingConnection)
-                        if let r = connectionTestResult {
-                            Label(r, systemImage: r.contains("Connected") ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                .font(Tokens.TypeScale.caption)
-                                .foregroundStyle(r.contains("Connected") ? Tokens.Color.success : Tokens.Color.danger)
-                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                connectionRow
+                modeRow
+                modeDetailRow
+            }
+        }
+    }
+
+    /// Which connection the transcript is sent to — or a prompt to make one.
+    @ViewBuilder
+    private var connectionRow: some View {
+        if let connection = connections.active, connection.isUsable {
+            SettingRow(icon: connection.provider.symbolName,
+                       tint: connection.isLocal ? Tokens.Color.success : Tokens.Color.warn,
+                       title: connection.name,
+                       subtitle: "\(connection.subtitle) · \(connection.isLocal ? "stays on this Mac" : "leaves this Mac")") {
+                Button("Manage") { openAI(.connections) }
+                    .secondaryAction()
+            }
+        } else {
+            SettingRow(icon: "exclamationmark.triangle.fill", tint: Tokens.Color.warn,
+                       title: connections.connections.isEmpty ? "No AI connection yet" : "Connection incomplete",
+                       subtitle: connections.connections.isEmpty
+                        ? "Processing needs a model to talk to — Ollama or LM Studio on this Mac, or a hosted service. Until then transcripts are inserted unchanged."
+                        : "The active connection is missing an address or a model name, so processing can't run.") {
+                Button(connections.connections.isEmpty ? "Add connection" : "Fix it") { openAI(.connections) }
+                    .primaryAction()
+            }
+        }
+    }
+
+    /// The mode picker: the user's modes, plus "no processing".
+    private var modeRow: some View {
+        SettingRow(icon: customModes.symbol(for: settings.processingMode),
+                   title: "Mode",
+                   subtitle: customModes.blurb(for: settings.processingMode)) {
+            Menu {
+                Button(ProcessingMode.offLabel) { settings.processingMode = .off }
+                if !customModes.modes.isEmpty {
+                    Section("Your modes") {
+                        ForEach(customModes.modes) { mode in
+                            Button(mode.name) { settings.processingMode = .custom(mode.id) }
                         }
                     }
                 }
-                .padding(.horizontal, Tokens.Space.x4)
-                .padding(.vertical, Tokens.Space.x3)
-
-                modePickerRow
+                Divider()
+                Button("New mode…") { openAI(.modes) }
+                Button("Manage modes…") { openAI(.modes) }
+            } label: {
+                Text(customModes.label(for: settings.processingMode))
+                    .lineLimit(1)
             }
+            .menuStyle(.borderlessButton)
+            .frame(maxWidth: 200)
         }
     }
 
-    private func labeledField(_ label: String, text: Binding<String>, placeholder: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
-            TextField(placeholder, text: text)
-                .textFieldStyle(.plain)
-                .font(Tokens.TypeScale.body)
-                .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 8)
-                .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous).strokeBorder(Tokens.Color.hairline, lineWidth: 1))
-        }
-    }
-
-    private var apiKeyRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("API key").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
-                Spacer()
-                Button(showingAPIKey ? "Done" : "Change") {
-                    showingAPIKey.toggle()
-                    if showingAPIKey { apiKeyInput = Keychain.get(account: ServerKeychainAccount.llmAPIKey) ?? "" }
-                }
-                .buttonStyle(.plain).font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.accent)
-            }
-            if showingAPIKey {
-                HStack {
-                    SecureField("Leave empty if not required", text: $apiKeyInput)
-                        .textFieldStyle(.plain)
-                        .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 8)
-                        .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
-                    Button("Save") {
-                        Keychain.set(apiKeyInput.isEmpty ? nil : apiKeyInput, for: ServerKeychainAccount.llmAPIKey)
-                        showingAPIKey = false
-                    }
-                    .buttonStyle(.plain).foregroundStyle(Tokens.Color.accent)
-                }
-            }
-        }
-    }
-
-    private var modePickerRow: some View {
+    /// What the selected mode will do, in its own words.
+    private var modeDetailRow: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            Text("Processing mode").font(Tokens.TypeScale.body.weight(.medium)).foregroundStyle(Tokens.Color.text)
-            Picker("", selection: $settings.llmMode) {
-                ForEach(LLMMode.allCases) { Text($0.displayName).tag($0) }
-            }
-            .labelsHidden().pickerStyle(.menu)
-
             VStack(alignment: .leading, spacing: Tokens.Space.x2) {
                 HStack(spacing: Tokens.Space.x2) {
-                    Image(systemName: settings.llmMode.symbolName).font(.system(size: 12)).foregroundStyle(Tokens.Color.accent)
-                    Text(settings.llmMode.displayName).font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.text)
+                    Image(systemName: customModes.symbol(for: settings.processingMode))
+                        .font(.system(size: 12)).foregroundStyle(Tokens.Color.accent)
+                    Text(customModes.label(for: settings.processingMode))
+                        .font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.text)
                 }
-                Text(settings.llmMode.explanation)
+                Text(modeExplanation)
                     .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
                     .fixedSize(horizontal: false, vertical: true)
-                if let ex = settings.llmMode.example {
-                    VStack(alignment: .leading, spacing: 3) {
-                        exampleLine("mic", Tokens.Color.textTert, ex.before)
-                        exampleLine("arrow.turn.down.right", Tokens.Color.accent, ex.after)
-                    }
-                    .padding(Tokens.Space.x2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Tokens.Color.fillQuieter, in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
-                }
             }
             .padding(Tokens.Space.x3)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
 
-            Button(showAllModes ? "Hide mode reference" : "How the modes work") {
-                withAnimation(Tokens.Motion.ease) { showAllModes.toggle() }
-            }
-            .buttonStyle(.plain).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.accent)
-
-            if showAllModes {
-                VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-                    ForEach(LLMMode.allCases) { m in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Label(m.displayName, systemImage: m.symbolName)
-                                .font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.text)
-                            Text(m.explanation).font(Tokens.TypeScale.caption)
-                                .foregroundStyle(Tokens.Color.textTert)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
-            }
-
-            if settings.llmMode == .custom {
-                Text("Custom instruction").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
-                TextEditor(text: $settings.customPrompt)
-                    .font(.system(.body).monospaced())
-                    .frame(height: 110)
-                    .scrollContentBackground(.hidden)
-                    .padding(Tokens.Space.x2)
-                    .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous).strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+            HStack(spacing: Tokens.Space.x4) {
+                Button("Write your own mode") { openAI(.modes) }
+                    .buttonStyle(.plain).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.accent)
+                Button("Manage modes") { openAI(.modes) }
+                    .buttonStyle(.plain).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.accent)
+                Spacer(minLength: 0)
             }
         }
         .padding(.horizontal, Tokens.Space.x4)
         .padding(.vertical, Tokens.Space.x3)
     }
 
-    private func exampleLine(_ icon: String, _ tint: SwiftUI.Color, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: Tokens.Space.x2) {
-            Image(systemName: icon).font(.system(size: 9)).foregroundStyle(tint).padding(.top, 2)
-            Text(text).font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(Tokens.Color.textSec).fixedSize(horizontal: false, vertical: true)
+    /// The mode's own instructions — they are the explanation.
+    private var modeExplanation: String {
+        switch settings.processingMode {
+        case .off:
+            return ProcessingMode.offBlurb
+        case .custom(let id):
+            guard let mode = customModes.mode(id: id) else {
+                return "This mode was deleted. Pick another one from the menu above."
+            }
+            return mode.instructions
         }
     }
 
-    // MARK: Logic (unchanged)
-
-    private func llmTestConnection() async {
-        isTestingConnection = true
-        connectionTestResult = nil
-        let endpoint = settings.llmServerEndpoint
-        let apiKey = Keychain.get(account: ServerKeychainAccount.llmAPIKey)
-        do {
-            try await LLMServerClient.testConnection(endpoint: endpoint, apiKey: apiKey)
-            connectionTestResult = "Connected successfully"
-        } catch {
-            connectionTestResult = "Unable to connect. Check that your local LLM app is running and the address is correct."
-        }
-        isTestingConnection = false
+    /// Bring the main window forward on the AI page.
+    private func openAI(_ tab: AITab) {
+        AppDelegate.shared?.showMainWindow()
+        NotificationCenter.default.post(name: .openAIPage, object: tab.rawValue)
     }
 
 }

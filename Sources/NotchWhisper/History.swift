@@ -11,8 +11,22 @@ struct TranscriptRecord: Identifiable, Codable, Hashable {
     var finalText: String        // after the correction pass
     var corrections: [CorrectionChange]
     var source: Source           // how it was captured
-    /// Which LLM mode processed this transcript (nil = no LLM post-processing).
-    var llmMode: LLMMode? = nil
+    /// Legacy field: the raw value of the built-in mode that processed this
+    /// transcript, in archives written before every mode became the user's.
+    /// New records carry `llmModeName` instead.
+    var llmMode: String? = nil
+    /// Display name of the mode that ran, built-in or custom. Recorded as text
+    /// so a record still reads correctly after the mode is renamed or deleted.
+    /// Optional: older archives simply don't carry it.
+    var llmModeName: String? = nil
+    var llmModeSymbol: String? = nil
+    /// Name of the app profile that shaped this dictation (nil = global
+    /// settings). Recorded as text so a record still reads correctly after the
+    /// profile is renamed or deleted.
+    var profileName: String? = nil
+    /// Bundle id of the app the text was actually typed into, when it differed
+    /// from the app the dictation started in. nil = it went where it was aimed.
+    var insertedIntoBundleID: String? = nil
 
     /// How the audio was captured. `file` = imported from disk on the Upload
     /// page (older records only ever carry `hotkey`/`button`, so decoding
@@ -20,7 +34,24 @@ struct TranscriptRecord: Identifiable, Codable, Hashable {
     enum Source: String, Codable { case hotkey, button, file }
 
     var corrected: Bool { !corrections.isEmpty }
-    var processed: Bool { llmMode != nil && llmMode != .original }
+    var processed: Bool { modeLabel != nil }
+
+    /// The mode chip's text, or nil when nothing processed this transcript.
+    var modeLabel: String? {
+        if let llmModeName, !llmModeName.isEmpty { return llmModeName }
+        return legacySeed?.name
+    }
+
+    var modeSymbol: String {
+        llmModeSymbol ?? legacySeed?.symbolName ?? "wand.and.stars"
+    }
+
+    /// The mode a pre-modes record names, looked up among the seeds that
+    /// replaced the built-ins, so old history still reads correctly.
+    private var legacySeed: CustomMode? {
+        guard let llmMode, let id = CustomMode.legacySeedID(forRaw: llmMode) else { return nil }
+        return CustomMode.seed(id: id)
+    }
 }
 
 @MainActor final class HistoryStore: ObservableObject {
@@ -37,11 +68,22 @@ struct TranscriptRecord: Identifiable, Codable, Hashable {
 
     private init() { load() }
 
-    func add(raw: String, final: String, corrections: [CorrectionChange], source: TranscriptRecord.Source, llmMode: LLMMode? = nil) {
+    func add(raw: String, final: String, corrections: [CorrectionChange],
+             source: TranscriptRecord.Source, mode: ProcessingMode? = nil,
+             profileName: String? = nil, insertedIntoBundleID: String? = nil) {
+        var name: String? = nil
+        var symbol: String? = nil
+        // `.off` means nothing processed the transcript — no chip to record.
+        if let mode, !mode.isPassthrough {
+            name = CustomModeStore.shared.label(for: mode)
+            symbol = CustomModeStore.shared.symbol(for: mode)
+        }
         let rec = TranscriptRecord(
             id: UUID(), createdAt: Date(),
             rawText: raw, finalText: final,
-            corrections: corrections, source: source, llmMode: llmMode
+            corrections: corrections, source: source,
+            llmModeName: name, llmModeSymbol: symbol,
+            profileName: profileName, insertedIntoBundleID: insertedIntoBundleID
         )
         records.insert(rec, at: 0)
         if records.count > 500 { records = Array(records.prefix(500)) }
