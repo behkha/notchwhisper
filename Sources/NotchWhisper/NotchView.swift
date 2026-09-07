@@ -1,29 +1,72 @@
 import SwiftUI
 
-/// The notch silhouette: flat top (flush with the screen's top edge) and
-/// continuous rounded bottom corners — the same geometry Apple uses for the
-/// hardware notch and the Dynamic Island. When it morphs larger, it reads as
-/// the notch itself expanding downward.
+/// The notch silhouette: rounded bottom corners, and top corners that flare
+/// OUTWARD into the screen's top edge — the geometry of the hardware cutout
+/// itself.
+///
+/// The top corners are the subtle part. The physical notch is a hole in the
+/// panel, and its side walls fillet outward where they meet the top edge, so
+/// the black widens slightly in the last few points before the bezel. A convex
+/// top radius would do the opposite: it would leave two wallpaper wedges at the
+/// top and the island would read as a card floating under the menu bar rather
+/// than as the notch itself. So `topRadius` is drawn inverted.
+///
+/// The body of the shape therefore spans `[minX + topRadius, maxX - topRadius]`
+/// and only reaches the full rect width at the very top edge — callers size the
+/// frame as body width + 2 × topRadius (see `NotchView.island`).
+///
+/// `topRadius` is 0 in the compact phase on purpose: there the island sits
+/// inside the real cutout, which already has its own fillet, so drawing another
+/// one would paint black wings onto the display pixels beside the notch and
+/// make it look wider than it is.
 struct IslandShape: InsettableShape {
+    /// Bottom corner radius — the notch's rounded lower corners.
     var radius: CGFloat = 22
+    /// Top corner radius, drawn inverted (the silhouette flares outward).
+    var topRadius: CGFloat = 0
     var inset: CGFloat = 0
 
-    var animatableData: CGFloat {
-        get { radius }
-        set { radius = newValue }
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(radius, topRadius) }
+        set { radius = newValue.first; topRadius = newValue.second }
     }
 
     func path(in rect: CGRect) -> Path {
         let r = rect.insetBy(dx: inset, dy: inset)
-        return UnevenRoundedRectangle(
-            cornerRadii: .init(
-                topLeading: 0,
-                bottomLeading: radius,
-                bottomTrailing: radius,
-                topTrailing: 0
-            ),
-            style: .continuous
-        ).path(in: r)
+        guard r.width > 0, r.height > 0 else { return Path() }
+        let top = max(0, min(topRadius, r.width / 2))
+        let bottom = max(0, min(radius, (r.width - top * 2) / 2, r.height - top))
+
+        guard top > 0 else {
+            return UnevenRoundedRectangle(
+                cornerRadii: .init(
+                    topLeading: 0,
+                    bottomLeading: bottom,
+                    bottomTrailing: bottom,
+                    topTrailing: 0
+                ),
+                style: .continuous
+            ).path(in: r)
+        }
+
+        var p = Path()
+        // Top-left, flaring out to the full width at the top edge.
+        p.move(to: CGPoint(x: r.minX, y: r.minY))
+        p.addQuadCurve(to: CGPoint(x: r.minX + top, y: r.minY + top),
+                       control: CGPoint(x: r.minX + top, y: r.minY))
+        // Left wall down into the bottom-left corner.
+        p.addLine(to: CGPoint(x: r.minX + top, y: r.maxY - bottom))
+        p.addQuadCurve(to: CGPoint(x: r.minX + top + bottom, y: r.maxY),
+                       control: CGPoint(x: r.minX + top, y: r.maxY))
+        // Bottom edge and the mirrored right-hand side.
+        p.addLine(to: CGPoint(x: r.maxX - top - bottom, y: r.maxY))
+        p.addQuadCurve(to: CGPoint(x: r.maxX - top, y: r.maxY - bottom),
+                       control: CGPoint(x: r.maxX - top, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.maxX - top, y: r.minY + top))
+        p.addQuadCurve(to: CGPoint(x: r.maxX, y: r.minY),
+                       control: CGPoint(x: r.maxX - top, y: r.minY))
+        p.closeSubpath()
+        return p
     }
 
     func inset(by amount: CGFloat) -> IslandShape {
@@ -112,10 +155,13 @@ struct NotchView: View {
                           height: controller.notchInfo.bandHeight + 78)
         case .result:
             // Errors carry a real message and need room to breathe; "Done" is
-            // a single word and stays compact.
+            // a single word and stays compact. Never narrower than the physical
+            // notch, though — a result pill that undercuts the cutout leaves the
+            // hardware notch poking out at both sides.
             return state.mode == .error
                 ? CGSize(width: 360, height: controller.notchInfo.bandHeight + 56)
-                : CGSize(width: 200, height: controller.notchInfo.bandHeight + 40)
+                : CGSize(width: max(200, controller.notchInfo.width),
+                         height: controller.notchInfo.bandHeight + 40)
         }
     }
 
@@ -127,11 +173,27 @@ struct NotchView: View {
         }
     }
 
+    /// How far the silhouette flares out into the screen's top edge. Zero while
+    /// compact — see `IslandShape` — so the shape that hides inside the real
+    /// cutout stays a plain rectangle, and the flare grows in as the island
+    /// expands past the notch.
+    private var targetTopRadius: CGFloat {
+        switch phase {
+        case .compact: return 0
+        case .active:  return 12
+        case .result:  return 10
+        }
+    }
+
     // MARK: - Island
 
     private func island(t: TimeInterval) -> some View {
         let size = targetSize
         let radius = targetRadius
+        // The flare lives outside the island's body, so the drawn frame is the
+        // body width plus one flare per side. `size` stays the body size, which
+        // is what has to match the physical notch when compact.
+        let topRadius = targetTopRadius
 
         return ZStack {
             // Ambient halo: a blurred copy of the silhouette. While recording
@@ -140,31 +202,24 @@ struct NotchView: View {
             // smoothed mic energy — the island visibly listens. With the toggle
             // off it stays a calm, static warm glow. Other modes keep their
             // cool/semantic tints, Dynamic-Island style.
-            IslandShape(radius: radius)
+            IslandShape(radius: radius, topRadius: topRadius)
                 .fill(haloFill)
                 .blur(radius: haloBlur)
                 .opacity(haloOpacity)
                 .padding(-12)
 
-            // The silhouette — the UI itself. A near-black vertical gradient
-            // (not flat) with a soft top light-catch reads as a physical,
-            // glassy object rather than a sticker.
-            IslandShape(radius: radius)
-                .fill(
-                    LinearGradient(
-                        colors: [SwiftUI.Color(red: 0.07, green: 0.07, blue: 0.09), .black],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
+            // The silhouette — the UI itself. SOLID, fully opaque black: the
+            // island has to read as the hardware notch growing, so its surface
+            // must match the cutout exactly. Anything that lets light into the
+            // notch band — translucency, a gradient lift off pure black, a
+            // light-catch stroke along the top edge — makes the physical notch
+            // reappear as a darker rectangle inside the island, which is the
+            // one thing this window must never do.
+            IslandShape(radius: radius, topRadius: topRadius)
+                .fill(SwiftUI.Color.black)
                 .overlay(
-                    IslandShape(radius: radius)
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [.white.opacity(phase == .compact ? 0 : 0.18), .white.opacity(0.03)],
-                                startPoint: .top, endPoint: .bottom
-                            ),
-                            lineWidth: 0.75
-                        )
+                    IslandShape(radius: radius, topRadius: topRadius)
+                        .strokeBorder(edgeSheen(height: size.height), lineWidth: 0.75)
                 )
                 .shadow(color: .black.opacity(0.5), radius: 22, y: 10)
                 .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
@@ -172,22 +227,44 @@ struct NotchView: View {
                     content(t: t)
                         // Keep every mode's content BELOW the physical notch
                         // band — the top bandHeight pts of the island sit
-                        // inside the hardware cutout and are not visible.
+                        // inside the hardware cutout and are not visible — and
+                        // inside the body, clear of the top flare.
                         .padding(.top, controller.notchInfo.bandHeight)
+                        .padding(.horizontal, topRadius)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         .opacity(phase == .compact ? 0 : 1)
                         .scaleEffect(phase == .compact ? 0.7 : 1)
                 )
         }
-        .frame(width: size.width, height: size.height)
-        // macOS 26 Liquid Glass: the island picks up the system's refractive
-        // depth. The black silhouette underneath keeps the compact phase
-        // invisible against the physical notch; older releases skip this.
-        .glassIsland(in: IslandShape(radius: radius))
+        .frame(width: size.width + topRadius * 2, height: size.height)
+        // Deliberately NO Liquid Glass here. Glass is refractive, so it would
+        // pull the wallpaper and the menu bar through the notch band and the
+        // island would stop matching the cutout. This surface stays opaque.
         // VoiceOver: the island is purely visual status — expose one concise,
         // current summary instead of its raw contents.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(islandA11yLabel)
+    }
+
+    /// Hairline edge definition for the expanded island — but only BELOW the
+    /// physical notch band. A light stroke across the band would draw a bright
+    /// line along the top of the hardware cutout and along the screen's top
+    /// edge, which is exactly what breaks the "the notch itself grew" illusion.
+    /// Compact draws no stroke at all: it must be indistinguishable from the
+    /// cutout it sits in.
+    private func edgeSheen(height: CGFloat) -> LinearGradient {
+        let clear = LinearGradient(colors: [.clear, .clear], startPoint: .top, endPoint: .bottom)
+        guard phase != .compact, height > 0 else { return clear }
+        let band = min(max(controller.notchInfo.bandHeight / height, 0), 1)
+        return LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .clear, location: band),
+                .init(color: .white.opacity(0.14), location: min(band + 0.05, 1)),
+                .init(color: .white.opacity(0.03), location: 1),
+            ],
+            startPoint: .top, endPoint: .bottom
+        )
     }
 
     /// A spoken summary of the island's current state for VoiceOver.

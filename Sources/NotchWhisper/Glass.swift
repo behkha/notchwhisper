@@ -28,18 +28,6 @@ extension View {
             self.buttonStyle(AuroraSecondaryButtonStyle())
         }
     }
-
-    /// Dark-tinted Liquid Glass for the notch island: on macOS 26 the glass
-    /// adds the system's refraction/depth over the black silhouette; on older
-    /// releases it's a no-op (the silhouette already reads correctly).
-    @ViewBuilder
-    func glassIsland<S: Shape>(in shape: S) -> some View {
-        if #available(macOS 26, *) {
-            self.glassEffect(Glass.regular.tint(Color.black.opacity(0.5)), in: shape)
-        } else {
-            self
-        }
-    }
 }
 
 /// A leading-aligned vertical stack (kept for source compatibility; the Aurora

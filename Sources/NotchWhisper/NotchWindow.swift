@@ -185,9 +185,16 @@ final class NotchController: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + (mode == .error ? 4.5 : 2.2), execute: item)
         case .idle:
             waveform.stop()
-            // Let the SwiftUI close morph (~0.3s) play before the panel retires
-            // — unless a model download / load is in progress, which keeps its
+            // Let the SwiftUI close morph play OUT before the panel retires —
+            // unless a model download / load is in progress, which keeps its
             // own progress pill visible.
+            //
+            // The delay has to outlast the morph, not merely match its nominal
+            // response: `closeMorph` is spring(response: 0.30, damping: 0.88),
+            // which needs ~0.5s to actually settle. Retiring the panel early
+            // orders out a silhouette that is still wider than the cutout, so
+            // the island vanishes with a pop instead of shrinking back into the
+            // notch.
             let item = DispatchWorkItem { [weak self] in
                 Task { @MainActor in
                     guard let self else { return }
@@ -196,7 +203,8 @@ final class NotchController: ObservableObject {
                 }
             }
             hideWorkItem = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: item)
+            let settle = Tokens.A11y.reduceMotion ? 0.2 : 0.55
+            DispatchQueue.main.asyncAfter(deadline: .now() + settle, execute: item)
         }
     }
 
