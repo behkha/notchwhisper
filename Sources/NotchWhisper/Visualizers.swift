@@ -22,10 +22,9 @@ import SwiftUI
 // the bands), transcribing → .thinking (LiveKit's processing patterns).
 //
 // Wave is a Canvas port of LiveKit's GLSL oscilloscope shader (bell-curve
-// attenuated sine + edge-fade mask). Aura is a Canvas approximation of the
-// Unicorn Studio turbulence shader — Command Line Tools ship no Metal
-// compiler, so the GLSL cannot be compiled here; layered additive distorted
-// rings reproduce the organic glow instead.
+// attenuated sine + edge-fade mask). Aura is the Unicorn Studio turbulence
+// shader itself, ported to Metal and compiled at runtime (AuraShader.swift);
+// the Canvas approximation below only runs where Metal is unavailable.
 
 enum VisualizerStyle: String, CaseIterable, Identifiable {
     case bar, wave, radial, grid, aura
@@ -95,8 +94,10 @@ struct AudioVisualizer: View {
                 .frame(width: 64, height: 64)
                 .frame(maxWidth: .infinity)
         case .aura:
+            // `aspect-square`, sized by the height it is given — like the web
+            // component, and so the shader's uv maths sees the same square.
             LKAuraVisualizer(state: state, heights: heights, energy: energy, tint: tint, t: t)
-                .frame(width: 64, height: 64)
+                .aspectRatio(1, contentMode: .fit)
                 .frame(maxWidth: .infinity)
         }
     }
@@ -522,17 +523,10 @@ private struct LKWaveVisualizer: View {
 
 // MARK: - Aura (agent-audio-visualizer-aura)
 
-/// Faithful port of LiveKit Agents-UI's *prebuilt* Aura component
-/// (docs.livekit.io/frontends/agents-ui/audio-visualizer/prebuilt): a single
-/// soft, heavily-blurred glowing orb — NOT concentric rings. LiveKit builds it
-/// from a `rounded-full` element with a large blur and the agent color, whose
-/// SCALE and OPACITY track volume while speaking, with a gentle idle breath in
-/// the other states.
-///
-/// Here that's a stack of a few offset radial-gradient lobes drawn into a
-/// blurred Canvas layer: the offsets orbit slowly so the blob morphs
-/// organically, and `voice` drives the overall scale (0.55→1.0) and brightness
-/// exactly like the web component's `--lk-va-scale` / opacity bindings.
+/// LiveKit Agents-UI's *prebuilt* Aura: the Unicorn Studio turbulence shader
+/// (AuraShader.swift) with the hook's per-state animation — speaking follows
+/// the voice, thinking and listening pulse. `tint` is the component's `color`
+/// prop: the voice-reactive glow when on, the theme accent otherwise.
 private struct LKAuraVisualizer: View {
     let state: VisualizerAgentState
     let heights: [CGFloat]
@@ -548,6 +542,29 @@ private struct LKAuraVisualizer: View {
         let raw = Double(max(energy, mean * 1.5))
         return min(1, max(0, (raw - 0.10) / 0.90))
     }
+
+    var body: some View {
+        if AuraRenderer.isAvailable {
+            AuraMetalView(
+                state: state,
+                volume: voice,
+                color: tint ?? Tokens.Theme.current.accentRGB,
+                paused: Tokens.A11y.reduceMotion
+            )
+        } else {
+            LKAuraCanvasFallback(state: state, voice: voice, tint: tint, t: t)
+        }
+    }
+}
+
+/// The pre-Metal approximation — offset radial lobes in a blurred, additive
+/// Canvas. Only shown where no Metal device exists or the shader failed to
+/// compile.
+private struct LKAuraCanvasFallback: View {
+    let state: VisualizerAgentState
+    let voice: Double
+    let tint: (r: Double, g: Double, b: Double)?
+    let t: TimeInterval
 
     var body: some View {
         Canvas { context, size in
@@ -612,8 +629,6 @@ private struct LKAuraVisualizer: View {
                 )
             )
         }
-        .animation(nil, value: heights)
-        .animation(nil, value: energy)
     }
 }
 

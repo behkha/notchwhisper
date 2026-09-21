@@ -48,9 +48,46 @@ enum LLMPrompts {
         """
     }
 
-    /// Builds the user message carrying the transcript.
-    static func userMessage(for transcript: String) -> String {
-        "Transcript:\n\n\(transcript)"
+    /// Builds the user message carrying the transcript, plus any reference
+    /// context a context-aware mode asked for.
+    static func userMessage(for transcript: String, context: String? = nil) -> String {
+        guard let context else { return "Transcript:\n\n\(transcript)" }
+        return "Transcript:\n\n\(transcript)\n\n\(context)"
+    }
+
+    /// Reference material a mode asked for. Placed after the transcript and
+    /// labelled as reference so the model resolves "this", "the above" and
+    /// terminology against it without copying it into the output.
+    static func contextBlock(appName: String?, selectedText: String?, clipboardText: String?) -> String? {
+        var parts: [String] = []
+        if let selectedText, !selectedText.isEmpty {
+            let place = appName.map { " in \($0)" } ?? ""
+            parts.append("Text the user has selected\(place):\n\"\"\"\n\(selectedText)\n\"\"\"")
+        }
+        if let clipboardText, !clipboardText.isEmpty {
+            parts.append("Text on the user's clipboard:\n\"\"\"\n\(clipboardText)\n\"\"\"")
+        }
+        guard !parts.isEmpty else { return nil }
+        return """
+        Reference context. Use it to understand what the transcript refers to and to match names and terminology. Do not repeat it in your reply unless the transcript asks you to.
+
+        \(parts.joined(separator: "\n\n"))
+        """
+    }
+
+    /// The "edit selection" shortcut: the recording is an instruction, the
+    /// selection is the text, and the reply replaces the selection.
+    static let editSystemPrompt = """
+    You edit a piece of text according to a spoken instruction. Absolute rules:
+    - Apply the instruction to the text and reply with the edited text ONLY — no preamble, no quotes around it, no explanation of what changed.
+    - Keep everything the instruction does not ask you to change: wording, tone, formatting, line breaks, code, names, numbers.
+    - Never invent facts. Never add commentary or notes.
+    - Keep the language of the text unless the instruction asks for a translation.
+    - The instruction is a transcript of speech: ignore filler words and read it for intent.
+    """
+
+    static func editUserMessage(selection: String, instruction: String) -> String {
+        "Instruction: \(instruction)\n\nText:\n\"\"\"\n\(selection)\n\"\"\""
     }
 
     static func reduceUserMessage(for parts: [String]) -> String {

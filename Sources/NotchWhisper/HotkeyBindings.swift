@@ -47,30 +47,36 @@ struct HotkeyBinding: Identifiable, Codable, Hashable {
     ///  · holdToTalk — press and hold to record, release to transcribe.
     ///  · toggleLive — press once to START a continuous live session that types
     ///    as you speak, press again to STOP.
+    ///  · editSelection — hold and SAY WHAT TO CHANGE about the text selected
+    ///    in the front app; the result replaces the selection.
     enum Activation: String, Codable, CaseIterable, Identifiable {
         case holdToTalk
         case toggleLive
+        case editSelection
 
         var id: String { rawValue }
 
         var label: String {
             switch self {
-            case .holdToTalk: return "Hold to talk"
-            case .toggleLive: return "Live session"
+            case .holdToTalk:    return "Hold to talk"
+            case .toggleLive:    return "Live session"
+            case .editSelection: return "Edit selection"
             }
         }
 
         var blurb: String {
             switch self {
-            case .holdToTalk: return "Hold the shortcut to record, release to transcribe and insert."
-            case .toggleLive: return "Press once to start dictating continuously, press again to stop."
+            case .holdToTalk:    return "Hold the shortcut to record, release to transcribe and insert."
+            case .toggleLive:    return "Press once to start dictating continuously, press again to stop."
+            case .editSelection: return "Select text anywhere, hold the shortcut and say what to change — \"make it shorter\", \"fix the grammar\", \"translate to German\". The selection is replaced with the result. Needs an AI connection."
             }
         }
 
         var symbolName: String {
             switch self {
-            case .holdToTalk: return "hand.tap"
-            case .toggleLive: return "dot.radiowaves.left.and.right"
+            case .holdToTalk:    return "hand.tap"
+            case .toggleLive:    return "dot.radiowaves.left.and.right"
+            case .editSelection: return "character.cursor.ibeam"
             }
         }
     }
@@ -188,6 +194,9 @@ struct HotkeyBinding: Identifiable, Codable, Hashable {
         .init(name: "Live session", symbolName: "dot.radiowaves.left.and.right",
               activation: .toggleLive, processingModeKey: nil,
               hint: "Press to start, press again to stop."),
+        .init(name: "Edit selection", symbolName: "character.cursor.ibeam",
+              activation: .editSelection, processingModeKey: nil,
+              hint: "Select text, hold, say what to change."),
     ]
 
     static let iconChoices = [
@@ -257,6 +266,10 @@ struct HotkeyBinding: Identifiable, Codable, Hashable {
             return long
                 ? "Hold \(primary.display) anywhere and talk. Release to transcribe and type."
                 : "Hold \(primary.display) anywhere and start talking."
+        case .editSelection:
+            return long
+                ? "Select text anywhere, hold \(primary.display) and say what to change. Release to rewrite it."
+                : "Select text, hold \(primary.display) and say what to change."
         }
     }
 

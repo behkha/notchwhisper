@@ -295,6 +295,15 @@ final class LiveTranscriber {
         if level >= silenceLevel { lastVoiceAt = now; pauseSalvaged = false }
         let paused = now.timeIntervalSince(lastVoiceAt) >= pauseFlushDelay
 
+        // Spec 04: a live session may end itself after a configured silence.
+        // Off by default — a session ending while the user thinks is worse
+        // than one that runs on. `stopDictation` flushes the pending tail.
+        let autoStop = settings.liveAutoStopSeconds
+        if autoStop > 0, now.timeIntervalSince(lastVoiceAt) >= Double(autoStop) {
+            AppDelegate.shared?.stopDictation()
+            return
+        }
+
         let enoughNew = Float(samples.count - decodedUpto) / Float(Self.sampleRate) >= minNewAudioSeconds
 
         // PAUSE HANDLING. The mic keeps feeding silence; without this a resume

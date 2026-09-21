@@ -295,6 +295,8 @@ struct ModeEditor: View {
     @State private var symbolName: String
     @State private var creativity: ModeCreativity
     @State private var singleDocument: Bool
+    @State private var usesSelectedText: Bool
+    @State private var usesClipboard: Bool
 
     @State private var sampleText: String
     @State private var previewResult: String?
@@ -312,6 +314,8 @@ struct ModeEditor: View {
         _symbolName = State(initialValue: mode.symbolName)
         _creativity = State(initialValue: mode.creativity)
         _singleDocument = State(initialValue: mode.singleDocument)
+        _usesSelectedText = State(initialValue: mode.readsSelectedText)
+        _usesClipboard = State(initialValue: mode.readsClipboard)
         _sampleText = State(initialValue: Self.defaultSample)
     }
 
@@ -348,6 +352,7 @@ struct ModeEditor: View {
                     instructionsField
                     iconPicker
                     creativityPicker
+                    contextSection
                     advancedSection
                     previewSection
                 }
@@ -531,6 +536,51 @@ struct ModeEditor: View {
         }
     }
 
+    // MARK: Context
+
+    /// What the mode may read besides the transcript. Off by default: the
+    /// selection and the clipboard are the user's own text, and they travel
+    /// with the transcript to wherever the connection points.
+    private var contextSection: some View {
+        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
+            Text("Context").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
+            contextToggle("Read the selected text",
+                          "What's highlighted in the app you dictate into — so \"reply to this\" or \"summarize the above\" has something to work with.",
+                          isOn: $usesSelectedText)
+            contextToggle("Read the clipboard",
+                          "Whatever you copied last, for the same purpose.",
+                          isOn: $usesClipboard)
+            if usesSelectedText || usesClipboard {
+                let hosted = connections.active.map { !$0.isLocal } ?? false
+                Label(contextPrivacyNote, systemImage: hosted ? "exclamationmark.triangle" : "lock")
+                    .font(Tokens.TypeScale.micro)
+                    .foregroundStyle(hosted ? Tokens.Color.warn : Tokens.Color.textTert)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var contextPrivacyNote: String {
+        if let connection = connections.active, !connection.isLocal {
+            return "That text is sent to \(connection.name) along with the transcript — it leaves this Mac."
+        }
+        return "That text is sent with the transcript. With a local connection it stays on this Mac."
+    }
+
+    private func contextToggle(_ title: String, _ blurb: String, isOn: Binding<Bool>) -> some View {
+        HStack(alignment: .top, spacing: Tokens.Space.x3) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.text)
+                Text(blurb).font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: Tokens.Space.x2)
+            Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch)
+        }
+        .padding(Tokens.Space.x3)
+        .background(Tokens.Color.fillQuieter, in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
+    }
+
     private func runPreview() async {
         guard let connection = connections.active, let runner = AppDelegate.shared?.llmRunnerRef else { return }
         isPreviewing = true
@@ -541,6 +591,8 @@ struct ModeEditor: View {
         draft.instructions = instructions
         draft.creativity = creativity
         draft.singleDocument = singleDocument
+        draft.usesSelectedText = usesSelectedText
+        draft.usesClipboard = usesClipboard
         switch await runner.preview(sampleText, mode: draft, connection: connection) {
         case .processed(let text): previewResult = text
         case .failed(let reason):  previewError = reason
@@ -555,6 +607,8 @@ struct ModeEditor: View {
         updated.symbolName = symbolName
         updated.creativity = creativity
         updated.singleDocument = singleDocument
+        updated.usesSelectedText = usesSelectedText
+        updated.usesClipboard = usesClipboard
         if isNew {
             updated.createdAt = Date()
             updated.updatedAt = Date()

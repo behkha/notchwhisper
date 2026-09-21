@@ -50,6 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// waveform timer and the audio pipeline are never throttled while the app
     /// is backgrounded. Ended as soon as we return to idle.
     private var activityToken: NSObjectProtocol?
+    /// The last hold-to-talk capture the silence gate discarded, kept so the
+    /// menu bar's "Transcribe anyway" can run it (spec 04).
+    private var discardedCapture: (samples: [Float], effective: EffectiveSettings,
+                                   context: AppContext, editing: Bool)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppDelegate.shared = self
@@ -131,6 +135,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // var, so it must be touched here or it never gets created — which is
         // exactly what was happening: no status item ever appeared.
         _ = menuBar
+        UserNotifier.shared.prepare()
+        // The Aura shader compiles at runtime; do it before the notch needs it.
+        if settings.visualizerStyle == .aura { AuraRenderer.warmUp() }
         installHotkey()
         wireNotifications()
 
@@ -332,14 +339,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// back to hold-to-talk. Same rule `reconcileAfterModelChange()` has always
     /// applied to the single hotkey, now decided per binding.
     func activation(for binding: HotkeyBinding) -> HotkeyBinding.Activation {
-        binding.effectiveActivation == .toggleLive && canStreamLive ? .toggleLive : .holdToTalk
+        switch binding.effectiveActivation {
+        case .editSelection: return .editSelection
+        case .toggleLive:    return canStreamLive ? .toggleLive : .holdToTalk
+        case .holdToTalk:    return .holdToTalk
+        }
     }
 
     private func hotkeyDown(_ id: UUID) {
         guard let binding = HotkeyBindingStore.shared.binding(id: id) else { return }
         switch activation(for: binding) {
-        case .toggleLive: trigger(binding: binding)
-        case .holdToTalk: startRecording(binding: binding)
+        case .toggleLive:                 trigger(binding: binding)
+        case .holdToTalk, .editSelection: startRecording(binding: binding)
         }
     }
 
@@ -348,7 +359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // binding is looked up again rather than remembered, so a table edit
         // mid-press can never strand a recording.
         guard let binding = HotkeyBindingStore.shared.binding(id: id),
-              activation(for: binding) == .holdToTalk else { return }
+              activation(for: binding) != .toggleLive else { return }
         stopRecording()
     }
 
@@ -513,13 +524,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.showToast("Finish the recording in Models first.")
             return
         }
+        guard meetingAllowsDictation() else { return }
         applyModelSelection(beginContext(binding: binding))
+        discardedCapture = nil
+        state.discardedRecordingAvailable = false
         do {
             try recorder.start()
             isRecording = true
             state.mode = .recording
             state.recordingStart = Date()
             beginActivity()
+            Feedback.play(.start)
             if settings.hapticEnabled {
                 NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
             }
@@ -535,9 +550,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let samples = recorder.stop()
         let effective = pendingEffective ?? AppProfileStore.shared.effective(for: pendingContext)
         let context = pendingContext
-        state.mode = .transcribing
+        Feedback.play(.stop)
         let source: TranscriptRecord.Source = effective.sourceBinding == nil ? .button : .hotkey
-        Task { await transcribe(samples: samples, source: source, effective: effective, context: context) }
+        let editing = effective.sourceBinding.map { activation(for: $0) == .editSelection } ?? false
+
+        // Spec 04: an accidental brush of the key, or a press with nothing
+        // said in it, never reaches the model — Whisper would invent a
+        // sentence for it. Discarding is instant: no error state, no History
+        // entry, no held activity.
+        let durationMs = Double(samples.count) / AudioFileImport.sampleRate * 1_000
+        if durationMs < Double(settings.minPressMilliseconds) {
+            dismissCapture()
+            return
+        }
+        var analysis: VoiceActivityDetector.Analysis? = nil
+        if settings.vadIgnoreSilent || settings.vadTrimSilence {
+            let result = VoiceActivityDetector(sensitivity: settings.vadSensitivity).analyse(samples)
+            analysis = result
+            if settings.vadIgnoreSilent, !result.hasSpeech {
+                discardedCapture = (samples, effective, context, editing)
+                state.discardedRecordingAvailable = true
+                dismissCapture()
+                state.showToast("No speech detected — recording discarded. The menu bar can transcribe it anyway.")
+                return
+            }
+        }
+        state.mode = .transcribing
+        if editing {
+            Task { await editSelection(samples: samples, effective: effective, context: context, analysis: analysis) }
+        } else {
+            Task { await transcribe(samples: samples, source: source, effective: effective,
+                                    context: context, analysis: analysis) }
+        }
+    }
+
+    /// Back to idle with no transcript: nothing typed, nothing in History.
+    private func dismissCapture() {
+        state.mode = .idle
+        state.partialText = ""
+        state.sessionLabel = ""
+        endActivity()
+        pendingEffective = nil
+    }
+
+    /// "Transcribe anyway": runs the capture the silence gate discarded, and
+    /// relaxes the gate one step so a quiet voice is not stopped twice.
+    func transcribeDiscardedRecording() {
+        guard let capture = discardedCapture,
+              !isRecording, !isDictating, !isFinishingDictation else { return }
+        guard meetingAllowsDictation() else { return }
+        discardedCapture = nil
+        state.discardedRecordingAvailable = false
+        if settings.vadSensitivity != .low {
+            settings.vadSensitivity = settings.vadSensitivity.lowered
+            state.showToast("Voice detection set to \(settings.vadSensitivity.label) so quiet speech gets through.")
+        }
+        pendingContext = capture.context
+        pendingEffective = capture.effective
+        state.sessionLabel = capture.effective.sessionLabel ?? ""
+        state.mode = .transcribing
+        beginActivity()
+        let source: TranscriptRecord.Source = capture.effective.sourceBinding == nil ? .button : .hotkey
+        if capture.editing {
+            Task { await editSelection(samples: capture.samples, effective: capture.effective,
+                                       context: capture.context, analysis: nil) }
+        } else {
+            Task { await transcribe(samples: capture.samples, source: source, effective: capture.effective,
+                                    context: capture.context, analysis: nil) }
+        }
     }
 
     // MARK: - Live dictation (continuous, types as you speak)
@@ -561,6 +641,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.showToast("Finish the recording in Models first.")
             return
         }
+        guard meetingAllowsDictation() else { return }
         // The model must be resident before the live loop starts — otherwise
         // the loop bails on its first tick, leaving `isDictating` stuck true.
         // `ensureLoaded()` drives `state.isLoadingModel`, which surfaces the
@@ -586,6 +667,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         live.autoTypeOverride = (effective.sourceProfile == nil && effective.sourceBinding == nil)
             ? nil : effective.autoType
         transcriber.languageOverride = effective.language
+        discardedCapture = nil
+        state.discardedRecordingAvailable = false
         do {
             try recorder.start()
             isDictating = true
@@ -593,6 +676,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.partialText = ""
             state.recordingStart = Date()
             beginActivity()
+            Feedback.play(.start)
             if settings.hapticEnabled {
                 NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
             }
@@ -609,6 +693,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard isDictating else { return }
         isDictating = false
         isFinishingDictation = true
+        Feedback.play(.stop)
         state.mode = .transcribing
         Task { await finishDictation() }
     }
@@ -655,6 +740,115 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pendingEffective = nil
     }
 
+    // MARK: - Edit selection (a spoken instruction over highlighted text)
+
+    /// The `editSelection` activation: the recording is an instruction, the
+    /// selection in the destination app is the text, and the result replaces
+    /// that selection. The selection is still highlighted when the key comes
+    /// up — nothing was clicked — so typing over it IS the replacement.
+    private func editSelection(samples: [Float], effective: EffectiveSettings,
+                               context: AppContext,
+                               analysis: VoiceActivityDetector.Analysis?) async {
+        transcriber.languageOverride = effective.language
+        defer {
+            transcriber.languageOverride = nil
+            state.sessionLabel = ""
+            pendingEffective = nil
+        }
+        func bail(_ message: String, failed: Bool = false) {
+            state.mode = failed ? .error : .idle
+            state.partialText = ""
+            endActivity()
+            if failed {
+                state.statusMessage = message
+                Feedback.play(.error)
+            } else {
+                state.showToast(message)
+            }
+        }
+        // The selection: Accessibility first; apps that expose none (most
+        // Electron views) get a ⌘C round trip with the clipboard restored.
+        var selection = context.selectedText ?? ""
+        if selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            selection = await AutoTyper.readSelectionViaCopy() ?? ""
+        }
+        guard !selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            bail("Select some text first, then hold the shortcut and say what to change.")
+            return
+        }
+        guard let connection = effective.connection, connection.isUsable else {
+            bail("Editing a selection needs an AI connection — add one on the AI page.")
+            return
+        }
+        guard await transcriber.ensureLoaded() else {
+            bail("Model not loaded.", failed: true)
+            return
+        }
+        let clip: [Float]
+        if settings.vadTrimSilence, let analysis, analysis.hasSpeech {
+            clip = VoiceActivityDetector(sensitivity: settings.vadSensitivity)
+                .trimmed(samples, analysis: analysis)
+        } else {
+            clip = samples
+        }
+        let heard: String
+        do {
+            heard = try await transcriber.transcribe(clip, biasTerms: DictionaryStore.shared.biasingTerms())
+        } catch {
+            bail("Transcription failed: \(error.localizedDescription)", failed: true)
+            return
+        }
+        let instruction = DictionaryStore.shared.applyCorrections(heard).0
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let invented = analysis.map { VoiceActivityDetector.isLikelyHallucination(instruction, analysis: $0) } ?? false
+        guard !instruction.isEmpty, !invented else {
+            bail("Didn't catch an instruction — hold the shortcut and say what to change.")
+            return
+        }
+        state.mode = .improving
+        state.statusMessage = "Editing…"
+        switch await llmRunner.edit(selection: selection, instruction: instruction, connection: connection) {
+        case .processed(let edited):
+            state.lastText = edited
+            state.partialText = ""
+            state.mode = .done
+            endActivity()
+            HistoryStore.shared.add(
+                raw: instruction, final: edited, corrections: [],
+                source: .hotkey,
+                modeLabel: (name: "Edit selection", symbol: HotkeyBinding.Activation.editSelection.symbolName),
+                profileName: effective.profileName
+            )
+            if effective.autoType {
+                AutoTyper.insert(edited, mode: effective.insertionMode)
+            }
+        case .failed(let reason):
+            bail("Selection left unchanged — \(reason)", failed: true)
+            UserNotifier.shared.post(title: "Selection left unchanged", body: reason)
+        }
+    }
+
+    // MARK: - Meetings
+
+    /// A meeting recording owns the mic; a meeting transcription owns the
+    /// engine. Either one stops a dictation from starting, with a reason.
+    private func meetingAllowsDictation() -> Bool {
+        if state.meetingRecording {
+            state.showToast("Stop the meeting recording first — it's holding the microphone.")
+            return false
+        }
+        if state.engineReservedByMeeting {
+            state.showToast("A meeting is being transcribed — the model is busy until it finishes.")
+            return false
+        }
+        return true
+    }
+
+    /// The same App Nap assertion dictation holds, for the length of a meeting.
+    func holdMeetingActivity(_ hold: Bool) {
+        if hold { beginActivity() } else if !isRecording, !isDictating { endActivity() }
+    }
+
     // MARK: - App Nap
     /// Hold a user-initiated activity while audio is flowing so macOS never
     /// naps/throttles us mid-recording (the app is usually backgrounded).
@@ -680,7 +874,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Transcribe + dictionary passes
     private func transcribe(samples: [Float], source: TranscriptRecord.Source,
                             effective: EffectiveSettings,
-                            context: AppContext) async {
+                            context: AppContext,
+                            analysis: VoiceActivityDetector.Analysis? = nil) async {
         // A binding may have named a language for this dictation only. Cleared
         // on every exit so it can never bleed into the next one.
         transcriber.languageOverride = effective.language
@@ -693,6 +888,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 state.mode = .error
                 state.statusMessage = "Model not loaded."
                 endActivity()
+                Feedback.play(.error)
             }
             return
         }
@@ -702,10 +898,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Local, private usage metrics for the Models page (§41). Nothing about
         // the audio or the text is recorded — only how long it took.
         let usedModelId = settings.modelId
-        let audioSeconds = Double(samples.count) / AudioFileImport.sampleRate
+        // Spec 04: decode only the stretch that carries speech (plus padding).
+        let clip: [Float]
+        if settings.vadTrimSilence, let analysis, analysis.hasSpeech {
+            clip = VoiceActivityDetector(sensitivity: settings.vadSensitivity)
+                .trimmed(samples, analysis: analysis)
+        } else {
+            clip = samples
+        }
+        let audioSeconds = Double(clip.count) / AudioFileImport.sampleRate
         let startedAt = Date()
         do {
-            raw = try await transcriber.transcribe(samples, biasTerms: bias)
+            raw = try await transcriber.transcribe(clip, biasTerms: bias)
         } catch {
             await MainActor.run {
                 ModelBenchmarkService.shared.recordUsage(
@@ -715,6 +919,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 state.mode = .error
                 state.statusMessage = "Transcription failed: \(error.localizedDescription)"
                 endActivity()
+                Feedback.play(.error)
+                UserNotifier.shared.post(title: "Transcription failed", body: error.localizedDescription)
+            }
+            return
+        }
+        // Spec 04: a "Thank you." decoded from near-silence is Whisper's
+        // invention, not the user's words. Only marginal audio is checked.
+        if let analysis, VoiceActivityDetector.isLikelyHallucination(raw, analysis: analysis) {
+            await MainActor.run {
+                state.partialText = ""
+                dismissCapture()
+                state.showToast("No speech detected.")
             }
             return
         }
@@ -746,7 +962,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 state.mode = .improving
                 state.statusMessage = "Improving…"
             }
-            let result = await llmRunner.process(final, mode: mode, connectionID: effective.connectionID)
+            let result = await llmRunner.process(final, mode: mode, connectionID: effective.connectionID,
+                                                 context: LLMContext(context))
             switch result {
             case .processed(let improved):
                 if !improved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -756,6 +973,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 llmFailed = true
                 await MainActor.run {
                     state.statusMessage = "Original text inserted — LLM processing failed. \(reason)"
+                    UserNotifier.shared.post(title: "Original text inserted", body: reason)
                 }
             }
         }
@@ -767,6 +985,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // notch/menu-bar error state communicates that processing fell back.
             if llmFailed {
                 state.mode = .error
+                Feedback.play(.error)
             } else {
                 state.mode = insertText.isEmpty ? .idle : .done
             }

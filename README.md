@@ -1,6 +1,6 @@
 # NotchWhisper
 
-> A free, fully-local voice-to-text app for macOS that lives in the **MacBook notch** and types your speech straight into whatever text field is focused — no cloud, no API keys, no subscriptions.
+> A free, local voice-to-text app for macOS that lives in the **MacBook notch** and types your speech straight into whatever text field is focused — no subscriptions. Transcription never leaves your Mac; the optional AI pass goes to whichever connection you choose, local or hosted, and the app tells you which.
 
 NotchWhisper runs speech recognition **on your Mac** with [WhisperKit](https://github.com/argmaxinc/WhisperKit) (Core ML Whisper). Models download on demand from Hugging Face and never leave your machine. Hold a hotkey, speak, and the words appear wherever your cursor is — Notes, Messages, your editor, a browser input, anywhere.
 
@@ -43,10 +43,15 @@ On first launch the default `base` model downloads from Hugging Face (you'll see
 - **Auto-type anywhere** — the transcript is inserted into the focused field via the Accessibility API (with a keystroke fallback) so it lands in any app.
 - **Model manager** — the **Models** page is a full manager, not just a picker: it shows the active engine and its health, everything installed, what's recommended *for your Mac*, and a searchable catalog that spans the built-in models and [Hugging Face](https://huggingface.co/models). Installs are queued, resumable, pausable and verified before a model is ever activated; models can be benchmarked and compared on your own audio, tested in a playground, imported from disk, pinned to a revision, and removed with a storage view that shows exactly what each one costs.
 - **Local LLM post-processing** — optionally clean up, format, rewrite, summarize, or structure your transcript with a language model running **on your Mac** (Ollama, LM Studio, Unsloth, or any OpenAI-compatible server). Your text stays local.
+- **Context-aware modes** — a mode can read the text you have selected and your clipboard, so "reply to this" or "summarize the above" has something to work with. Off per mode until you turn it on; the editor says when that text would leave the Mac.
+- **Edit a selection by voice** — an **Edit selection** shortcut: highlight text in any app, hold the key, say "make it shorter" or "translate to German", and the selection is replaced with the result.
+- **Meetings** — record a call or a room (microphone plus, with your permission, the Mac's own audio) to a crash-safe file on disk, get a timestamped transcript you can click to replay, minutes written by your AI connection, Markdown/text/JSON/WAV export, and a one-click "delete audio, keep transcript".
+- **Silence gate** — a recording with no speech in it is discarded instead of handed to Whisper, which invents "Thank you." on silence; silence is trimmed before decoding; accidental taps are ignored; a live session can end itself after a quiet spell. All tunable in Settings → Voice detection.
+- **Sounds and notifications** — a tick when the mic opens, a pop when it closes, a low note on failure; a system notification when a model finishes installing, a download fails, or an AI pass falls back to your original text while the app is in the background.
 - **Custom dictionary** — teach the model words it keeps getting wrong, and auto-correct heard phrases ("cloud code" → "Claude Code"). Entries bias recognition *and* fix the typed output. Editable in the UI or as a plain-text file.
 - **Transcript history** — every dictation is saved (raw, corrected, which dictionary fixes fired, and which LLM mode) so you can search, copy, and revisit past transcripts.
 - **Six accent themes** — Ember (default), Ocean, Violet, Forest, Rose, Aqua. Recolors the whole app, the notch glow, and the Wave/Aura visualizers.
-- **Five notch visualizers** — ported from LiveKit's Agents-UI: Bar, Wave, Radial, Grid, Aura.
+- **Five notch visualizers** — ported from LiveKit's Agents-UI: Bar, Wave, Radial, Grid, Aura. Aura is the actual Unicorn Studio turbulence shader, ported to Metal and compiled at runtime (Polyform Non-Resale License 1.0.0, © UNCRN LLC — see `AuraShader.swift`).
 - **Menu-bar app** — no Dock icon; everything lives in the status bar + notch, with an on-demand main window (Home, Upload, Transcripts, Dictionary, Models).
 
 ---
@@ -63,6 +68,12 @@ In **Settings → General**, enable *Live dictation*. The hotkey switches to a t
 
 **Transcribing a file**
 Open the main window → **Upload**, then drop in a recording (or click *Choose file…*). MP3, WAV, M4A, AAC, FLAC, AIFF, CAF, MP4 and MOV all work, at any length — the audio is decoded to 16 kHz mono on your Mac and run through the same engine, dictionary bias and correction pass as dictation. Long files show progress over the clip and can be cancelled mid-run. Nothing is auto-typed; you get the text on the page to edit, copy, or save.
+
+**Editing a selection by voice**
+In **Settings → Shortcuts**, add a shortcut from the **Edit selection** starter (or set any shortcut's behaviour to *Edit selection*). Highlight text in any app, hold the key, say what to change — "make this formal", "fix the grammar", "turn it into a list" — and release. The instruction is transcribed, sent with the selected text to your active AI connection, and the reply replaces the selection. Apps that don't expose their selection to Accessibility get a ⌘C round trip; your clipboard is put back afterwards. Needs an AI connection.
+
+**Recording a meeting**
+Open the main window → **Meetings**. Read the one-time note about consent, then **Start recording**. With *Include the Mac's audio* on, macOS asks for the Screen Recording permission the first time — only audio is ever read; off records just your microphone. Audio streams to a two-channel 16 kHz WAV under `~/Library/Application Support/NotchWhisper/Meetings/` whose header is rewritten every ten seconds, so a crash still leaves a playable file (it shows as *Interrupted* and can be transcribed). Stopping transcribes the recording in 30-second windows, skipping the silent ones, with timestamps you can click to replay from that point. **Write minutes** runs the built-in *Meeting Minutes* mode (or any mode of yours) over the transcript; the first time your active connection is a hosted one you're asked before the transcript leaves the Mac. Export as Markdown, plain text, JSON or WAV, or delete the audio and keep the transcript.
 
 **Changing the hotkey**
 In **Settings → Hotkey**, click the key cap and press what you want. Three shapes are accepted:
@@ -209,17 +220,27 @@ Every finished dictation is saved to **Transcripts** (searchable, with copy / co
 
 | Setting | Where | Options | Default |
 | --- | --- | --- | --- |
-| Live dictation | General | on / off | off |
-| Launch at login | General | on / off | on |
+| Live dictation | Dictation | on / off | off |
+| Type into the focused app | Dictation | on / off | on |
+| New line after each dictation | Dictation | on / off | off |
+| Language | Dictation | auto-detect, or any Whisper language | auto-detect |
+| Translate to English | Dictation | on / off | off |
+| Launch at login | Dictation | on / off | on |
+| Ignore silent recordings | Voice detection | on / off | on |
+| Trim silence before transcribing | Voice detection | on / off | on |
+| Sensitivity | Voice detection | Low / Normal / High | Normal |
+| Minimum press length | Voice detection | Off / 250 ms / 500 ms | 250 ms |
+| Stop live dictation after silence | Voice detection | Off / 5 / 10 / 30 / 60 s | Off |
 | Theme color | Appearance | Ember / Ocean / Violet / Forest / Rose / Aqua | Ember |
 | Voice-reactive glow | Appearance | on / off | on |
 | Notch visualizer | Appearance | Bar / Wave / Radial / Grid / Aura | Bar |
 | Hold-to-talk hotkey | Hotkey | any key, modifier, or combination | Right `⌥` |
 | Active model | Model | tiny → large-v3 (+ turbo/distil/quantized) | `base` |
-| Local LLM processing | Local LLM | enabled + mode (see above) | off |
+| Local LLM processing | Text processing | enabled + mode (see above) | off |
+| Sounds | Feedback | on / off | on |
+| Haptic feedback | Feedback | on / off | on |
+| Notifications | Feedback | on / off | on |
 | Check for updates automatically | Updates | on / off | on |
-
-> A few behavior preferences are stored in `UserDefaults` and used by the engine — **auto-type** (on), **newline-after-text** (off), **language** (auto-detect, or any Whisper-supported language), **task** (transcribe / translate-to-English), and **haptics** (on) — but they are **not yet exposed in the Settings window**, so they currently run at their defaults.
 
 ---
 

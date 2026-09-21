@@ -30,6 +30,15 @@ struct AppContext: Equatable {
     var cliTool: String?
     /// The resolved `cliTool` is a bare shell prompt, not a program.
     var cliToolIsShell: Bool = false
+    /// Text highlighted in the focused field when the mic opened, read through
+    /// Accessibility. nil when nothing is selected or the app exposes no
+    /// selection (many Electron and browser views).
+    var selectedText: String?
+    /// Plain-text clipboard contents when the mic opened.
+    var clipboardText: String?
+
+    /// Longest context a mode may read — a page, never a whole document.
+    static let maxContextChars = 12_000
 
     enum FieldRole: String, Equatable {
         case text, search, secure, terminal, unknown
@@ -84,6 +93,11 @@ struct AppContext: Equatable {
         if let bundleID = context.bundleID, terminalBundleIDs.contains(bundleID) {
             context.fieldRole = .terminal
         }
+        // Captured for context-aware modes; only a mode that asked ever sees it.
+        if let clip = NSPasteboard.general.string(forType: .string) {
+            let trimmed = clip.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { context.clipboardText = String(trimmed.prefix(maxContextChars)) }
+        }
         // The AX query needs the same Accessibility grant AutoTyper needs, so
         // asking without it only produces a permission prompt we did not want.
         guard AutoTyper.isTrusted else { return context }
@@ -107,6 +121,10 @@ struct AppContext: Equatable {
         let subrole = string(element, kAXSubroleAttribute)
         let secure = role == "AXSecureTextField" || subrole == "AXSecureTextField"
         context.isSecureField = secure
+        if !secure, let selected = string(element, kAXSelectedTextAttribute),
+           !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            context.selectedText = String(selected.prefix(maxContextChars))
+        }
 
         if secure {
             context.fieldRole = .secure
@@ -159,6 +177,8 @@ struct AppContext: Equatable {
         var line = "app=\(bundleID ?? "—") name=\(appName ?? "—") field=\(fieldRole.rawValue) secure=\(isSecureField)"
         if let cliTool { line += " cli=\(cliTool)\(cliToolIsShell ? " (shell)" : "")" }
         if let windowTitle { line += " title=\"\(windowTitle)\"" }
+        if let selectedText { line += " selection=\(selectedText.count)ch" }
+        if let clipboardText { line += " clipboard=\(clipboardText.count)ch" }
         return line
     }
 }

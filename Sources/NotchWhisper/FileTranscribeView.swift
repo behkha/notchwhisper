@@ -103,6 +103,10 @@ import UniformTypeIdentifiers
             phase = .failed("Finish the current dictation first — it's using the model.")
             return
         }
+        if state.engineReservedByMeeting {
+            phase = .failed("A meeting is being transcribed — the model is busy until it finishes.")
+            return
+        }
 
         let flag = CancelFlag()
         cancelFlag = flag
@@ -122,7 +126,17 @@ import UniformTypeIdentifiers
                 return
             }
             let bias = DictionaryStore.shared.biasingTerms()
-            let clip = self.samples
+            // Spec 04: trim only. A file the user chose is never discarded for
+            // lacking speech; the result says so instead.
+            let source = self.samples
+            let detector = VoiceActivityDetector(sensitivity: Settings.shared.vadSensitivity)
+            let trimSilence = Settings.shared.vadTrimSilence
+            let (clip, analysis) = await Task.detached(priority: .userInitiated) {
+                () -> ([Float], VoiceActivityDetector.Analysis) in
+                let analysis = detector.analyse(source)
+                return (trimSilence ? detector.trimmed(source, analysis: analysis) : source, analysis)
+            }.value
+            guard !flag.isCancelled else { self.phase = .ready; self.progress = 0; return }
             do {
                 let raw = try await transcriber.transcribeFile(
                     clip,
@@ -138,13 +152,19 @@ import UniformTypeIdentifiers
                 guard !flag.isCancelled else { self.phase = .ready; self.progress = 0; return }
 
                 // Same guaranteed correction pass dictation runs.
-                let (final, changes) = DictionaryStore.shared.applyCorrections(raw)
+                var (final, changes) = DictionaryStore.shared.applyCorrections(raw)
+                if VoiceActivityDetector.isLikelyHallucination(final, analysis: analysis) {
+                    final = ""
+                    changes = []
+                }
                 self.rawText = raw
                 self.corrections = changes
                 self.text = final
                 self.progress = 1
                 self.phase = final.isEmpty
-                    ? .failed("The model found no speech in that file.")
+                    ? .failed(analysis.hasSpeech
+                              ? "The model found no speech in that file."
+                              : "No speech detected in this file — it sounds like silence or background noise.")
                     : .done
                 if !final.isEmpty {
                     HistoryStore.shared.add(

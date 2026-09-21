@@ -45,7 +45,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let status = state.$modelStatus.map { _ in () }
         let loading = state.$isLoadingModel.map { _ in () }
         let downloading = state.$isDownloading.map { _ in () }
-        mode.merge(with: status, loading, downloading)
+        let meeting = state.$meetingRecording.map { _ in () }
+        mode.merge(with: status, loading, downloading, meeting)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in Task { @MainActor in guard let self else { return }; self.updateIcon() } }
             .store(in: &cancellables)
@@ -57,7 +58,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         let symbol: String
         switch state.mode {
         case .idle:
-            symbol = (state.isDownloading || state.isLoadingModel) ? "arrow.down.circle" : "waveform"
+            symbol = state.meetingRecording ? "record.circle"
+                : (state.isDownloading || state.isLoadingModel) ? "arrow.down.circle" : "waveform"
         case .recording:    symbol = "waveform.badge.mic"
         case .dictating:    symbol = "text.bubble.fill"
         case .transcribing: symbol = "waveform"
@@ -143,6 +145,50 @@ private struct MenuPanel: View {
                     .onChange(of: settings.liveDictation) { _, _ in
                         NotificationCenter.default.post(name: .dictationChanged, object: nil)
                     }
+                if state.meetingRecording {
+                    Divider().overlay(Tokens.Color.hairline)
+                    Button {
+                        Task { await MeetingStore.shared.stop() }
+                        close()
+                    } label: {
+                        HStack(spacing: Tokens.Space.x2) {
+                            Image(systemName: "record.circle")
+                                .font(.system(size: 12)).foregroundStyle(Tokens.Color.record).frame(width: 18)
+                            Text("Stop meeting recording")
+                                .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.text)
+                            Spacer(minLength: 0)
+                            Text(AudioFileImport.durationLabel(seconds: MeetingStore.shared.elapsed))
+                                .font(Tokens.TypeScale.micro).monospacedDigit().foregroundStyle(Tokens.Color.textTert)
+                        }
+                        .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                if state.discardedRecordingAvailable {
+                    // The silence gate dropped the last capture (spec 04); this
+                    // is the escape hatch for a whisperer or a quiet mic.
+                    Divider().overlay(Tokens.Color.hairline)
+                    Button {
+                        AppDelegate.shared?.transcribeDiscardedRecording()
+                        close()
+                    } label: {
+                        HStack(spacing: Tokens.Space.x2) {
+                            Image(systemName: "waveform.badge.exclamationmark")
+                                .font(.system(size: 12)).foregroundStyle(Tokens.Color.warn).frame(width: 18)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Transcribe anyway")
+                                    .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.text)
+                                Text("The last recording sounded silent and was skipped.")
+                                    .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 6)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
                 if profiles.enabledCount > 0 {
                     Divider().overlay(Tokens.Color.hairline)
                     toggleRow("app.badge", "Ignore app profile once",
@@ -341,7 +387,7 @@ private struct MenuPanel: View {
         case .recording: return "Listening…"
         case .dictating: return "Dictating…"
         case .transcribing: return "Transcribing…"
-        case .improving: return "Improving…"
+        case .improving: return state.statusMessage.isEmpty ? "Improving…" : state.statusMessage
         case .done: return "Done"
         case .error: return "Something went wrong"
         }

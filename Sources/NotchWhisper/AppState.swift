@@ -41,6 +41,14 @@ enum NotchMode: Equatable {
     /// microphone. There is one shared `AudioRecorder`, so dictation must not
     /// start a second capture session on top of it.
     @Published var micReservedByModelLab = false
+    /// The silence gate discarded the last hold-to-talk capture; the menu bar
+    /// offers to transcribe it anyway.
+    @Published var discardedRecordingAvailable = false
+    /// A meeting recording holds the microphone (spec 09).
+    @Published var meetingRecording = false
+    /// A meeting is being transcribed — the engine is busy for minutes, and a
+    /// dictation started now would interleave on the same context.
+    @Published var engineReservedByMeeting = false
 
     // MARK: Model lifecycle
     @Published var modelStatus: ModelStatus = .unknown

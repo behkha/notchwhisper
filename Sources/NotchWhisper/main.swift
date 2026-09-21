@@ -7,6 +7,86 @@ import WhisperKit
 // we construct the @MainActor delegate here and let AppKit drive the lifecycle.
 let app = NSApplication.shared
 
+// `NotchWhisper --aura-selftest [out.png]` compiles the Aura shader at runtime,
+// renders the speaking / thinking / listening states offscreen and checks the
+// frames are neither blank nor saturated; the optional PNG is the speaking frame.
+if let flagIdx = CommandLine.arguments.firstIndex(of: "--aura-selftest") {
+    let pngPath = CommandLine.arguments.count > flagIdx + 1 && !CommandLine.arguments[flagIdx + 1].hasPrefix("--")
+        ? CommandLine.arguments[flagIdx + 1] : nil
+    exit(AuraSelfTest.run(pngPath: pngPath))
+}
+
+// `NotchWhisper --vad-selftest` exercises the voice-activity gate (spec 04)
+// over synthesised buffers — silence, a speech-shaped burst, a click, hiss —
+// with no microphone. Exits 0 when every assertion holds.
+if CommandLine.arguments.contains("--vad-selftest") {
+    exit(VoiceActivitySelfTest.run())
+}
+
+// `NotchWhisper --meeting-selftest <audio-file>` runs the Meetings pipeline
+// headless: the file becomes the mic channel of a two-channel WAV written by
+// the meeting recorder's writer (header patched along the way, as during a
+// recording), that WAV is read back the way a meeting is, then chunked and
+// transcribed with timestamps by the active model.
+if let flagIdx = CommandLine.arguments.firstIndex(of: "--meeting-selftest"),
+   CommandLine.arguments.count >= flagIdx + 2 {
+    let path = CommandLine.arguments[flagIdx + 1]
+    nonisolated(unsafe) var done = false
+    nonisolated(unsafe) var exitCode: Int32 = 0
+    Task { @MainActor in
+        defer { done = true }
+        do {
+            let source = try await AudioFileImport.loadSamples(from: URL(fileURLWithPath: path))
+            let wav = FileManager.default.temporaryDirectory.appendingPathComponent("nw-meeting-selftest.wav")
+            let writer = try WAVWriter(url: wav, channels: 2, sampleRate: 16_000)
+            var offset = 0
+            while offset < source.count {
+                let end = min(source.count, offset + 8_000)
+                let slice = Array(source[offset..<end])
+                writer.append(left: slice, right: [Float](repeating: 0, count: slice.count))
+                writer.flush()
+                offset = end
+            }
+            writer.close()
+            let back = try await AudioFileImport.loadSamples(from: wav)
+            func rms(_ s: [Float]) -> Float { (s.reduce(0) { $0 + $1 * $1 } / Float(max(1, s.count))).squareRoot() }
+            fputs("meeting-selftest: wrote \(source.count) frames, read back \(back.count); rms source=\(rms(source)) readback=\(rms(back)) (mono downmix of mic + silent system ≈ half)\n", stderr)
+            guard abs(back.count - source.count) <= 32 else {
+                fputs("meeting-selftest FAILED: frame count mismatch\n", stderr)
+                exitCode = 1
+                return
+            }
+            let transcriber = Transcriber(AppState.shared, Settings.shared)
+            guard await transcriber.ensureLoaded() else {
+                fputs("meeting-selftest FAILED: model not loaded\n", stderr)
+                exitCode = 1
+                return
+            }
+            let started = Date()
+            let result = await MeetingTranscription.run(
+                samples: back, transcriber: transcriber, sensitivity: .normal, trimSilence: true,
+                biasTerms: [], onProgress: { p in fputs("meeting-selftest: \(Int(p * 100))%\n", stderr) }
+            )
+            fputs("meeting-selftest: \(result.segments.count) segments in \(String(format: "%.2f", Date().timeIntervalSince(started))) s\n", stderr)
+            for segment in result.segments {
+                print("[\(segment.timestampLabel)–\(AudioFileImport.durationLabel(seconds: segment.end))] \(segment.text)")
+            }
+            if let failure = result.failure {
+                fputs("meeting-selftest FAILED: \(failure)\n", stderr)
+                exitCode = 1
+            } else if result.segments.isEmpty {
+                fputs("meeting-selftest FAILED: no segments\n", stderr)
+                exitCode = 1
+            }
+        } catch {
+            fputs("meeting-selftest FAILED: \(error)\n", stderr)
+            exitCode = 1
+        }
+    }
+    while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+    exit(exitCode)
+}
+
 // `NotchWhisper --gguf-selftest <llamaModelId>` runs the GGUF download (resuming
 // any partial files on disk) and prints the result — checks the resume path.
 if let i = CommandLine.arguments.firstIndex(of: "--gguf-selftest"),

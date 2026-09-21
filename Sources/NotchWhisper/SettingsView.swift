@@ -22,10 +22,12 @@ struct SettingsView: View {
                 SectionHeader("Settings", eyebrow: "NotchWhisper")
 
                 dictationGroup
+                voiceGroup
                 appearanceGroup
                 ShortcutsSection()
                 modelGroup
                 llmGroup
+                feedbackGroup
                 updatesGroup
             }
             .padding(Tokens.Space.x8)
@@ -54,9 +56,29 @@ struct SettingsView: View {
                         NotificationCenter.default.post(name: .dictationChanged, object: nil)
                     }
             }
+            SettingRow(icon: "keyboard", title: "Type into the focused app",
+                       subtitle: "Off keeps every dictation in Transcripts only — nothing is typed anywhere.") {
+                Toggle("", isOn: $settings.autoTypeEnabled).labelsHidden().toggleStyle(.switch)
+            }
             SettingRow(icon: "return", title: "New line after each dictation",
                        subtitle: "Press Return once the transcript is inserted.") {
                 Toggle("", isOn: $settings.insertNewline).labelsHidden().toggleStyle(.switch)
+            }
+            SettingRow(icon: "globe", title: "Language",
+                       subtitle: "The language you speak. Auto-detect handles one language at a time; naming it is faster and more accurate. A shortcut can pick a different one.") {
+                Menu {
+                    ForEach(LanguageChoice.all, id: \.code) { choice in
+                        Button(choice.name) { settings.language = choice.code.isEmpty ? nil : choice.code }
+                    }
+                } label: {
+                    Text(LanguageChoice.label(for: settings.language)).lineLimit(1)
+                }
+                .menuStyle(.borderlessButton)
+                .frame(maxWidth: 200)
+            }
+            SettingRow(icon: "character.book.closed", title: "Translate to English",
+                       subtitle: "Whisper writes English whatever language you speak, instead of transcribing it as spoken.") {
+                Toggle("", isOn: $settings.translateToEnglish).labelsHidden().toggleStyle(.switch)
             }
             SettingRow(icon: "terminal", title: "Paste into terminal programs",
                        subtitle: "Claude Code, Codex, vim and friends read a typed newline as Return, which submits the line. Pasting keeps a multi-line dictation in one piece. A bare shell prompt is still typed, so your clipboard is left alone.") {
@@ -67,9 +89,78 @@ struct SettingsView: View {
                 Toggle("", isOn: $settings.launchAtLogin).labelsHidden().toggleStyle(.switch)
                     .onChange(of: settings.launchAtLogin) { _, _ in settings.applyLaunchAtLogin() }
             }
+        }
+    }
+
+    // MARK: Voice detection (spec 04)
+
+    private var voiceGroup: some View {
+        SettingsGroup(title: "Voice detection",
+                      footnote: "Whisper invents text when it hears nothing — \"Thank you.\" on a silent recording is the classic. These checks keep an accidental press from typing a sentence you never said.") {
+            SettingRow(icon: "waveform.slash", title: "Ignore silent recordings",
+                       subtitle: "A recording with no speech in it is discarded instead of transcribed. The menu bar offers to transcribe it anyway.") {
+                Toggle("", isOn: $settings.vadIgnoreSilent).labelsHidden().toggleStyle(.switch)
+            }
+            SettingRow(icon: "scissors", title: "Trim silence before transcribing",
+                       subtitle: "Cuts the quiet before and after you speak. Faster, and a little more accurate.") {
+                Toggle("", isOn: $settings.vadTrimSilence).labelsHidden().toggleStyle(.switch)
+            }
+            VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+                Text("Sensitivity")
+                    .font(Tokens.TypeScale.body.weight(.medium))
+                    .foregroundStyle(Tokens.Color.text)
+                Picker("", selection: $settings.vadSensitivity) {
+                    ForEach(VoiceActivityDetector.Sensitivity.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden()
+                Text(settings.vadSensitivity.blurb)
+                    .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
+            }
+            .padding(.horizontal, Tokens.Space.x4)
+            .padding(.vertical, Tokens.Space.x3)
+            SettingRow(icon: "timer", title: "Minimum press length",
+                       subtitle: "Shorter presses of a hold-to-talk shortcut are ignored as accidental.") {
+                Picker("", selection: $settings.minPressMilliseconds) {
+                    Text("Off").tag(0)
+                    Text("250 ms").tag(250)
+                    Text("500 ms").tag(500)
+                }
+                .labelsHidden()
+                .frame(maxWidth: 120)
+            }
+            SettingRow(icon: "stop.circle", title: "Stop live dictation after silence",
+                       subtitle: "Ends a live session by itself once you've been quiet this long.") {
+                Picker("", selection: $settings.liveAutoStopSeconds) {
+                    Text("Off").tag(0)
+                    Text("5 s").tag(5)
+                    Text("10 s").tag(10)
+                    Text("30 s").tag(30)
+                    Text("60 s").tag(60)
+                }
+                .labelsHidden()
+                .frame(maxWidth: 120)
+            }
+        }
+    }
+
+    // MARK: Feedback
+
+    private var feedbackGroup: some View {
+        SettingsGroup(title: "Feedback") {
+            SettingRow(icon: "speaker.wave.2", title: "Sounds",
+                       subtitle: "A soft tick when the mic opens, a pop when it closes, a low note if something fails.") {
+                Toggle("", isOn: $settings.soundFeedback).labelsHidden().toggleStyle(.switch)
+            }
             SettingRow(icon: "hand.tap", title: "Haptic feedback",
                        subtitle: "A tap when recording starts (Force Touch trackpads).") {
                 Toggle("", isOn: $settings.hapticEnabled).labelsHidden().toggleStyle(.switch)
+            }
+            SettingRow(icon: "bell.badge", title: "Notifications",
+                       subtitle: UserNotifier.isAvailable
+                        ? "A system notification when a model finishes installing, a download fails, or an AI pass falls back to your original text — only while NotchWhisper is in the background."
+                        : "Available when NotchWhisper runs as a packaged app.") {
+                Toggle("", isOn: $settings.notificationsEnabled).labelsHidden().toggleStyle(.switch)
+                    .disabled(!UserNotifier.isAvailable)
             }
         }
     }

@@ -121,10 +121,17 @@ enum GGUFDownloader {
             (model.fileURLs[1].url, mmprojPath(for: model)),
         ]
 
+        // The catalog figure is a rounded estimate; the server knows the exact
+        // size of both files. The estimate stays only when the probe fails.
+        let probe = await remoteSizes(files.map { $0.0 })
+        if Task.isCancelled { return false }
+        let grandTotal = probe.total > 0 ? probe.total : model.sizeBytes
+        state.downloadBytesTotal = grandTotal
+
         var priorBytes: Int64 = 0
         for (index, (remote, local)) in files.enumerated() {
             state.downloadFilesDone = index
-            let sink = ProgressSink(priorBytes: priorBytes, grandTotal: model.sizeBytes)
+            let sink = ProgressSink(priorBytes: priorBytes, grandTotal: grandTotal)
             // Retry with backoff — resume picks up from whatever landed, so a
             // dropped connection near the end recovers instead of restarting.
             var lastError: Error?
@@ -137,7 +144,8 @@ enum GGUFDownloader {
                     catch { return false }        // cancelled while backing off
                 }
                 do {
-                    try await FileFetcher.fetch(remote, to: local, progress: sink)
+                    try await FileFetcher.fetch(remote, to: local, progress: sink,
+                                                knownSize: probe.sizes[index])
                     ok = true
                     break
                 } catch is CancellationError {
@@ -166,6 +174,19 @@ enum GGUFDownloader {
             && FileManager.default.fileExists(atPath: mmprojPath(for: model).path)
         if ok { FileManager.default.createFile(atPath: completeMarker(for: model).path, contents: Data()) }
         return ok
+    }
+
+    /// Exact remote size of each file (one HEAD apiece) and their sum. The sum
+    /// is 0 when any size is unknown, so a caller falls back to its estimate as
+    /// a whole rather than mixing exact and guessed figures.
+    private static func remoteSizes(_ urls: [URL]) async -> (total: Int64, sizes: [Int64]) {
+        var sizes: [Int64] = []
+        for url in urls {
+            if Task.isCancelled { return (0, urls.map { _ in 0 }) }
+            sizes.append((try? await FileFetcher.remoteSize(url)) ?? 0)
+        }
+        let total = sizes.allSatisfy { $0 > 0 } ? sizes.reduce(0, +) : 0
+        return (total, sizes)
     }
 
     // MARK: - Arbitrary GGUF speech models
@@ -225,8 +246,8 @@ enum GGUFDownloader {
         let dir = customDir(repoId: model.repoId)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        var priorBytes: Int64 = 0
-        for (index, name) in [model.weightsFile, model.mmprojFile].enumerated() {
+        var files: [(remote: URL, local: URL, name: String)] = []
+        for name in [model.weightsFile, model.mmprojFile] {
             // File names come from the Hub, so they are re-sanitized here: a
             // path component can never escape the model directory (§79).
             let safeName = (name as NSString).lastPathComponent
@@ -235,9 +256,22 @@ enum GGUFDownloader {
             else { return false }
             let local = dir.appendingPathComponent(safeName)
             guard local.path.hasPrefix(dir.path) else { return false }
+            files.append((remote, local, safeName))
+        }
+
+        // The Hub listing may not know this pair's size (a bare id rebuilt
+        // after a restart has none); the server always does.
+        let probe = await remoteSizes(files.map { $0.remote })
+        if Task.isCancelled { return false }
+        let grandTotal = probe.total > 0 ? probe.total : totalBytes
+        state.downloadBytesTotal = grandTotal
+
+        var priorBytes: Int64 = 0
+        for (index, file) in files.enumerated() {
+            let remote = file.remote, local = file.local, safeName = file.name
 
             state.downloadFilesDone = index
-            let sink = ProgressSink(priorBytes: priorBytes, grandTotal: totalBytes)
+            let sink = ProgressSink(priorBytes: priorBytes, grandTotal: grandTotal)
             var ok = false
             var lastError: Error?
             for attempt in 1...4 {
@@ -248,7 +282,8 @@ enum GGUFDownloader {
                     catch { return false }
                 }
                 do {
-                    try await FileFetcher.fetch(remote, to: local, progress: sink)
+                    try await FileFetcher.fetch(remote, to: local, progress: sink,
+                                                knownSize: probe.sizes[index])
                     ok = true
                     break
                 } catch is CancellationError {
@@ -315,15 +350,20 @@ private final class ProgressSink: @unchecked Sendable {
         self.lastBytes = priorBytes
     }
 
-    func update(fileBytes: Int64) {
+    /// `force` publishes inside the throttle window too — for a file's final
+    /// byte count, which was otherwise dropped and left the figure a chunk
+    /// short until the next file reported.
+    func update(fileBytes: Int64, force: Bool = false) {
         let doneTotal = priorBytes + fileBytes
         let now = Date()
         let dt = now.timeIntervalSince(lastTick)
-        guard dt > 0.4 else { return }
-        let inst = Double(doneTotal - lastBytes) / dt
-        speedEMA = speedEMA == 0 ? inst : speedEMA * 0.7 + inst * 0.3
-        lastBytes = doneTotal
-        lastTick = now
+        guard force || dt > 0.4 else { return }
+        if dt > 0.4 {
+            let inst = Double(doneTotal - lastBytes) / dt
+            speedEMA = speedEMA == 0 ? inst : speedEMA * 0.7 + inst * 0.3
+            lastBytes = doneTotal
+            lastTick = now
+        }
         let total = grandTotal
         let speed = speedEMA
         Task { @MainActor in
@@ -372,7 +412,9 @@ private final class FileFetcher: NSObject, URLSessionDataDelegate, @unchecked Se
         self.progress = progress
     }
 
-    static func fetch(_ remote: URL, to local: URL, progress: ProgressSink) async throws {
+    /// `knownSize` skips the HEAD when the caller already probed the file.
+    static func fetch(_ remote: URL, to local: URL, progress: ProgressSink,
+                      knownSize: Int64 = 0) async throws {
         let fm = FileManager.default
         var existing: Int64 = 0
         if let s = (try? fm.attributesOfItem(atPath: local.path))?[.size] as? Int64, s > 0 {
@@ -382,11 +424,11 @@ private final class FileFetcher: NSObject, URLSessionDataDelegate, @unchecked Se
         // Real remote size — so an already-complete file is skipped without a
         // GET (a `Range:` past EOF returns 416, which used to abort the whole
         // download: the "click Download again, notch flashes" bug).
-        let total = try await remoteSize(remote)
+        let total = knownSize > 0 ? knownSize : try await remoteSize(remote)
         if total > 0 {
             if existing >= total {
                 if existing > total { try? fm.removeItem(at: local) }   // oversized/corrupt
-                else { progress.update(fileBytes: existing); return }   // complete
+                else { progress.update(fileBytes: existing, force: true); return }   // complete
                 existing = 0
             }
         }
@@ -447,7 +489,7 @@ private final class FileFetcher: NSObject, URLSessionDataDelegate, @unchecked Se
 
     /// Real remote size via HEAD (URLSession follows the HF→CDN 302; the final
     /// 200 carries the true `Content-Length`). Falls back to a 1-byte Range GET.
-    private static func remoteSize(_ url: URL) async throws -> Int64 {
+    static func remoteSize(_ url: URL) async throws -> Int64 {
         var head = URLRequest(url: url)
         head.httpMethod = "HEAD"
         head.timeoutInterval = 30
@@ -506,6 +548,7 @@ private final class FileFetcher: NSObject, URLSessionDataDelegate, @unchecked Se
                 if (try? destination.checkResourceIsReachable()) == true,
                    let s = (try? FileManager.default.attributesOfItem(atPath: destination.path))?[.size] as? Int64,
                    s > 0 {
+                    progress.update(fileBytes: s, force: true)
                     completionHandler(.cancel)
                     settle(.success(()))
                 } else {
@@ -567,6 +610,7 @@ private final class FileFetcher: NSObject, URLSessionDataDelegate, @unchecked Se
             settle(.failure(GGUFDownloader.DownloadError.transport(
                 "connection closed early (\(onDisk) of \(expectedTotal) bytes)")))
         } else {
+            progress.update(fileBytes: onDisk, force: true)
             settle(.success(()))
         }
     }

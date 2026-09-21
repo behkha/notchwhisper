@@ -674,6 +674,55 @@ import WhisperKit
         return results.flatMap { $0.segments }
     }
 
+    struct TimedSegment {
+        let start: TimeInterval
+        let end: TimeInterval
+        let text: String
+    }
+
+    /// Timestamped decode of one clip — the meeting transcript's unit of work.
+    /// Whisper returns real segment times; Qwen3-ASR has no timestamp API, so
+    /// its whole clip becomes one segment spanning the clip.
+    func transcribeTimed(_ samples: [Float], biasTerms: [String] = []) async throws -> [TimedSegment] {
+        let seconds = Double(samples.count) / Double(WhisperKit.sampleRate)
+        if activeEngineIsLlama {
+            let text = try await llama.transcribe(
+                samples, context: llamaContextPrompt(biasTerms: biasTerms),
+                isCancelled: { false }, onProgress: { _ in }
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? [] : [TimedSegment(start: 0, end: seconds, text: text)]
+        }
+        guard let w = whisper else { throw TranscriberError.notLoaded }
+        var initialPrompt: [Int]?
+        if !biasTerms.isEmpty, let tok = w.tokenizer {
+            var ids: [Int] = []
+            for term in biasTerms {
+                let t = term.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !t.isEmpty else { continue }
+                ids.append(contentsOf: tok.encode(text: t))
+            }
+            if ids.count > 100 { ids = Array(ids.prefix(100)) }
+            if !ids.isEmpty { initialPrompt = ids }
+        }
+        let opts = DecodingOptions(
+            verbose: false,
+            task: settings.task == "translate" ? .translate : .transcribe,
+            language: effectiveLanguage,
+            temperature: 0.0,
+            temperatureFallbackCount: 3,
+            usePrefillPrompt: true,
+            skipSpecialTokens: true,
+            withoutTimestamps: false,
+            promptTokens: initialPrompt
+        )
+        let results = try await w.transcribe(audioArray: samples, decodeOptions: opts)
+        return results.flatMap { $0.segments }.compactMap { segment in
+            let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            return TimedSegment(start: TimeInterval(segment.start), end: TimeInterval(segment.end), text: text)
+        }
+    }
+
     /// Download a model from Hugging Face without switching the active model.
     ///
     /// Robustness (the "download never completes" fix):
@@ -716,11 +765,13 @@ import WhisperKit
         // catalog's rough label. The label was off by 2–3× for several tiers,
         // which made the percentage and "X MB / Y MB" line wrong (req 5).
         ModelCatalog.shared.refreshIfNeeded()
-        let realTotal = ModelCatalog.shared.downloadTotalBytes(for: option)
+        // Read on every tick rather than captured once: on a first run the HF
+        // size lands seconds after the download starts, and a total frozen at
+        // the rough label kept the bar and the "X of Y" line wrong.
         let sampler = startDownloadStatsSampler(
             repoRoot: repoRoot,
             folder: option.folderName,
-            totalBytes: realTotal
+            totalBytes: { ModelCatalog.shared.downloadTotalBytes(for: option) }
         )
         defer {
             sampler.cancel()
@@ -840,7 +891,18 @@ import WhisperKit
         if let queued = ModelDownloadQueue.shared.job(for: modelId)?.totalBytes, queued > 0 {
             return queued
         }
-        return ModelRegistry.shared.descriptor(for: modelId).resources.diskBytes
+        let known = ModelRegistry.shared.descriptor(for: modelId).resources.diskBytes
+        if known > 0 { return known }
+        // A descriptor rebuilt from a bare id (after a restart, or from the
+        // Settings picker) carries no size; the repository listing the browser
+        // cached still does.
+        let repoId = CustomGGUFModel.parse(modelId)?.repoId
+            ?? WhisperModelOption.parseCustom(modelId)?.repo
+        if let repoId, let meta = HFMetadataCache.shared.cached(repoId),
+           let variant = meta.variants.first(where: { $0.id == modelId }) {
+            return variant.sizeBytes
+        }
+        return 0
     }
 
     /// Download one Core ML model folder out of an arbitrary Hugging Face
@@ -864,10 +926,17 @@ import WhisperKit
 
         // The exact byte total comes from the Hub's file listing when we have
         // it, so the bar and the "X of Y" line are real numbers.
-        let total = expectedBytes(modelId)
+        var total = expectedBytes(modelId)
+        if total == 0,
+           let folders = try? await HFModelSearch.listModelFolders(repoId: repoId),
+           let match = folders.first(where: { $0.name == folder }) {
+            // Nothing local knows this build's size; one listing request does.
+            total = match.sizeBytes
+        }
         let repoRoot = ModelDisk.customRepoRoot(repoId, root: modelDir)
+        let resolvedTotal = total
         let sampler = startDownloadStatsSampler(
-            repoRoot: repoRoot, folder: folder, totalBytes: total
+            repoRoot: repoRoot, folder: folder, totalBytes: { resolvedTotal }
         )
         defer {
             sampler.cancel()
@@ -1052,7 +1121,9 @@ import WhisperKit
     /// see `HubApi.snapshot`), so it cannot express "1.1 GB of 2.0 GB" — the
     /// disk sampler can. Runs every 0.7 s; disk scanning happens off-main.
     @discardableResult
-    func startDownloadStatsSampler(repoRoot: URL, folder: String, totalBytes: Int64) -> Task<Void, Never> {
+    func startDownloadStatsSampler(
+        repoRoot: URL, folder: String, totalBytes total: @escaping @MainActor () -> Int64
+    ) -> Task<Void, Never> {
         Task {
             var lastBytes: Int64 = -1
             var lastAt: Date? = nil
@@ -1061,6 +1132,7 @@ import WhisperKit
                 let bytes = await Task.detached(priority: .utility) {
                     Self.bytesOnDisk(repoRoot: repoRoot, folder: folder)
                 }.value
+                let totalBytes = total()
                 let now = Date()
                 if let at = lastAt, lastBytes >= 0 {
                     let dt = now.timeIntervalSince(at)

@@ -68,11 +68,14 @@ struct TranscriptRecord: Identifiable, Codable, Hashable {
 
     private init() { load() }
 
+    /// `modeLabel` names a pass that is not a processing mode — the edit
+    /// shortcut — so the record still carries a chip.
     func add(raw: String, final: String, corrections: [CorrectionChange],
              source: TranscriptRecord.Source, mode: ProcessingMode? = nil,
+             modeLabel: (name: String, symbol: String)? = nil,
              profileName: String? = nil, insertedIntoBundleID: String? = nil) {
-        var name: String? = nil
-        var symbol: String? = nil
+        var name: String? = modeLabel?.name
+        var symbol: String? = modeLabel?.symbol
         // `.off` means nothing processed the transcript — no chip to record.
         if let mode, !mode.isPassthrough {
             name = CustomModeStore.shared.label(for: mode)

@@ -10,6 +10,29 @@ enum LLMProcessResult: Equatable {
     case failed(String)
 }
 
+// MARK: - Context
+
+/// What a context-aware mode may read besides the transcript. Built from the
+/// `AppContext` captured when the mic opened; a mode only sees the parts it
+/// asked for.
+struct LLMContext: Equatable {
+    var appName: String?
+    var selectedText: String?
+    var clipboardText: String?
+
+    init(appName: String? = nil, selectedText: String? = nil, clipboardText: String? = nil) {
+        self.appName = appName
+        self.selectedText = selectedText
+        self.clipboardText = clipboardText
+    }
+
+    init(_ context: AppContext) {
+        appName = context.appName
+        selectedText = context.selectedText
+        clipboardText = context.clipboardText
+    }
+}
+
 // MARK: - LLM Runner
 
 /// Runs LLM post-processing on a finished transcription.
@@ -43,7 +66,7 @@ enum LLMProcessResult: Equatable {
     /// A pinned connection that no longer exists FAILS rather than falling back
     /// to the active one, which could be a different provider entirely.
     func process(_ transcript: String, mode: ProcessingMode,
-                 connectionID: UUID? = nil) async -> LLMProcessResult {
+                 connectionID: UUID? = nil, context: LLMContext? = nil) async -> LLMProcessResult {
         guard !transcript.isEmpty, !mode.isPassthrough else {
             return .processed(transcript)
         }
@@ -60,7 +83,47 @@ enum LLMProcessResult: Equatable {
         guard connection.isUsable else {
             return .failed("The \"\(connection.name)\" connection is incomplete — set its address and model name on the AI page.")
         }
-        return await run(transcript, resolved: resolved, connection: connection, reportStatus: true)
+        // Only what the mode asked for reaches the endpoint.
+        let reference = LLMPrompts.contextBlock(
+            appName: context?.appName,
+            selectedText: resolved.readsSelectedText ? context?.selectedText : nil,
+            clipboardText: resolved.readsClipboard ? context?.clipboardText : nil
+        )
+        return await run(transcript, resolved: resolved, connection: connection,
+                         reference: reference, reportStatus: true)
+    }
+
+    /// Rewrites `selection` as the spoken `instruction` says (the "edit
+    /// selection" shortcut). Same guarantee: a failure leaves the selection
+    /// untouched and carries the reason.
+    func edit(selection: String, instruction: String, connection: LLMConnection) async -> LLMProcessResult {
+        guard connection.isUsable else {
+            return .failed("The \"\(connection.name)\" connection is incomplete — set its address and model name on the AI page.")
+        }
+        state.statusMessage = "Editing…"
+        let messages = [
+            LLMServerClient.ChatMessage(role: "system", content: LLMPrompts.editSystemPrompt),
+            LLMServerClient.ChatMessage(
+                role: "user", content: LLMPrompts.editUserMessage(selection: selection, instruction: instruction)),
+        ]
+        do {
+            let completion = try await LLMServerClient.chat(
+                endpoint: connection.endpoint, model: connection.model, messages: messages,
+                apiKey: connection.apiKey, temperature: 0.2,
+                maxTokens: maxTokens(forInputChars: selection.count + instruction.count)
+            )
+            state.statusMessage = ""
+            let text = completion.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else {
+                return .failed("The server returned an empty response, so the selection was left as it was.")
+            }
+            return .processed(text)
+        } catch {
+            state.statusMessage = ""
+            if Task.isCancelled { return .failed("Editing was cancelled.") }
+            fputs("NotchWhisper: LLM edit error: \(error)\n", stderr)
+            return .failed(friendlyMessage(from: error, connection: connection))
+        }
     }
 
     /// One-shot run used by the mode editor's preview. Same pipeline, but it
@@ -74,13 +137,15 @@ enum LLMProcessResult: Equatable {
             systemPrompt: LLMPrompts.systemPrompt(forCustom: mode),
             reduceSystemPrompt: LLMPrompts.reduceSystemPrompt(forCustom: mode)
         )
-        return await run(transcript, resolved: resolved, connection: connection, reportStatus: false)
+        return await run(transcript, resolved: resolved, connection: connection,
+                         reference: nil, reportStatus: false)
     }
 
     // MARK: - Server path
 
     private func run(_ transcript: String, resolved: ResolvedMode,
-                     connection: LLMConnection, reportStatus: Bool) async -> LLMProcessResult {
+                     connection: LLMConnection, reference: String?,
+                     reportStatus: Bool) async -> LLMProcessResult {
         let endpoint = connection.endpoint
         let model = connection.model
         let apiKey = connection.apiKey
@@ -95,7 +160,7 @@ enum LLMProcessResult: Equatable {
             if reportStatus { updateStatus("Improving…", part: index + 1, total: total) }
             let messages = [
                 LLMServerClient.ChatMessage(role: "system", content: resolved.systemPrompt),
-                LLMServerClient.ChatMessage(role: "user", content: LLMPrompts.userMessage(for: chunk)),
+                LLMServerClient.ChatMessage(role: "user", content: LLMPrompts.userMessage(for: chunk, context: reference)),
             ]
             do {
                 let completion = try await LLMServerClient.chat(

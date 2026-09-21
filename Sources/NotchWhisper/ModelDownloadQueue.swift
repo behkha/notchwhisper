@@ -213,6 +213,12 @@ final class ModelDownloadQueue: ObservableObject {
             jobs[index].error = nil
 
             let descriptor = jobs[index].descriptor
+            // The downloaders leave the previous transfer's byte figures in
+            // AppState once they return. Clear them before mirroring, or the
+            // new job inherits the last model's total — which
+            // `Transcriber.expectedBytes` then read back as this download's
+            // size and showed for the whole transfer.
+            AppState.shared.resetDownloadStats()
             startMirroring(id)
 
             let transfer = Task<Bool, Never> {
@@ -238,6 +244,11 @@ final class ModelDownloadQueue: ObservableObject {
             guard ok else {
                 jobs[idx].state = .failed(Self.humanFailure(for: descriptor))
                 jobs[idx].error = AppState.shared.statusMessage
+                UserNotifier.shared.post(
+                    title: "Download interrupted",
+                    body: "\(descriptor.displayName) didn't finish. Retry from the Models page — it resumes where it stopped.",
+                    id: "download.\(id)"
+                )
                 continue
             }
 
@@ -260,8 +271,15 @@ final class ModelDownloadQueue: ObservableObject {
             )
             jobs[idx2].state = .finished
             jobs[idx2].progress = 1
+            // Disk truth beats whatever the Hub or the catalog claimed up front.
+            if verified.bytes > 0 { jobs[idx2].totalBytes = verified.bytes }
             jobs[idx2].bytesDone = jobs[idx2].totalBytes
             lastCompleted = (id, descriptor.displayName)
+            UserNotifier.shared.post(
+                title: "\(descriptor.displayName) is installed",
+                body: jobs[idx2].activateOnFinish ? "It's now the active model." : "Ready to use from the Models page.",
+                id: "download.\(id)"
+            )
 
             if jobs[idx2].activateOnFinish {
                 Settings.shared.modelId = id
@@ -323,7 +341,10 @@ final class ModelDownloadQueue: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 let s = AppState.shared
-                if let index = self.jobs.firstIndex(where: { $0.id == id }),
+                // Mirror only while a transfer is actually in flight; until the
+                // downloader has claimed the job, AppState is not about it.
+                if s.isDownloading,
+                   let index = self.jobs.firstIndex(where: { $0.id == id }),
                    self.jobs[index].state == .running {
                     self.jobs[index].progress = s.displayProgress
                     self.jobs[index].bytesDone = s.downloadBytesDone

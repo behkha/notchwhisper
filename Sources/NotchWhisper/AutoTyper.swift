@@ -159,14 +159,16 @@ enum AutoTyper {
         if !items.isEmpty { pasteboard.writeObjects(items) }
     }
 
-    private static func pressCommandV() {
-        // Setting `.maskCommand` on the V event alone is NOT enough: targets
+    private static func pressCommandV() { pressCommand(key: 9) }   // kVK_ANSI_V
+
+    /// ⌘ + `key`, as the physical sequence.
+    private static func pressCommand(key v: CGKeyCode) {
+        // Setting `.maskCommand` on the key event alone is NOT enough: targets
         // that track modifier state from the event stream (Terminal among them)
         // see a V with no preceding ⌘ press and paste nothing. The physical
-        // sequence — ⌘ down, V down, V up, ⌘ up — is what works.
+        // sequence — ⌘ down, key down, key up, ⌘ up — is what works.
         let source = CGEventSource(stateID: .combinedSessionState)
         let command: CGKeyCode = 55   // kVK_Command
-        let v: CGKeyCode = 9          // kVK_ANSI_V
 
         func post(_ key: CGKeyCode, down: Bool, flags: CGEventFlags) {
             let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: down)
@@ -179,6 +181,30 @@ enum AutoTyper {
         post(v, down: true, flags: .maskCommand)
         post(v, down: false, flags: .maskCommand)
         post(command, down: false, flags: [])
+    }
+
+    // MARK: - Reading the selection
+
+    /// The highlighted text in the focused app, fetched with a ⌘C round trip
+    /// for apps whose Accessibility tree exposes no selection. The clipboard
+    /// is restored afterwards, and an unchanged pasteboard (nothing selected,
+    /// or an app that ignores ⌘C) reads as nil rather than as stale contents.
+    static func readSelectionViaCopy() async -> String? {
+        guard isTrusted else { return nil }
+        let pasteboard = NSPasteboard.general
+        let saved = snapshotPasteboard(pasteboard)
+        pasteboard.clearContents()
+        let baseline = pasteboard.changeCount
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async {
+                pressCommand(key: 8)          // kVK_ANSI_C
+                Thread.sleep(forTimeInterval: 0.2)
+                continuation.resume()
+            }
+        }
+        let text = pasteboard.changeCount > baseline ? pasteboard.string(forType: .string) : nil
+        restorePasteboard(pasteboard, from: saved)
+        return (text?.isEmpty == false) ? text : nil
     }
 
     // MARK: - Synthetic keystrokes (Unicode-string events)

@@ -53,8 +53,18 @@ struct CustomMode: Identifiable, Codable, Hashable {
     /// pass instead of being concatenated — the right behaviour for modes that
     /// produce ONE document (a summary, a list) rather than transformed prose.
     var singleDocument: Bool
+    /// Context the mode may read alongside the transcript — the text selected
+    /// in the destination app, the clipboard. Off unless the mode asks: it is
+    /// the user's own text and it goes wherever the connection points.
+    /// Optional so archives written before the fields existed still decode.
+    var usesSelectedText: Bool? = nil
+    var usesClipboard: Bool? = nil
     var createdAt: Date
     var updatedAt: Date
+
+    var readsSelectedText: Bool { usesSelectedText ?? false }
+    var readsClipboard: Bool { usesClipboard ?? false }
+    var readsContext: Bool { readsSelectedText || readsClipboard }
 
     init(id: UUID = UUID(), name: String = "", instructions: String = "",
          symbolName: String = "sparkles", creativity: ModeCreativity = .balanced,
@@ -273,6 +283,8 @@ struct ResolvedMode {
     var reducesAcrossChunks: Bool
     var systemPrompt: String
     var reduceSystemPrompt: String
+    var readsSelectedText: Bool = false
+    var readsClipboard: Bool = false
 }
 
 // MARK: - Store
@@ -373,7 +385,9 @@ struct ResolvedMode {
             temperature: mode.creativity.temperature,
             reducesAcrossChunks: mode.singleDocument,
             systemPrompt: LLMPrompts.systemPrompt(forCustom: mode),
-            reduceSystemPrompt: LLMPrompts.reduceSystemPrompt(forCustom: mode)
+            reduceSystemPrompt: LLMPrompts.reduceSystemPrompt(forCustom: mode),
+            readsSelectedText: mode.readsSelectedText,
+            readsClipboard: mode.readsClipboard
         )
     }
 

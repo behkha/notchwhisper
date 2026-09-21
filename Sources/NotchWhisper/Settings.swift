@@ -30,6 +30,15 @@ import ServiceManagement
         static let llmEnabled      = "llmEnabled"
         static let llmMode         = "llmMode"            // legacy: bare built-in raw
         static let llmSelection    = "llmModeSelection"   // ProcessingMode storage key
+        // Voice activity (spec 04)
+        static let vadIgnoreSilent = "vadIgnoreSilent"
+        static let vadTrimSilence  = "vadTrimSilence"
+        static let vadSensitivity  = "vadSensitivity"
+        static let minPressMs      = "minPressMilliseconds"
+        static let liveAutoStop    = "liveAutoStopSeconds"
+        // Feedback
+        static let soundFeedback   = "soundFeedback"
+        static let notifications   = "notificationsEnabled"
     }
 
     // MARK: - Model
@@ -116,6 +125,12 @@ import ServiceManagement
     @Published var task: String {        // "transcribe" | "translate"
         didSet { defaults.set(task, forKey: Key.task) }
     }
+    /// The Settings switch for `task`: Whisper writes English instead of the
+    /// spoken language.
+    var translateToEnglish: Bool {
+        get { task == "translate" }
+        set { task = newValue ? "translate" : "transcribe" }
+    }
     @Published var launchAtLogin: Bool {
         didSet { defaults.set(launchAtLogin, forKey: Key.launchAtLogin) }
     }
@@ -169,6 +184,40 @@ import ServiceManagement
             && !LLMConnectionStore.shared.hasUsableConnection
     }
 
+    // MARK: - Voice activity (spec 04)
+
+    /// Discard a hold-to-talk capture with no speech in it instead of letting
+    /// Whisper invent a sentence for it.
+    @Published var vadIgnoreSilent: Bool {
+        didSet { defaults.set(vadIgnoreSilent, forKey: Key.vadIgnoreSilent) }
+    }
+    /// Cut the silence before and after the speech before decoding.
+    @Published var vadTrimSilence: Bool {
+        didSet { defaults.set(vadTrimSilence, forKey: Key.vadTrimSilence) }
+    }
+    @Published var vadSensitivity: VoiceActivityDetector.Sensitivity {
+        didSet { defaults.set(vadSensitivity.rawValue, forKey: Key.vadSensitivity) }
+    }
+    /// Presses shorter than this are treated as accidental. 0 = off.
+    @Published var minPressMilliseconds: Int {
+        didSet { defaults.set(minPressMilliseconds, forKey: Key.minPressMs) }
+    }
+    /// A live session ends itself after this much silence. 0 = never.
+    @Published var liveAutoStopSeconds: Int {
+        didSet { defaults.set(liveAutoStopSeconds, forKey: Key.liveAutoStop) }
+    }
+
+    // MARK: - Feedback
+
+    /// Start / stop / failure sounds.
+    @Published var soundFeedback: Bool {
+        didSet { defaults.set(soundFeedback, forKey: Key.soundFeedback) }
+    }
+    /// System notifications for things that finish in the background.
+    @Published var notificationsEnabled: Bool {
+        didSet { defaults.set(notificationsEnabled, forKey: Key.notifications) }
+    }
+
     // MARK: - Launch at login (SMAppService, macOS 13+)
     /// Mirrors `launchAtLogin` into the system's login-items registry. Called
     /// after the toggle changes and once at startup to reconcile.
@@ -219,6 +268,13 @@ import ServiceManagement
         self.reactiveGlow    = d.object(forKey: Key.reactiveGlow) != nil ? d.bool(forKey: Key.reactiveGlow) : true
         self.visualizerStyle = VisualizerStyle(raw: d.string(forKey: Key.visualizer))
         self.themeColor      = Tokens.Theme(rawValue: d.string(forKey: Key.themeColor) ?? "") ?? .ember
+        self.vadIgnoreSilent = d.object(forKey: Key.vadIgnoreSilent) != nil ? d.bool(forKey: Key.vadIgnoreSilent) : true
+        self.vadTrimSilence  = d.object(forKey: Key.vadTrimSilence) != nil ? d.bool(forKey: Key.vadTrimSilence) : true
+        self.vadSensitivity  = VoiceActivityDetector.Sensitivity(rawValue: d.string(forKey: Key.vadSensitivity) ?? "") ?? .normal
+        self.minPressMilliseconds = d.object(forKey: Key.minPressMs) != nil ? d.integer(forKey: Key.minPressMs) : 250
+        self.liveAutoStopSeconds  = d.integer(forKey: Key.liveAutoStop)
+        self.soundFeedback   = d.object(forKey: Key.soundFeedback) != nil ? d.bool(forKey: Key.soundFeedback) : true
+        self.notificationsEnabled = d.object(forKey: Key.notifications) != nil ? d.bool(forKey: Key.notifications) : true
         // AI processing (all defaults OFF so the app works exactly as before
         // until the user turns post-processing on).
         self.llmEnabled      = d.object(forKey: Key.llmEnabled) != nil ? d.bool(forKey: Key.llmEnabled) : false
