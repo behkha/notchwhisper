@@ -22,6 +22,7 @@ struct SettingsView: View {
                 SectionHeader("Settings", eyebrow: "NotchWhisper")
 
                 dictationGroup
+                MicrophoneSettingsGroup()
                 voiceGroup
                 appearanceGroup
                 ShortcutsSection()

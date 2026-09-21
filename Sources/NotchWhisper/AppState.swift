@@ -36,6 +36,13 @@ enum NotchMode: Equatable {
     /// flight — "Slack · Clean prose". Empty when neither had anything to say.
     /// Set when the mic opens, cleared when the transcript lands.
     @Published var sessionLabel: String = ""
+    /// The microphone the capture in flight fell back to — "AirPods Pro" when
+    /// the lid is closed on the built-in one, or the chosen mic is unplugged.
+    /// Empty when it records from exactly the mic chosen in Settings.
+    @Published var inputFallbackName: String = ""
+    /// `inputFallbackName` when the mic went away mid-capture and nothing
+    /// could replace it.
+    static let noMicrophoneLabel = "No microphone"
 
     /// Held while the model test playground or a benchmark owns the
     /// microphone. There is one shared `AudioRecorder`, so dictation must not

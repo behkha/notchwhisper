@@ -9,6 +9,7 @@ struct MainView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
     @ObservedObject private var theme = Tokens.ThemeManager.shared
+    @ObservedObject private var inputs = AudioInputManager.shared
 
     @State private var nav: Nav = .home
     @State private var aiTab: AITab = .connections
@@ -163,13 +164,22 @@ struct MainView: View {
         VStack(alignment: .leading, spacing: Tokens.Space.x2) {
             healthLine(ok: state.modelStatus == .ready,
                        label: state.modelStatus == .ready ? "Model ready" : "Model loading")
-            healthLine(ok: AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
-                       label: AVCaptureDevice.authorizationStatus(for: .audio) == .authorized ? "Microphone" : "Mic blocked")
+            healthLine(ok: micHealth.ok, label: micHealth.label)
             healthLine(ok: AutoTyper.isTrusted, label: AutoTyper.isTrusted ? "Accessibility" : "Accessibility off")
         }
         .padding(Tokens.Space.x3)
         .frame(maxWidth: .infinity, alignment: .leading)
         .card(radius: Tokens.Radius.md, padding: nil, elevated: false)
+    }
+
+    /// Permission first, then whether any microphone can hear right now —
+    /// named, so a closed lid or an unplugged mic shows up before dictating.
+    private var micHealth: (ok: Bool, label: String) {
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return (false, "Mic blocked") }
+        guard let device = inputs.resolution(for: settings).device else {
+            return (false, inputs.lidClosed ? "Lid closed · no mic" : "No microphone")
+        }
+        return (true, device.name)
     }
 
     private func healthLine(ok: Bool, label: String) -> some View {

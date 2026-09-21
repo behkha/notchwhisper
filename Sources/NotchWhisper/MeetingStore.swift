@@ -285,6 +285,7 @@ struct MeetingSession: Identifiable, Codable, Hashable {
         session.audioFile = relative
         let url = directory.appendingPathComponent(relative)
         do {
+            recorder.preferredInput = (Settings.shared.inputDeviceUID, Settings.shared.inputDeviceName)
             try await recorder.start(to: url, includeSystemAudio: includeSystemAudio)
         } catch {
             lastError = "The meeting couldn't start: \(error.localizedDescription)"

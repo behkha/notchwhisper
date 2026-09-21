@@ -23,6 +23,20 @@ if CommandLine.arguments.contains("--vad-selftest") {
     exit(VoiceActivitySelfTest.run())
 }
 
+// `NotchWhisper --mic-selftest` checks the input switcher and the lid-closed
+// fallback: the choice rules, the live device list, and — with BlackHole
+// installed — real captures routed to it while `say` speaks into it.
+if CommandLine.arguments.contains("--mic-selftest") {
+    nonisolated(unsafe) var done = false
+    nonisolated(unsafe) var exitCode: Int32 = 0
+    Task { @MainActor in
+        exitCode = await MicrophoneSelfTest.run()
+        done = true
+    }
+    while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+    exit(exitCode)
+}
+
 // `NotchWhisper --meeting-selftest <audio-file>` runs the Meetings pipeline
 // headless: the file becomes the mic channel of a two-channel WAV written by
 // the meeting recorder's writer (header patched along the way, as during a

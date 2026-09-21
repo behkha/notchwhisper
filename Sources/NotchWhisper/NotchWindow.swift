@@ -230,10 +230,12 @@ final class NotchController: ObservableObject {
         let pointer = NSEvent.mouseLocation
         let atPointer = NSScreen.screens.first { NSPointInRect(pointer, $0.frame) }
         let notched = NSScreen.screens.max(by: { $0.safeAreaInsets.top < $1.safeAreaInsets.top })
-        let screen = atPointer
-            ?? ((notched?.safeAreaInsets.top ?? 0) > 0
-                ? notched!
-                : (NSScreen.main ?? NSScreen.screens.first!))
+        // No display at all happens for a moment when the lid is closed on an
+        // external setup and the cable comes out (the Mac is about to sleep):
+        // leave the panel where it is rather than crash.
+        guard let screen = atPointer
+            ?? ((notched?.safeAreaInsets.top ?? 0) > 0 ? notched : nil)
+            ?? NSScreen.main ?? NSScreen.screens.first else { return }
         let info = NotchInfo.detect(from: screen)
         currentNotch = info
         notchInfo = info

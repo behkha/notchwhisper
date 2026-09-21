@@ -560,6 +560,26 @@ struct NotchView: View {
                 .background(Capsule().fill(.white.opacity(0.12)))
                 .fixedSize()
         }
+        // The mic, only when it isn't the one chosen: the lid is closed on
+        // the built-in one, the picked one is unplugged, or it went away
+        // mid-capture. Otherwise the island stays as it always was.
+        if !state.inputFallbackName.isEmpty {
+            let lost = state.inputFallbackName == AppState.noMicrophoneLabel
+            HStack(spacing: 3) {
+                Image(systemName: lost ? "mic.slash.fill" : "mic.fill")
+                    .font(.system(size: 8, weight: .semibold))
+                Text(state.inputFallbackName)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 104)
+            }
+            .font(Tokens.TypeScale.micro)
+            .foregroundStyle(lost ? Tokens.Color.danger : .white.opacity(0.8))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(.white.opacity(0.12)))
+            .fixedSize()
+        }
     }
 
     private var elapsed: String {

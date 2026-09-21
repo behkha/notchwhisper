@@ -53,11 +53,21 @@ final class MeetingRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
     private(set) var source: Source = .micOnly
     private(set) var fileURL: URL?
 
+    /// The microphone chosen in Settings (UID and name; nil UID = Automatic).
+    /// Set before `start`; read again whenever the mic has to be reopened.
+    var preferredInput: (uid: String?, name: String?) = (nil, nil)
+
     private var engine: AVAudioEngine?
+    private var micDevice: AudioInputDevice?
     private var micConverter: AVAudioConverter?
     private var stream: SCStream?
     private var systemConverter: AVAudioConverter?
     private var configObserver: NSObjectProtocol?
+    private var inputsObserver: NSObjectProtocol?
+    /// Mic re-opens are serialized here, and rate-limited: a device that
+    /// reconfigures itself on every start must not spin the recorder.
+    private let routeQueue = DispatchQueue(label: "com.behkha.notchwhisper.meeting.route")
+    private var recentReopens: [Date] = []
 
     private let lock = NSLock()
     private var micQueue: [Float] = []
@@ -137,14 +147,16 @@ final class MeetingRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
     // MARK: Microphone
 
     private func startMic() throws {
-        let engine = AVAudioEngine()
-        let input = engine.inputNode
-        let hardware = input.inputFormat(forBus: 0)
-        guard let converter = AVAudioConverter(from: hardware, to: Self.targetFormat) else {
-            throw RecorderError.converter
+        let resolution = AudioInputs.resolve(preferredUID: preferredInput.uid,
+                                             preferredName: preferredInput.name)
+        guard let device = resolution.device else {
+            throw AudioInputs.InputError.unavailable(resolution.message ?? "No microphone found.")
         }
-        micConverter = converter
-        input.installTap(onBus: 0, bufferSize: 4096, format: hardware) { [weak self] buffer, _ in
+        let engine = try AudioInputs.makeEngine(for: device)
+        micConverter = nil
+        // `format: nil` — a routed input's hardware format is the device's,
+        // not the node's output bus; naming the wrong one throws an exception.
+        engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
             guard let self else { return }
             let samples = self.convert(buffer, with: &self.micConverter)
             guard !samples.isEmpty else { return }
@@ -162,20 +174,45 @@ final class MeetingRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         engine.prepare()
         try engine.start()
         self.engine = engine
-        // AirPods connecting, a dock unplugged: the engine stops on a route
-        // change. Restart the tap and say so, rather than silently recording
-        // nothing for the rest of the meeting.
+        micDevice = device
+        if resolution.fallback != nil, let message = resolution.message {
+            onNotice?(message)
+        }
+        // AirPods connecting, a dock unplugged, the lid closing on the
+        // built-in mic: move to the next choice rather than silently
+        // recording nothing for the rest of the meeting.
         configObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
         ) { [weak self] _ in
-            guard let self, self.isRecording else { return }
-            self.stopMic(keepObserver: true)
-            do {
-                try self.startMic()
-                self.onNotice?("The microphone changed mid-meeting — recording continues on the new one.")
-            } catch {
-                self.onNotice?("The microphone changed and could not be reopened: \(error.localizedDescription)")
+            guard let self else { return }
+            self.routeQueue.async { self.micRouteChanged() }
+        }
+        if inputsObserver == nil {
+            inputsObserver = NotificationCenter.default.addObserver(
+                forName: .audioInputsChanged, object: nil, queue: nil
+            ) { [weak self] _ in
+                guard let self else { return }
+                self.routeQueue.async { self.micRouteChanged() }
             }
+        }
+    }
+
+    private func micRouteChanged() {
+        guard isRecording, let engine, let current = micDevice else { return }
+        // Routing reconfigures the engine a moment after it starts, which can
+        // stop it with nothing actually changed — restart it in place.
+        if AudioInputs.resume(engine, on: current) { return }
+        let now = Date()
+        recentReopens = recentReopens.filter { now.timeIntervalSince($0) < 10 } + [now]
+        guard recentReopens.count <= 3 else { return }
+        stopMic(keepObserver: true)
+        do {
+            try startMic()
+            if micDevice?.uid != current.uid {
+                onNotice?("The microphone changed mid-meeting — recording continues on \(micDevice?.name ?? "the new one").")
+            }
+        } catch {
+            onNotice?("The microphone went away and no other could be opened: \(error.localizedDescription)")
         }
     }
 
@@ -183,10 +220,15 @@ final class MeetingRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         engine = nil
+        micDevice = nil
         micConverter = nil
-        if !keepObserver, let configObserver {
+        if let configObserver {
             NotificationCenter.default.removeObserver(configObserver)
             self.configObserver = nil
+        }
+        if !keepObserver, let inputsObserver {
+            NotificationCenter.default.removeObserver(inputsObserver)
+            self.inputsObserver = nil
         }
     }
 

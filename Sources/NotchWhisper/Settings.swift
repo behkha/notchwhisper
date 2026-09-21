@@ -36,6 +36,9 @@ import ServiceManagement
         static let vadSensitivity  = "vadSensitivity"
         static let minPressMs      = "minPressMilliseconds"
         static let liveAutoStop    = "liveAutoStopSeconds"
+        // Microphone
+        static let inputDeviceUID  = "inputDeviceUID"     // nil = Automatic
+        static let inputDeviceName = "inputDeviceName"
         // Feedback
         static let soundFeedback   = "soundFeedback"
         static let notifications   = "notificationsEnabled"
@@ -207,6 +210,27 @@ import ServiceManagement
         didSet { defaults.set(liveAutoStopSeconds, forKey: Key.liveAutoStop) }
     }
 
+    // MARK: - Microphone
+
+    /// The input device dictation, meetings and the Models lab record from,
+    /// by Core Audio UID. nil = Automatic: follow System Settings → Sound, and
+    /// move to another mic when the lid is closed (the built-in one is off in
+    /// hardware then). A picked mic that is unplugged falls back the same way.
+    @Published private(set) var inputDeviceUID: String? {
+        didSet { defaults.set(inputDeviceUID, forKey: Key.inputDeviceUID) }
+    }
+    /// The picked mic's name, kept so "USB Mic isn't connected" can still name
+    /// it while it is unplugged.
+    @Published private(set) var inputDeviceName: String? {
+        didSet { defaults.set(inputDeviceName, forKey: Key.inputDeviceName) }
+    }
+
+    /// Picks a microphone; nil returns to Automatic.
+    func selectInput(_ device: AudioInputDevice?) {
+        inputDeviceUID = device?.uid
+        inputDeviceName = device?.name
+    }
+
     // MARK: - Feedback
 
     /// Start / stop / failure sounds.
@@ -273,6 +297,8 @@ import ServiceManagement
         self.vadSensitivity  = VoiceActivityDetector.Sensitivity(rawValue: d.string(forKey: Key.vadSensitivity) ?? "") ?? .normal
         self.minPressMilliseconds = d.object(forKey: Key.minPressMs) != nil ? d.integer(forKey: Key.minPressMs) : 250
         self.liveAutoStopSeconds  = d.integer(forKey: Key.liveAutoStop)
+        self.inputDeviceUID  = d.string(forKey: Key.inputDeviceUID)
+        self.inputDeviceName = d.string(forKey: Key.inputDeviceName)
         self.soundFeedback   = d.object(forKey: Key.soundFeedback) != nil ? d.bool(forKey: Key.soundFeedback) : true
         self.notificationsEnabled = d.object(forKey: Key.notifications) != nil ? d.bool(forKey: Key.notifications) : true
         // AI processing (all defaults OFF so the app works exactly as before

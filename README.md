@@ -46,6 +46,8 @@ On first launch the default `base` model downloads from Hugging Face (you'll see
 - **Context-aware modes** — a mode can read the text you have selected and your clipboard, so "reply to this" or "summarize the above" has something to work with. Off per mode until you turn it on; the editor says when that text would leave the Mac.
 - **Edit a selection by voice** — an **Edit selection** shortcut: highlight text in any app, hold the key, say "make it shorter" or "translate to German", and the selection is replaced with the result.
 - **Meetings** — record a call or a room (microphone plus, with your permission, the Mac's own audio) to a crash-safe file on disk, get a timestamped transcript you can click to replay, minutes written by your AI connection, Markdown/text/JSON/WAV export, and a one-click "delete audio, keep transcript".
+- **Microphone switcher** — pick the input NotchWhisper records from in Settings → Microphone or straight from the menu bar, without touching the system input other apps use. A test meter shows the mic hears you; a picked mic that's unplugged falls back to Automatic, and a capture whose mic disappears mid-sentence moves to the next one and keeps what it already heard.
+- **Works with the lid closed** — in clamshell mode (MacBook shut, external display over HDMI or USB-C) the built-in mic is disconnected in hardware, so NotchWhisper records from another microphone — AirPods, a USB mic or webcam, an audio interface, your iPhone — on its own, and the notch pill appears on the external display. With no other mic connected it says so instead of recording silence.
 - **Silence gate** — a recording with no speech in it is discarded instead of handed to Whisper, which invents "Thank you." on silence; silence is trimmed before decoding; accidental taps are ignored; a live session can end itself after a quiet spell. All tunable in Settings → Voice detection.
 - **Sounds and notifications** — a tick when the mic opens, a pop when it closes, a low note on failure; a system notification when a model finishes installing, a download fails, or an AI pass falls back to your original text while the app is in the background.
 - **Custom dictionary** — teach the model words it keeps getting wrong, and auto-correct heard phrases ("cloud code" → "Claude Code"). Entries bias recognition *and* fix the typed output. Editable in the UI or as a plain-text file.
@@ -74,6 +76,17 @@ In **Settings → Shortcuts**, add a shortcut from the **Edit selection** starte
 
 **Recording a meeting**
 Open the main window → **Meetings**. Read the one-time note about consent, then **Start recording**. With *Include the Mac's audio* on, macOS asks for the Screen Recording permission the first time — only audio is ever read; off records just your microphone. Audio streams to a two-channel 16 kHz WAV under `~/Library/Application Support/NotchWhisper/Meetings/` whose header is rewritten every ten seconds, so a crash still leaves a playable file (it shows as *Interrupted* and can be transcribed). Stopping transcribes the recording in 30-second windows, skipping the silent ones, with timestamps you can click to replay from that point. **Write minutes** runs the built-in *Meeting Minutes* mode (or any mode of yours) over the transcript; the first time your active connection is a hosted one you're asked before the transcript leaves the Mac. Export as Markdown, plain text, JSON or WAV, or delete the audio and keep the transcript.
+
+**Choosing a microphone**
+Settings → **Microphone** (or the *Microphone* row in the menu-bar panel) lists every connected input. **Automatic** follows System Settings → Sound; picking a mic makes NotchWhisper use it whenever it's connected — only NotchWhisper's input changes, never the system one. *Test* opens that mic and shows a level bar. Dictation, meetings and the Models lab all use the same choice. If the picked mic is unplugged, Automatic takes over and the notch names the mic in use; if a mic disappears mid-recording, the recording moves to the next one and keeps what was already said.
+
+**With the lid closed (clamshell mode)**
+A MacBook with a T2 chip or Apple silicon disconnects its built-in microphone in hardware whenever the lid is closed — no app can record from it then, so there is no software way around it. What NotchWhisper does instead:
+- It reads the lid state and, while the lid is closed, never records from the built-in mic. Automatic picks the best other microphone: the headset you're listening on, then wired (USB, the headphone jack), an audio interface, Bluetooth, a display's mic, and last your iPhone. A loopback device like BlackHole is never picked automatically.
+- The notch pill shows at the top centre of the external display, and names the mic in use when it isn't your usual one.
+- With no other microphone connected, a dictation stops right away with *"Lid closed, so the built-in mic is off…"* rather than recording silence — Settings → Microphone says the same before you try.
+
+To dictate with the lid closed, connect any of: AirPods or another Bluetooth headset, a USB microphone or webcam, a wired headset, or your iPhone (macOS 13+, iPhone on iOS 16+, nearby and signed in to the same Apple Account — it shows up as a microphone in the list). HDMI carries no microphone, so the monitor itself can't provide one unless it has a USB/Thunderbolt mic of its own.
 
 **Changing the hotkey**
 In **Settings → Hotkey**, click the key cap and press what you want. Three shapes are accepted:
@@ -226,6 +239,7 @@ Every finished dictation is saved to **Transcripts** (searchable, with copy / co
 | Language | Dictation | auto-detect, or any Whisper language | auto-detect |
 | Translate to English | Dictation | on / off | off |
 | Launch at login | Dictation | on / off | on |
+| Microphone | Microphone | Automatic, or any connected input | Automatic |
 | Ignore silent recordings | Voice detection | on / off | on |
 | Trim silence before transcribing | Voice detection | on / off | on |
 | Sensitivity | Voice detection | Low / Normal / High | Normal |
@@ -275,7 +289,10 @@ Sources/NotchWhisper/
 ├── AppDelegate.swift     Wires UI, hotkey, and the record → transcribe → type → history flow
 ├── AppState.swift        Observable state shared by UI + logic
 ├── Settings.swift        UserDefaults-backed preferences
-├── AudioRecorder.swift   AVAudioEngine → 16 kHz mono + live RMS levels
+├── AudioRecorder.swift   AVAudioEngine → 16 kHz mono + live RMS levels, on the chosen mic
+├── AudioInputs.swift     Input devices, lid state, which mic to use, routing, mic test meter
+├── MicrophoneViews.swift Microphone picker (Settings + menu bar) and the test meter row
+├── MicrophoneSelfTest.swift --mic-selftest: choice rules + real routed captures via BlackHole
 ├── AudioFileImport.swift Decodes a picked audio/video file to 16 kHz mono (AVAudioFile → AVAssetReader)
 ├── Transcriber.swift     Engine façade: WhisperKit wrapper + routes llama:* ids to LlamaASR
 ├── LlamaASR.swift        llama.cpp / mtmd engine for GGUF Qwen3-ASR (hold-to-talk)
@@ -416,6 +433,8 @@ Non-activating dev/test hooks (they never steal focus):
 - `--wave-preview` — shows the notch pill with a simulated voice waveform so you can evaluate or screenshot the ribbon; it stays up until you quit the app.
 - `--type-test "some text"` — types the text into the frontmost app via the normal AutoTyper path and exits (optional `--delay N` seconds to let the target app get focus first). An end-to-end test of dictation insertion with no UI and no microphone.
 - `--file-selftest <audio-or-video-file>` — runs the Upload page's pipeline headless: decodes the file, loads the selected model, transcribes the whole clip with progress on stderr, and prints the transcript.
+- `--mic-selftest` — checks the microphone choice (lid open and closed, unplugged, loopback-only) over made-up device lists, lists the live devices, and — with [BlackHole](https://github.com/ExistentialAudio/BlackHole) installed — records through the real recorder, meter and meeting recorder while `say` speaks into BlackHole, including a capture that moves off the built-in mic when the (simulated) lid closes. The routed capture is transcribed by the active model.
+- `--simulate-lid-closed` — runs the app as though the MacBook were in clamshell mode, so the lid-closed fallback and messages can be checked with the lid open.
 - `/tmp/nw_type_trigger` — a file whose contents are typed into the frontmost app ~2 s after launch; a diagnostic report is written to `/tmp/nw_typeresult.txt`.
 
 ---
@@ -446,4 +465,6 @@ This project **does not currently ship a `LICENSE` file**. Until one is added, t
 - **Hotkey doesn't fire / permission prompt reappears after a rebuild** — this is the ad-hoc signing issue above. Run `./setup_signing_identity.sh` once, rebuild, and re-grant permissions.
 - **Local LLM says "can't connect"** — make sure your Ollama/LM Studio/Unsloth server is running and the **Endpoint** in Settings → Local LLM points at its `…/v1` address. Use **Test connection** to verify. Your text is sent only to that local endpoint.
 - **Wrong word keeps appearing** — add it as a **Term** (to bias recognition) and/or a **Correction** (to fix the typed output) in the Dictionary tab.
-- **Notch pill position with multiple displays** — it's placed on the notched (built-in) display when more than one screen is attached.
+- **Notch pill position with multiple displays** — it follows the pointer: it appears at the top centre of the display you're working on (inside the notch on the built-in one). With the lid closed it's the external display.
+- **Nothing is typed with the lid closed** — the built-in mic is off in hardware while the lid is shut. Connect another microphone (see *With the lid closed*); Settings → Microphone shows which one NotchWhisper will use, and *Test* proves it hears you.
+- **The wrong microphone is used** — pick it in Settings → Microphone or the menu bar. Automatic follows System Settings → Sound, except that with the lid closed it skips the built-in mic.

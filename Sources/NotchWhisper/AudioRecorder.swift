@@ -4,12 +4,25 @@ import WhisperKit
 
 /// Captures microphone audio via AVAudioEngine, resamples to 16 kHz mono
 /// (what Whisper expects) and exposes a live level ring for the notch UI.
+///
+/// Records from the microphone chosen in Settings (see `AudioInputs`), not
+/// necessarily the system default — and moves to the next choice mid-capture
+/// if that mic is unplugged or the lid closes on the built-in one.
 @MainActor final class AudioRecorder {
     private let state: AppState
     private let settings: Settings
 
     private var engine: AVAudioEngine?
-    private var converter: AVAudioConverter?
+    /// The device the running capture listens to.
+    private(set) var activeDevice: AudioInputDevice?
+    private var configObserver: NSObjectProtocol?
+    private var inputsObserver: NSObjectProtocol?
+    /// Re-opens allowed in one capture — a device that reconfigures itself on
+    /// every start must not spin the recorder forever.
+    private var reopenBudget = 0
+    /// Engines opened for the current capture: 1 unless it had to move to
+    /// another mic or reopen. Diagnostic — `--mic-selftest` reads it.
+    private(set) var engineOpens = 0
     /// 16 kHz mono capture buffer.
     ///
     /// MUTATED ON THE MIC TAP'S AUDIO THREAD (AVAudioEngine tap callbacks do
@@ -28,69 +41,123 @@ import WhisperKit
         self.settings = settings
     }
 
-    /// Begin recording. Throws if the mic is unavailable/denied.
+    /// Begin recording. Throws if no microphone can be used (none connected,
+    /// the lid closed on the only one) or it is unavailable/denied.
     func start() throws {
         // Defensive: never leak a tap/engine if start is called while already
         // capturing (overlapping record + live-dictation lifecycles).
         if engine != nil { _ = stop() }
+        bufferLock.lock()
         audioSamples = []
-        let engine = AVAudioEngine()
-        let input = engine.inputNode
-        let hwFmt = input.inputFormat(forBus: 0)
-        let outFmt = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: targetRate,
-            channels: 1,
-            interleaved: false
-        )!
-        guard let converter = AVAudioConverter(from: hwFmt, to: outFmt) else {
-            throw RecorderError.converterInit
-        }
-        self.converter = converter
-        self.engine = engine
+        bufferLock.unlock()
 
-        input.installTap(onBus: 0, bufferSize: 4096, format: hwFmt) { [weak self] buffer, _ in
-            self?.process(buffer)
+        let resolution = AudioInputs.resolve(preferredUID: settings.inputDeviceUID,
+                                             preferredName: settings.inputDeviceName)
+        guard let device = resolution.device else {
+            throw AudioInputs.InputError.unavailable(resolution.message ?? "No microphone found.")
         }
-        engine.prepare()
-        try engine.start()
+        engineOpens = 0
+        try open(device)
+        // Name the mic in the notch only when it isn't the one chosen.
+        state.inputFallbackName = resolution.fallback == nil ? "" : device.name
+        reopenBudget = 4
+        inputsObserver = NotificationCenter.default.addObserver(
+            forName: .audioInputsChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.inputRouteChanged() }
+        }
     }
 
-    private func process(_ buffer: AVAudioPCMBuffer) {
-        guard let converter = converter else { return }
-        let ratio = targetRate / buffer.format.sampleRate
-        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1
-        guard let outBuf = AVAudioPCMBuffer(
-            pcmFormat: converter.outputFormat, frameCapacity: capacity
-        ) else { return }
-
-        var error: NSError?
-        converter.convert(to: outBuf, error: &error) { _, statusPtr in
-            statusPtr.pointee = .haveData
-            return buffer
+    /// Opens `device` and starts feeding the capture buffer from it.
+    private func open(_ device: AudioInputDevice) throws {
+        let engine = try AudioInputs.makeEngine(for: device)
+        let resampler = MonoResampler(sampleRate: targetRate)
+        engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
+            self?.process(resampler.convert(buffer))
         }
-        if let ch = outBuf.floatChannelData, outBuf.frameLength > 0 {
-            let ptr = ch[0]
-            let count = Int(outBuf.frameLength)
-            let chunk = Array(UnsafeBufferPointer(start: ptr, count: count))
-            // Audio thread → guard the shared buffer (the live-dictation loop
-            // reads and trims it from the MainActor).
-            bufferLock.lock()
-            audioSamples.append(contentsOf: chunk)
-            bufferLock.unlock()
+        engine.prepare()
+        do {
+            try engine.start()
+        } catch {
+            engine.inputNode.removeTap(onBus: 0)
+            throw error
+        }
+        self.engine = engine
+        activeDevice = device
+        engineOpens += 1
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.inputRouteChanged() }
+        }
+    }
 
-            // RMS level for the notch waveform — computed on the CONVERTED
-            // buffer, which is guaranteed float32 (the hardware buffer's
-            // floatChannelData can be nil on some devices/formats, which
-            // would silently kill the live meter).
-            var sum: Float = 0
-            for i in 0..<count { let s = ptr[i]; sum += s * s }
-            let rms = sqrt(sum / Float(count))
-            let norm = min(1.0, max(0.06, rms * 7.0))
-            Task { @MainActor in
-                self.pushLevel(norm)
-                self.state.pushAudio(chunk)   // spectrum analyzer input
+    /// Releases the engine but keeps what was captured.
+    private func close() {
+        if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+        configObserver = nil
+        engine?.inputNode.removeTap(onBus: 0)
+        engine?.stop()
+        engine = nil
+        activeDevice = nil
+    }
+
+    /// A mic came or went, the lid moved, or the engine reconfigured itself.
+    /// A capture stays on its mic while that mic still works — it never jumps
+    /// to a device that merely appeared — restarting the engine in place if it
+    /// stopped. It moves to the next choice only when the mic can't go on:
+    /// unplugged, or the built-in one with the lid now closed. An engine that
+    /// followed the system input elsewhere is reopened on its own mic. What
+    /// was recorded so far is kept either way.
+    private func inputRouteChanged() {
+        guard let engine, let current = activeDevice else { return }
+        if AudioInputs.resume(engine, on: current) { return }
+        let keep = AudioInputs.canKeepUsing(current)
+        guard reopenBudget > 0 else {
+            if !engine.isRunning { state.inputFallbackName = AppState.noMicrophoneLabel }
+            return
+        }
+        reopenBudget -= 1
+
+        close()
+        let next = keep ? current
+            : AudioInputs.resolve(preferredUID: settings.inputDeviceUID,
+                                  preferredName: settings.inputDeviceName).device
+        do {
+            guard let next else {
+                throw AudioInputs.InputError.unavailable(AppState.noMicrophoneLabel)
             }
+            try open(next)
+            // A capture that changed mics mid-sentence says which one it is on.
+            if next.uid != current.uid { state.inputFallbackName = next.name }
+        } catch {
+            // Nothing left to hear with. The session stays open so the user
+            // can stop it and keep what was said before the mic went away.
+            state.inputFallbackName = AppState.noMicrophoneLabel
+            Feedback.play(.error)
+        }
+    }
+
+    /// One converted chunk from the tap. Runs on the audio thread.
+    private func process(_ chunk: [Float]) {
+        guard !chunk.isEmpty else { return }
+        // Audio thread → guard the shared buffer (the live-dictation loop
+        // reads and trims it from the MainActor).
+        bufferLock.lock()
+        audioSamples.append(contentsOf: chunk)
+        bufferLock.unlock()
+
+        // RMS level for the notch waveform — computed on the CONVERTED
+        // buffer, which is guaranteed float32 (the hardware buffer's
+        // floatChannelData can be nil on some devices/formats, which
+        // would silently kill the live meter).
+        var sum: Float = 0
+        for s in chunk { sum += s * s }
+        let rms = sqrt(sum / Float(chunk.count))
+        let norm = min(1.0, max(0.06, rms * 7.0))
+        Task { @MainActor in
+            self.pushLevel(norm)
+            self.state.pushAudio(chunk)   // spectrum analyzer input
         }
     }
 
@@ -164,16 +231,14 @@ import WhisperKit
 
     /// Stop recording and return the captured 16 kHz mono samples.
     func stop() -> [Float] {
-        engine?.inputNode.removeTap(onBus: 0)
-        engine?.stop()
-        engine = nil
-        converter = nil
+        if let inputsObserver { NotificationCenter.default.removeObserver(inputsObserver) }
+        inputsObserver = nil
+        close()
+        state.inputFallbackName = ""
         bufferLock.lock()
         let out = audioSamples
         audioSamples = []
         bufferLock.unlock()
         return out
     }
-
-    enum RecorderError: Error { case converterInit }
 }

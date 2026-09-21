@@ -136,6 +136,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // exactly what was happening: no status item ever appeared.
         _ = menuBar
         UserNotifier.shared.prepare()
+        // Start watching microphones and the lid now, so a capture can move
+        // off a mic that goes away mid-sentence.
+        _ = AudioInputManager.shared
         // The Aura shader compiles at runtime; do it before the notch needs it.
         if settings.visualizerStyle == .aura { AuraRenderer.warmUp() }
         installHotkey()
@@ -539,9 +542,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
             }
         } catch {
-            state.mode = .error
-            state.statusMessage = "Mic unavailable: \(error.localizedDescription)"
+            micFailed(error)
         }
+    }
+
+    /// The mic wouldn't open. A microphone-choice error is already a sentence
+    /// meant for the user ("Lid closed, so the built-in mic is off…").
+    private func micFailed(_ error: Error) {
+        state.mode = .error
+        state.statusMessage = error is AudioInputs.InputError
+            ? error.localizedDescription
+            : "Mic unavailable: \(error.localizedDescription)"
+        state.sessionLabel = ""
+        pendingEffective = nil
+        // A live start sets these before opening the mic; nothing else will
+        // clear them if it never opened.
+        transcriber.languageOverride = nil
+        live.autoTypeOverride = nil
+        Feedback.play(.error)
     }
 
     func stopRecording() {
@@ -682,8 +700,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             live.start()
         } catch {
-            state.mode = .error
-            state.statusMessage = "Mic unavailable: \(error.localizedDescription)"
+            micFailed(error)
         }
     }
 

@@ -141,6 +141,8 @@ private struct MenuPanel: View {
 
             // Quick toggles
             VStack(spacing: 0) {
+                MicrophoneMenuBarRow()
+                Divider().overlay(Tokens.Color.hairline)
                 toggleRow("dot.radiowaves.left.and.right", "Live dictation", isOn: $settings.liveDictation)
                     .onChange(of: settings.liveDictation) { _, _ in
                         NotificationCenter.default.post(name: .dictationChanged, object: nil)
