@@ -10,18 +10,18 @@ struct ConnectionEditor: View {
 
     let connection: LLMConnection
 
-    @State private var name: String
-    @State private var provider: LLMProvider
-    @State private var endpoint: String
-    @State private var model: String
-    @State private var apiKey: String = ""
-    @State private var keyLoaded = false
+    @ViewState private var name: String
+    @ViewState private var provider: LLMProvider
+    @ViewState private var endpoint: String
+    @ViewState private var model: String
+    @ViewState private var apiKey: String = ""
+    @ViewState private var keyLoaded = false
 
-    @State private var isTesting = false
-    @State private var testMessage: (text: String, ok: Bool)?
-    @State private var isFetchingModels = false
-    @State private var availableModels: [String] = []
-    @State private var modelsMessage: String?
+    @ViewState private var isTesting = false
+    @ViewState private var testMessage: (text: String, ok: Bool)?
+    @ViewState private var isFetchingModels = false
+    @ViewState private var availableModels: [String] = []
+    @ViewState private var modelsMessage: String?
 
     init(connection: LLMConnection) {
         self.connection = connection
@@ -290,19 +290,19 @@ struct ModeEditor: View {
 
     let mode: CustomMode
 
-    @State private var name: String
-    @State private var instructions: String
-    @State private var symbolName: String
-    @State private var creativity: ModeCreativity
-    @State private var singleDocument: Bool
-    @State private var usesSelectedText: Bool
-    @State private var usesClipboard: Bool
+    @ViewState private var name: String
+    @ViewState private var instructions: String
+    @ViewState private var symbolName: String
+    @ViewState private var creativity: ModeCreativity
+    @ViewState private var singleDocument: Bool
+    @ViewState private var usesSelectedText: Bool
+    @ViewState private var usesClipboard: Bool
 
-    @State private var sampleText: String
-    @State private var previewResult: String?
-    @State private var previewError: String?
-    @State private var isPreviewing = false
-    @State private var showAdvanced = false
+    @ViewState private var sampleText: String
+    @ViewState private var previewResult: String?
+    @ViewState private var previewError: String?
+    @ViewState private var isPreviewing = false
+    @ViewState private var showAdvanced = false
 
     private static let defaultSample =
         "so um i think we should ship the new parser on friday, it fixes the token cache bug that keeps hitting the ingest service, and uh we still need to update the docs"

@@ -158,32 +158,32 @@ struct ModelsView: View {
     @ObservedObject private var catalog = ModelCatalog.shared
 
     // Navigation
-    @State private var detailModel: ModelDescriptor?
-    @State private var route: ModelsRoute?
-    @State private var removalTarget: ModelDescriptor?
-    @State private var removalRefusal: String?
+    @ViewState private var detailModel: ModelDescriptor?
+    @ViewState private var route: ModelsRoute?
+    @ViewState private var removalTarget: ModelDescriptor?
+    @ViewState private var removalRefusal: String?
 
     // Discovery
-    @State private var query = ""
-    @State private var debouncedQuery = ""
-    @State private var searchTask: Task<Void, Never>?
-    @State private var remoteResults: [ModelDescriptor] = []
-    @State private var isSearching = false
-    @State private var searchError: String?
-    @State private var filters = DiscoveryFilters()
-    @State private var sort: ModelSortOrder = .recommended
-    @State private var showAllDiscover = false
+    @ViewState private var query = ""
+    @ViewState private var debouncedQuery = ""
+    @ViewState private var searchTask: Task<Void, Never>?
+    @ViewState private var remoteResults: [ModelDescriptor] = []
+    @ViewState private var isSearching = false
+    @ViewState private var searchError: String?
+    @ViewState private var filters = DiscoveryFilters()
+    @ViewState private var sort: ModelSortOrder = .recommended
+    @ViewState private var showAllDiscover = false
     /// Bumped by "Browse Models" so the scroll reader can jump to Discover. The
     /// section is already on the page, so without this the button looks dead.
-    @State private var browseRequests = 0
+    @ViewState private var browseRequests = 0
 
     // Storage
-    @State private var storageReport = ModelStorageReport()
+    @ViewState private var storageReport = ModelStorageReport()
 
     // Interaction
     @FocusState private var searchFocused: Bool
-    @State private var selectedInstalledId: String?
-    @State private var isDropTargeted = false
+    @ViewState private var selectedInstalledId: String?
+    @ViewState private var isDropTargeted = false
 
     private let hw = HardwareInfo.current
 

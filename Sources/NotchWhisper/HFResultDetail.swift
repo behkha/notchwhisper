@@ -20,9 +20,9 @@ struct HFResultDetail: View {
     @ObservedObject private var registry = ModelRegistry.shared
     @ObservedObject private var queue = ModelDownloadQueue.shared
 
-    @State private var repo: HFRepoMetadata?
-    @State private var isLoading = false
-    @State private var error: String?
+    @ViewState private var repo: HFRepoMetadata?
+    @ViewState private var isLoading = false
+    @ViewState private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x4) {

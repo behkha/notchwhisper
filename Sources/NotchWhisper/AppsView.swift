@@ -14,8 +14,8 @@ struct AppsView: View {
     @ObservedObject private var modes = CustomModeStore.shared
     @ObservedObject private var theme = Tokens.ThemeManager.shared
 
-    @State private var editing: AppProfile?
-    @State private var toDelete: AppProfile?
+    @ViewState private var editing: AppProfile?
+    @ViewState private var toDelete: AppProfile?
 
     var body: some View {
         let _ = theme.theme
@@ -174,7 +174,7 @@ private struct ProfileCard: View {
     let duplicate: () -> Void
     let remove: () -> Void
 
-    @State private var hover = false
+    @ViewState private var hover = false
 
     var body: some View {
         HStack(alignment: .top, spacing: Tokens.Space.x3) {
@@ -265,8 +265,8 @@ struct AppProfileEditor: View {
 
     let profile: AppProfile
 
-    @State private var draft: AppProfile
-    @State private var newTool = ""
+    @ViewState private var draft: AppProfile
+    @ViewState private var newTool = ""
 
     init(profile: AppProfile) {
         self.profile = profile

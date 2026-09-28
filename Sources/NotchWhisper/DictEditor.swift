@@ -9,11 +9,11 @@ struct DictEditor: View {
     let onSave: (DictEntry) -> Void
     let onCancel: () -> Void
 
-    @State private var kind: DictEntryKind
-    @State private var phrase: String
-    @State private var replacement: String
-    @State private var note: String
-    @State private var localWarnings: [String] = []
+    @ViewState private var kind: DictEntryKind
+    @ViewState private var phrase: String
+    @ViewState private var replacement: String
+    @ViewState private var note: String
+    @ViewState private var localWarnings: [String] = []
 
     init(entry: DictEntry, onSave: @escaping (DictEntry) -> Void, onCancel: @escaping () -> Void) {
         self.entry = entry

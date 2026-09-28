@@ -29,7 +29,7 @@ struct HFBrowserView: View {
     @ObservedObject private var opener = HubBrowserOpener.shared
     @StateObject private var search = HFHubSearchModel()
     @FocusState private var searchFocused: Bool
-    @State private var expanded: String?
+    @ViewState private var expanded: String?
 
     private var visible: [HFHubModel] { search.visible }
 
@@ -564,8 +564,8 @@ struct HubBrowserWindow: View {
     @ObservedObject private var queue = ModelDownloadQueue.shared
     @ObservedObject private var theme = Tokens.ThemeManager.shared
 
-    @State private var detailModel: ModelDescriptor?
-    @State private var removalRefusal: String?
+    @ViewState private var detailModel: ModelDescriptor?
+    @ViewState private var removalRefusal: String?
 
     var body: some View {
         let _ = theme.theme

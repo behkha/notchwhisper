@@ -8,7 +8,7 @@ struct UpdateView: View {
     @ObservedObject private var updater = Updater.shared
     @ObservedObject private var theme = Tokens.ThemeManager.shared
 
-    @State private var showLog = false
+    @ViewState private var showLog = false
 
     var body: some View {
         let _ = theme.theme

@@ -157,7 +157,7 @@ struct InstalledModelRow: View {
     @ObservedObject private var registry = ModelRegistry.shared
     @ObservedObject private var queue = ModelDownloadQueue.shared
     @ObservedObject private var benchmarks = ModelBenchmarkService.shared
-    @State private var hovering = false
+    @ViewState private var hovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x2) {
@@ -253,7 +253,7 @@ struct DiscoverModelCard: View {
     let actions: ModelActions
 
     @ObservedObject private var queue = ModelDownloadQueue.shared
-    @State private var hovering = false
+    @ViewState private var hovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x3) {

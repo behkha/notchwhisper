@@ -18,7 +18,7 @@ struct HFResultRow: View {
 
     @ObservedObject private var avatars = HFOrgAvatars.shared
     @ObservedObject private var metadata = HFMetadataCache.shared
-    @State private var hovering = false
+    @ViewState private var hovering = false
 
     private var installability: HFInstallability { model.installability }
 

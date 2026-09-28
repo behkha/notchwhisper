@@ -343,7 +343,7 @@ struct DownloadProgressPanel: View {
     var onCancel: () -> Void = {}
     var onRetry: () -> Void = {}
 
-    @State private var showDetails = false
+    @ViewState private var showDetails = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x2) {
@@ -496,7 +496,7 @@ struct DownloadProgressPanel: View {
 /// Placeholder that matches the real row's shape, so the page never flashes
 /// empty and never jumps when content arrives.
 struct ModelRowSkeleton: View {
-    @State private var shimmer = false
+    @ViewState private var shimmer = false
 
     var body: some View {
         HStack(spacing: Tokens.Space.x3) {
@@ -658,7 +658,7 @@ struct ToolbarIconButton: View {
     var iconOnly = false
     let action: () -> Void
 
-    @State private var hovering = false
+    @ViewState private var hovering = false
 
     var body: some View {
         Button(action: action) {
@@ -699,7 +699,7 @@ struct SpecLine: View {
     var monospaced = false
     var copyable = false
 
-    @State private var copied = false
+    @ViewState private var copied = false
 
     var body: some View {
         HStack(alignment: .top, spacing: Tokens.Space.x3) {
@@ -741,7 +741,7 @@ struct DisclosureSection<Content: View>: View {
     var startsExpanded = false
     @ViewBuilder var content: () -> Content
 
-    @State private var expanded: Bool
+    @ViewState private var expanded: Bool
 
     init(_ title: String, subtitle: String? = nil, startsExpanded: Bool = false,
          @ViewBuilder content: @escaping () -> Content) {

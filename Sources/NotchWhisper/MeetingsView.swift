@@ -11,13 +11,13 @@ struct MeetingsView: View {
     @ObservedObject private var connections = LLMConnectionStore.shared
     @ObservedObject private var modes = CustomModeStore.shared
 
-    @State private var includeSystemAudio = true
-    @State private var selectedID: UUID?
-    @State private var search = ""
-    @State private var titleDraft = ""
-    @State private var pendingDelete: MeetingSession?
-    @State private var pendingHostedSummary: (id: UUID, mode: CustomMode)?
-    @State private var copied = false
+    @ViewState private var includeSystemAudio = true
+    @ViewState private var selectedID: UUID?
+    @ViewState private var search = ""
+    @ViewState private var titleDraft = ""
+    @ViewState private var pendingDelete: MeetingSession?
+    @ViewState private var pendingHostedSummary: (id: UUID, mode: CustomMode)?
+    @ViewState private var copied = false
 
     var body: some View {
         let _ = theme.theme

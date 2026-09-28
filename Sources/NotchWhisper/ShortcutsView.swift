@@ -14,11 +14,11 @@ struct ShortcutsSection: View {
     @ObservedObject private var store = HotkeyBindingStore.shared
     @ObservedObject private var modes = CustomModeStore.shared
 
-    @State private var editing: HotkeyBinding?
-    @State private var toDelete: HotkeyBinding?
+    @ViewState private var editing: HotkeyBinding?
+    @ViewState private var toDelete: HotkeyBinding?
     /// Re-read on every appearance: the user may have granted the permission in
     /// System Settings while this window was open.
-    @State private var hasPermission = HotkeyMonitor.hasPermission
+    @ViewState private var hasPermission = HotkeyMonitor.hasPermission
 
     var body: some View {
         SettingsGroup(title: "Shortcuts", footnote: footnote) {
@@ -289,7 +289,7 @@ struct HotkeyBindingEditor: View {
 
     let binding: HotkeyBinding
 
-    @State private var draft: HotkeyBinding
+    @ViewState private var draft: HotkeyBinding
     @StateObject private var recorder = HotkeyRecorder()
 
     init(binding: HotkeyBinding) {

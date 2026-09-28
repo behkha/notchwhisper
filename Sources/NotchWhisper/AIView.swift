@@ -21,10 +21,10 @@ struct AIView: View {
     @ObservedObject private var theme = Tokens.ThemeManager.shared
 
     @Binding var tab: AITab
-    @State private var editingConnection: LLMConnection?
-    @State private var editingMode: CustomMode?
-    @State private var connectionToDelete: LLMConnection?
-    @State private var modeToDelete: CustomMode?
+    @ViewState private var editingConnection: LLMConnection?
+    @ViewState private var editingMode: CustomMode?
+    @ViewState private var connectionToDelete: LLMConnection?
+    @ViewState private var modeToDelete: CustomMode?
 
     var body: some View {
         let _ = theme.theme
@@ -267,7 +267,7 @@ private struct ConnectionCard: View {
     let test: () -> Void
     let remove: () -> Void
 
-    @State private var hover = false
+    @ViewState private var hover = false
 
     var body: some View {
         HStack(alignment: .top, spacing: Tokens.Space.x3) {
@@ -360,7 +360,7 @@ private struct ModeCard: View {
     let duplicate: () -> Void
     let remove: () -> Void
 
-    @State private var hover = false
+    @ViewState private var hover = false
 
     var body: some View {
         HStack(alignment: .top, spacing: Tokens.Space.x3) {

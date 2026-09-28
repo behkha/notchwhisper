@@ -69,12 +69,12 @@ struct AudioCapturePanel: View {
     let onCaptured: ([Float], String) -> Void
 
     @EnvironmentObject private var state: AppState
-    @State private var isRecording = false
-    @State private var isDecoding = false
-    @State private var elapsed: TimeInterval = 0
-    @State private var dropTargeted = false
-    @State private var error: String?
-    @State private var ticker: Task<Void, Never>?
+    @ViewState private var isRecording = false
+    @ViewState private var isDecoding = false
+    @ViewState private var elapsed: TimeInterval = 0
+    @ViewState private var dropTargeted = false
+    @ViewState private var error: String?
+    @ViewState private var ticker: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x3) {
@@ -237,13 +237,13 @@ struct ModelTestSheet: View {
     @EnvironmentObject private var state: AppState
     @ObservedObject private var registry = ModelRegistry.shared
 
-    @State private var selectedId: String
-    @State private var samples: [Float] = []
-    @State private var sourceName = ""
-    @State private var transcript = ""
-    @State private var processingSeconds: Double?
-    @State private var isRunning = false
-    @State private var error: String?
+    @ViewState private var selectedId: String
+    @ViewState private var samples: [Float] = []
+    @ViewState private var sourceName = ""
+    @ViewState private var transcript = ""
+    @ViewState private var processingSeconds: Double?
+    @ViewState private var isRunning = false
+    @ViewState private var error: String?
 
     init(modelId: String, onClose: @escaping () -> Void) {
         self.modelId = modelId
@@ -383,9 +383,9 @@ struct ModelBenchmarkSheet: View {
     @ObservedObject private var service = ModelBenchmarkService.shared
     @ObservedObject private var registry = ModelRegistry.shared
 
-    @State private var reference = ""
-    @State private var error: String?
-    @State private var showSampleCapture = false
+    @ViewState private var reference = ""
+    @ViewState private var error: String?
+    @ViewState private var showSampleCapture = false
 
     private var model: ModelDescriptor { registry.descriptor(for: modelId) }
 
@@ -594,9 +594,9 @@ struct ModelCompareSheet: View {
     @ObservedObject private var registry = ModelRegistry.shared
     @ObservedObject private var service = ModelBenchmarkService.shared
 
-    @State private var leftId: String
-    @State private var rightId: String
-    @State private var isRunning = false
+    @ViewState private var leftId: String
+    @ViewState private var rightId: String
+    @ViewState private var isRunning = false
 
     init(initialIds: [String], onClose: @escaping () -> Void) {
         self.initialIds = initialIds
@@ -808,8 +808,8 @@ struct ModelImportSheet: View {
     let onClose: () -> Void
 
     @ObservedObject private var importer = ModelImporter.shared
-    @State private var name = ""
-    @State private var copyIntoStorage = true
+    @ViewState private var name = ""
+    @ViewState private var copyIntoStorage = true
 
     var body: some View {
         SheetScaffold(
@@ -923,8 +923,8 @@ struct ModelStorageSheet: View {
     @ObservedObject private var location = ModelStorageLocation.shared
     @EnvironmentObject private var state: AppState
 
-    @State private var confirmUnused = false
-    @State private var error: String?
+    @ViewState private var confirmUnused = false
+    @ViewState private var error: String?
 
     /// Read live rather than from the report: the sheet can stay open across a
     /// model switch, and a stale "Active" flag would both mislabel the row and
@@ -1229,10 +1229,10 @@ struct PasteRepositorySheet: View {
     let onClose: () -> Void
 
     @ObservedObject private var metadata = HFMetadataCache.shared
-    @State private var input = ""
-    @State private var result: HFRepoMetadata?
-    @State private var isLoading = false
-    @State private var error: String?
+    @ViewState private var input = ""
+    @ViewState private var result: HFRepoMetadata?
+    @ViewState private var isLoading = false
+    @ViewState private var error: String?
 
     var body: some View {
         SheetScaffold(

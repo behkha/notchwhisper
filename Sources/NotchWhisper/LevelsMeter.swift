@@ -94,5 +94,5 @@ struct RecordButton: View {
         .help(isActive ? "Stop" : "Start")
     }
 
-    @State private var pulse = false
+    @ViewState private var pulse = false
 }

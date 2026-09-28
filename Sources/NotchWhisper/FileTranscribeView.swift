@@ -263,8 +263,8 @@ struct FileTranscribeView: View {
     @ObservedObject private var theme = Tokens.ThemeManager.shared
     @ObservedObject private var model = FileTranscribeModel.shared
 
-    @State private var dropTargeted = false
-    @State private var copied = false
+    @ViewState private var dropTargeted = false
+    @ViewState private var copied = false
 
     var body: some View {
         let _ = theme.theme

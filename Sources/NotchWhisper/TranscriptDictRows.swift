@@ -7,7 +7,7 @@ struct TranscriptRow: View {
     let rec: TranscriptRecord
     let copied: Bool
     var copyAction: (() -> Void)? = nil
-    @State private var hover = false
+    @ViewState private var hover = false
 
     var body: some View {
         HStack(alignment: .top, spacing: Tokens.Space.x3) {

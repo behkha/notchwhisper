@@ -27,6 +27,31 @@ if [ "$GIT_COMMIT" = "unknown" ]; then
 fi
 echo "==> Build provenance: $GIT_COMMIT (dirty=$GIT_DIRTY)"
 
+# From the macOS 27 SDK on, `@State` resolves to a SwiftUI macro whose plugin
+# ships only with full Xcode, so it breaks every Command Line Tools build.
+# Sources use the `@ViewState` alias instead (see ViewState.swift).
+if BARE_STATE="$(grep -rnE '^[[:space:]]*@State([[:space:](]|$)' "$ROOT/Sources")"; then
+  echo "error: use @ViewState, not @State (it fails to build without Xcode on the macOS 27 SDK):" >&2
+  echo "$BARE_STATE" >&2
+  exit 1
+fi
+
+# `tail` alone hides the first compiler errors, which are usually the cause;
+# on failure, print those before the tail.
+swift_build() {
+  local out; out="$(mktemp)"
+  if ! swift build "$@" >"$out" 2>&1; then
+    echo "==> First errors:"
+    grep -m 15 "error:" "$out" || true
+    echo "==> End of build output:"
+    tail -40 "$out"
+    rm -f "$out"
+    return 1
+  fi
+  tail -40 "$out"
+  rm -f "$out"
+}
+
 echo "==> Vendoring llama.cpp (Qwen3-ASR backend)"
 "$ROOT/scripts/fetch_llama.sh"
 
@@ -70,11 +95,11 @@ fi
 if [ "$DO_UNIVERSAL" = "1" ]; then
   TMP="$(mktemp -d)"
   # arm64 slice
-  swift build -c release --arch arm64 2>&1 | tail -40
+  swift_build -c release --arch arm64
   SRC_ARM="$(swift build -c release --arch arm64 --show-bin-path | tr -d '[:space:]')"
   mkdir -p "$TMP/arm64" && cp -R "$SRC_ARM/." "$TMP/arm64/"
   # x86_64 slice
-  swift build -c release --arch x86_64 2>&1 | tail -40
+  swift_build -c release --arch x86_64
   SRC_X86="$(swift build -c release --arch x86_64 --show-bin-path | tr -d '[:space:]')"
   mkdir -p "$TMP/x86_64" && cp -R "$SRC_X86/." "$TMP/x86_64/"
   # Merge the main executable (fall back to whichever slice exists).
@@ -97,7 +122,7 @@ if [ "$DO_UNIVERSAL" = "1" ]; then
   done
   BIN_SRC="$TMP"
 else
-  swift build -c release $ARCH_FLAGS 2>&1 | tail -40
+  swift_build -c release $ARCH_FLAGS
   BIN_SRC="$(swift build -c release $ARCH_FLAGS --show-bin-path | tr -d '[:space:]')"
 fi
 popd >/dev/null

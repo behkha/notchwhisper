@@ -18,9 +18,9 @@ struct ModelDetailSheet: View {
     @ObservedObject private var benchmarks = ModelBenchmarkService.shared
     @ObservedObject private var metadata = HFMetadataCache.shared
 
-    @State private var selectedVariantId: String?
-    @State private var pinRevision = false
-    @State private var revisionText = ""
+    @ViewState private var selectedVariantId: String?
+    @ViewState private var pinRevision = false
+    @ViewState private var revisionText = ""
 
     private let hw = HardwareInfo.current
 

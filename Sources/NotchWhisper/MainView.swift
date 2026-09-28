@@ -11,8 +11,8 @@ struct MainView: View {
     @ObservedObject private var theme = Tokens.ThemeManager.shared
     @ObservedObject private var inputs = AudioInputManager.shared
 
-    @State private var nav: Nav = .home
-    @State private var aiTab: AITab = .connections
+    @ViewState private var nav: Nav = .home
+    @ViewState private var aiTab: AITab = .connections
     @Namespace private var pill
 
     enum Nav: String, CaseIterable, Identifiable {
@@ -226,7 +226,7 @@ struct HomeView: View {
     @ObservedObject private var hotkeys = HotkeyBindingStore.shared
     @Binding var nav: MainView.Nav
 
-    @State private var copiedID: UUID?
+    @ViewState private var copiedID: UUID?
 
     var body: some View {
         let _ = theme.theme
@@ -490,8 +490,8 @@ struct TranscriptsView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
     @ObservedObject private var history = HistoryStore.shared
-    @State private var copiedID: UUID?
-    @State private var confirmClear = false
+    @ViewState private var copiedID: UUID?
+    @ViewState private var confirmClear = false
 
     var body: some View {
         ScrollView {
@@ -567,8 +567,8 @@ struct DictView: View {
     @EnvironmentObject private var settings: Settings
     @ObservedObject private var dict = DictionaryStore.shared
 
-    @State private var showEditor = false
-    @State private var editingEntry: DictEntry?
+    @ViewState private var showEditor = false
+    @ViewState private var editingEntry: DictEntry?
 
     var body: some View {
         ScrollView {

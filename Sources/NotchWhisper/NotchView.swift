@@ -95,7 +95,7 @@ struct NotchView: View {
     @EnvironmentObject private var controller: NotchController
 
     private enum Phase { case compact, active, result }
-    @State private var phase: Phase = .compact
+    @ViewState private var phase: Phase = .compact
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: state.mode == .idle && !isBootLoading)) { timeline in
