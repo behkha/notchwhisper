@@ -16,6 +16,14 @@ import UserNotifications
 
     private var authorizationRequested = false
 
+    /// What clicking a notification opens. Carried in `userInfo`.
+    enum Action: String {
+        case showMainWindow
+        case showUpdates
+    }
+    /// Read from the nonisolated delegate callbacks, so not main-actor bound.
+    private nonisolated static let actionKey = "action"
+
     private override init() { super.init() }
 
     /// Installs the delegate. Called once at launch.
@@ -24,13 +32,18 @@ import UserNotifications
         UNUserNotificationCenter.current().delegate = self
     }
 
-    func post(title: String, body: String, id: String = UUID().uuidString) {
-        guard Self.isAvailable, Settings.shared.notificationsEnabled else { return }
+    /// - Parameter honorsNotificationSetting: false for notices with their own
+    ///   switch (update availability), which the general toggle doesn't cover.
+    func post(title: String, body: String, id: String = UUID().uuidString,
+              action: Action = .showMainWindow, honorsNotificationSetting: Bool = true) {
+        guard Self.isAvailable else { return }
+        if honorsNotificationSetting, !Settings.shared.notificationsEnabled { return }
         let center = UNUserNotificationCenter.current()
         let deliver = {
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
+            content.userInfo = [Self.actionKey: action.rawValue]
             center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
         }
         if authorizationRequested {
@@ -49,8 +62,15 @@ import UserNotifications
         _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        let action = notification.request.content.userInfo[Self.actionKey] as? String
         Task { @MainActor in
-            completionHandler(NSApp.isActive ? [] : [.banner, .list])
+            // An update notice shows even in front: it comes from a background
+            // check, so nothing on screen has said it yet.
+            if action == Action.showUpdates.rawValue {
+                completionHandler([.banner, .list])
+            } else {
+                completionHandler(NSApp.isActive ? [] : [.banner, .list])
+            }
         }
     }
 
@@ -58,8 +78,13 @@ import UserNotifications
         _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        let action = response.notification.request.content.userInfo[Self.actionKey] as? String
         Task { @MainActor in
-            AppDelegate.shared?.showMainWindow()
+            if action == Action.showUpdates.rawValue {
+                AppDelegate.shared?.showUpdates()
+            } else {
+                AppDelegate.shared?.showMainWindow()
+            }
             completionHandler()
         }
     }

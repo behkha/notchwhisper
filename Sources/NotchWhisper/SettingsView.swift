@@ -514,6 +514,16 @@ struct SettingsView: View {
                 Toggle("", isOn: $updates.autoCheck).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
 
+            SettingRow(icon: "bell.badge", title: "Notify me when an update is available",
+                       subtitle: !UserNotifier.isAvailable
+                        ? "Available when NotchWhisper runs as a packaged app."
+                        : updates.autoCheck
+                            ? "A system notification once per new build, even while NotchWhisper is in front. Click it to review and install."
+                            : "Turn on automatic checks to be notified.") {
+                Toggle("", isOn: $updates.notifyWhenAvailable).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                    .disabled(!updates.autoCheck || !UserNotifier.isAvailable)
+            }
+
             if updates.pendingUpdate != nil || updateStatusLine != nil {
                 VStack(alignment: .leading, spacing: Tokens.Space.x2) {
                     if updates.pendingUpdate != nil {

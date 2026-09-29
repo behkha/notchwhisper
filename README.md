@@ -271,6 +271,7 @@ Every finished dictation is saved to **Transcripts** (searchable, with copy / co
 | Haptic feedback | Feedback | on / off | on |
 | Notifications | Feedback | on / off | on |
 | Check for updates automatically | Updates | on / off | on |
+| Notify me when an update is available | Updates | on / off | on |
 
 ---
 
@@ -412,7 +413,7 @@ NotchWhisper follows the **`main` branch**, not tagged releases: `build.sh` stam
 
 The rebuild is what keeps the app's TCC grants (Microphone, Input Monitoring, Accessibility) alive — a downloaded prebuilt binary would carry a different signature and reset every permission. In exchange, an update takes a few minutes and needs the Xcode command line tools. The build log is visible in the window while it runs, and *Skip this version* silences the banner until something newer lands.
 
-Automatic checks run at launch and every 3 hours; turn them off in **Settings → Updates**, or check on demand from **NotchWhisper → Check for Updates…**.
+Automatic checks run at launch and every 3 hours; turn them off in **Settings → Updates**, or check on demand from **NotchWhisper → Check for Updates…**. When an automatic check finds a new build, a system notification says so — once per build, never for one you skipped — and clicking it opens the Updates window. It has its own switch in **Settings → Updates**, independent of the general notifications toggle.
 
 **Releases.** Pushing a `v*` tag cuts a GitHub Release containing source archives only. The workflow at `.github/workflows/release.yml` is kept minimal on purpose; once Developer ID signing + notarization is wired up, it can be extended to build and attach notarized `.dmg`s again.
 

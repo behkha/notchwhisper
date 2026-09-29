@@ -57,13 +57,26 @@ final class UpdateChecker: ObservableObject {
         }
     }
 
+    /// A system notification when a background check finds a new build
+    /// (Settings → Updates). Separate from the general notifications switch:
+    /// an update is the one thing the user can't discover from what they're
+    /// already doing.
+    @Published var notifyWhenAvailable: Bool {
+        didSet { UserDefaults.standard.set(notifyWhenAvailable, forKey: Key.notify) }
+    }
+
     /// A commit the user chose to skip — no banner until something newer lands.
     private var skippedSHA: String?
+    /// The newest build a notification was already posted for, so each update
+    /// is announced once — not again on every launch or every 3-hour check.
+    private var notifiedSHA: String?
 
     private enum Key {
         static let autoCheck = "updateAutoCheck"
         static let lastCheck = "updateLastCheck"
         static let skipped   = "updateSkippedSHA"
+        static let notify    = "updateNotify"
+        static let notified  = "updateNotifiedSHA"
     }
 
     private var timer: Timer?
@@ -74,7 +87,9 @@ final class UpdateChecker: ObservableObject {
         let d = UserDefaults.standard
         autoCheck = d.object(forKey: Key.autoCheck) != nil ? d.bool(forKey: Key.autoCheck) : true
         lastCheck = d.object(forKey: Key.lastCheck) as? Date
+        notifyWhenAvailable = d.object(forKey: Key.notify) != nil ? d.bool(forKey: Key.notify) : true
         skippedSHA = d.string(forKey: Key.skipped)
+        notifiedSHA = d.string(forKey: Key.notified)
         if autoCheck { scheduleTimer() }
     }
 
@@ -91,7 +106,7 @@ final class UpdateChecker: ObservableObject {
     private func scheduleTimer() {
         timer?.invalidate()
         let t = Timer.scheduledTimer(withTimeInterval: Self.interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.check() }
+            Task { @MainActor in self?.check(userInitiated: false) }
         }
         t.tolerance = 15 * 60
         RunLoop.main.add(t, forMode: .common)
@@ -102,7 +117,7 @@ final class UpdateChecker: ObservableObject {
     func checkAtLaunch() {
         guard autoCheck else { return }
         if let last = lastCheck, Date().timeIntervalSince(last) < 30 * 60 { return }
-        check()
+        check(userInitiated: false)
     }
 
     func skip(_ update: AvailableUpdate) {
@@ -113,7 +128,10 @@ final class UpdateChecker: ObservableObject {
 
     // MARK: - The check
 
-    func check() {
+    /// `userInitiated` is false for the launch and timer checks: those are the
+    /// ones whose result nobody is looking at, so they announce a new build.
+    /// A check the user asked for shows its answer in the window they opened.
+    func check(userInitiated: Bool = true) {
         inFlight?.cancel()
         status = .checking
         inFlight = Task { [weak self] in
@@ -125,6 +143,7 @@ final class UpdateChecker: ObservableObject {
                 UserDefaults.standard.set(self.lastCheck, forKey: Key.lastCheck)
                 if let result {
                     self.status = .available(result)
+                    if !userInitiated { self.announce(result) }
                 } else {
                     self.status = .upToDate
                 }
@@ -135,6 +154,37 @@ final class UpdateChecker: ObservableObject {
                 self.status = .failed(Self.describe(error))
             }
         }
+    }
+
+    /// Posts one system notification per new build. Skipped builds stay quiet,
+    /// and a build that was already announced isn't announced again.
+    private func announce(_ update: AvailableUpdate) {
+        guard notifyWhenAvailable,
+              update.headSHA != skippedSHA,
+              update.headSHA != notifiedSHA else { return }
+        notifiedSHA = update.headSHA
+        UserDefaults.standard.set(update.headSHA, forKey: Key.notified)
+        UserNotifier.shared.post(
+            title: "NotchWhisper update available",
+            body: Self.announcement(update),
+            id: "update.available",
+            action: .showUpdates,
+            honorsNotificationSetting: false
+        )
+    }
+
+    /// "3 new changes, including “Add Parakeet…”. Click to review and install."
+    nonisolated static func announcement(_ update: AvailableUpdate) -> String {
+        let latest = update.entries.first.map { "“\($0.title)”" }
+        let lead: String
+        if !update.baseUnknown, update.commitCount > 0 {
+            lead = update.commitCount == 1 ? "1 new change" : "\(update.commitCount) new changes"
+        } else {
+            lead = "New changes"
+        }
+        let changes = latest.map { update.commitCount == 1 && !update.baseUnknown ? "\(lead): \($0)." : "\(lead), including \($0)." }
+            ?? "\(lead) on \(AppVersion.branch)."
+        return changes + " Click to review and install."
     }
 
     private static func describe(_ error: Error) -> String {
