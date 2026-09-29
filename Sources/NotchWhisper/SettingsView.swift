@@ -194,12 +194,12 @@ struct SettingsView: View {
     private var dictationGroup: some View {
         SettingsGroup(title: "Dictation") {
             SettingRow(icon: "dot.radiowaves.left.and.right", title: "Live dictation",
-                       subtitle: LlamaModelOption.isLlamaId(settings.modelId)
-                            ? "Not available with Qwen3-ASR — that model uses hold-to-talk. Switch to a Whisper model for live dictation."
+                       subtitle: !ModelEngine.supportsLive(settings.modelId)
+                            ? "Not available with Qwen3-ASR — that model uses hold-to-talk. Switch to a Whisper, Parakeet or Apple Speech model for live dictation."
                             : "Type into the focused field as you speak. The Record button, the menu bar and every shortcut become press-to-start / press-to-stop — unless a shortcut pins its own behaviour.") {
                 Toggle("", isOn: $settings.liveDictation)
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
-                    .disabled(LlamaModelOption.isLlamaId(settings.modelId))
+                    .disabled(!ModelEngine.supportsLive(settings.modelId))
                     .onChange(of: settings.liveDictation) { _, _ in
                         NotificationCenter.default.post(name: .dictationChanged, object: nil)
                     }

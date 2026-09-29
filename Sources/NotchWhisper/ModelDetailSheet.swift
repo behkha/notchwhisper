@@ -183,7 +183,7 @@ struct ModelDetailSheet: View {
                 NSWorkspace.shared.open(model.modelCardURL)
             } label: {
                 HStack(spacing: 4) {
-                    Text("View model card on Hugging Face")
+                    Text(model.format == .system ? "View Apple's documentation" : "View model card on Hugging Face")
                     Image(systemName: "arrow.up.right")
                 }
                 .font(Tokens.TypeScale.caption)

@@ -44,7 +44,7 @@ final class ModelImporter: ObservableObject {
             case .unreadable:
                 return "NotchWhisper couldn't read that location."
             case .unrecognized(let name):
-                return "\(name) doesn't look like a model NotchWhisper can run. It accepts a Core ML Whisper folder or a GGUF speech model with its mmproj file."
+                return "\(name) doesn't look like a model NotchWhisper can run. It accepts a Core ML Whisper folder, a Core ML Parakeet folder, or a GGUF speech model with its mmproj file."
             case .incompleteCoreML(let missing):
                 return "That Core ML folder is missing \(missing.joined(separator: ", ")). All three compiled bundles are required."
             case .ggufMissingProjector:
@@ -155,6 +155,27 @@ final class ModelImporter: ObservableObject {
                 fileCount: ModelDisk.coreMLBundles.count,
                 notes: ModelDisk.coreMLBundles.map { "\($0) — verified" }
             )
+        }
+
+        // A Parakeet folder (FluidInference's Core ML layout): four bundles and
+        // the SentencePiece vocabulary.
+        if let version = ParakeetASR.detectVersion(in: url) {
+            let bundles = contents.map(\.lastPathComponent).filter { $0.hasSuffix(".mlmodelc") }.sorted()
+            return Candidate(
+                sourceURL: url,
+                suggestedName: url.lastPathComponent,
+                engine: .fluidAudio,
+                format: .coreML,
+                sizeBytes: ModelDisk.directoryBytes(url),
+                fileCount: bundles.count + 1,
+                notes: bundles.map { "\($0) — found" }
+                    + ["parakeet_vocab.json — found",
+                       version == "v2" ? "Parakeet v2 decoder (English)" : "Parakeet v3 decoder (multilingual)"]
+            )
+        }
+        if names.contains("Preprocessor.mlmodelc") || names.contains("JointDecision.mlmodelc")
+            || names.contains("JointDecisionv3.mlmodelc") {
+            throw ImportError.unrecognized("\(url.lastPathComponent) (an incomplete Parakeet folder)")
         }
 
         let ggufs = contents.filter { $0.pathExtension.lowercased() == "gguf" }
@@ -306,8 +327,9 @@ final class ModelImporter: ObservableObject {
     static func estimateMemory(diskBytes: Int64, engine: ModelEngine) -> Int64 {
         guard diskBytes > 0 else { return 0 }
         switch engine {
-        case .whisperKit: return Int64(Double(diskBytes) * 1.4)
-        case .llamaCPP:   return Int64(Double(diskBytes) * 1.6)
+        case .whisperKit, .fluidAudio: return Int64(Double(diskBytes) * 1.4)
+        case .llamaCPP:                return Int64(Double(diskBytes) * 1.6)
+        case .appleSpeech:             return 0
         }
     }
 }

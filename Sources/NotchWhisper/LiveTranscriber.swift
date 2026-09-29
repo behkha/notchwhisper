@@ -391,7 +391,8 @@ final class LiveTranscriber {
         do {
             segments = try await transcriber.liveTranscribe(
                 window,
-                biasTerms: DictionaryStore.shared.biasingTerms()
+                biasTerms: DictionaryStore.shared.biasingTerms(),
+                typedBoundary: typedUpto > start ? Double(typedUpto - start) / Self.sampleRate : nil
             )
         } catch is CancellationError {
             return false                    // stop() tore the session down mid-decode
@@ -488,6 +489,15 @@ final class LiveTranscriber {
                 // something said a moment ago.
                 let flushAgainstBoundary = segStart <= typedUpto + boundaryEpsSamples
                 if flushAgainstBoundary, Self.newChunk(typed: rawAccumulated, fresh: text) == nil {
+                    typedUpto = min(samples.count, max(typedUpto, segEnd))
+                    continue
+                }
+                // Parakeet and Apple Speech re-hear the last typed words with
+                // timestamps that land just past the boundary more often than
+                // Whisper does, so for them a flush segment also sheds a
+                // PARTIAL overlap ("review the" + "review the quarterly…").
+                if flushAgainstBoundary, transcriber.activeEngine != .whisperKit {
+                    typeTail(text)
                     typedUpto = min(samples.count, max(typedUpto, segEnd))
                     continue
                 }
@@ -643,7 +653,7 @@ final class LiveTranscriber {
         rawAccumulated = Self.canonicalize("\(rawAccumulated) \(text)".trimmingCharacters(in: .whitespaces))
 
         let (corrected, _) = DictionaryStore.shared.applyCorrections(text)
-        let tail = Self.canonicalize(corrected)
+        let tail = Self.capitalizingAfterSentenceEnd(Self.canonicalize(corrected), typed: typedText)
         guard !tail.isEmpty else { return }
 
         // "Capture to history only" suppresses the KEYSTROKES, not the
@@ -684,7 +694,7 @@ final class LiveTranscriber {
         // whole running text would re-type already-typed words when a phrase
         // happens to complete across a delta.
         let (corrected, _) = DictionaryStore.shared.applyCorrections(chunk)
-        let tail = Self.canonicalize(corrected)
+        let tail = Self.capitalizingAfterSentenceEnd(Self.canonicalize(corrected), typed: typedText)
         guard !tail.isEmpty else { return "" }
 
         // As in `appendAndType`: suppressing the keystrokes must not suppress
@@ -709,6 +719,16 @@ final class LiveTranscriber {
 
     /// Collapses all whitespace runs to single spaces and trims the edges —
     /// Whisper sometimes attaches stray spaces to segment boundaries.
+    /// A window that starts mid-sentence decodes its first word in lower case
+    /// even when the text already typed ended a sentence ("…budget. we
+    /// agreed"). Parakeet and Apple Speech do this; Whisper, prompted with the
+    /// typed text, rarely does, so for it this is a no-op.
+    static func capitalizingAfterSentenceEnd(_ tail: String, typed: String) -> String {
+        guard let last = typed.last(where: { !$0.isWhitespace }), ".?!".contains(last),
+              let first = tail.first, first.isLowercase else { return tail }
+        return first.uppercased() + tail.dropFirst()
+    }
+
     static func canonicalize(_ s: String) -> String {
         let parts = s.split(whereSeparator: { $0.isWhitespace })
         return parts.joined(separator: " ")

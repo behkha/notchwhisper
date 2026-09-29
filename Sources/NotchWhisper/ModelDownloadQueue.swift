@@ -304,8 +304,20 @@ final class ModelDownloadQueue: ObservableObject {
         let folderName = d.folderName
         let engine = d.engine
         let id = d.id
+        if engine == .appleSpeech {
+            // The files belong to macOS; "installed" means the recognizer for
+            // the dictation language is now present.
+            return (await AppleSpeechASR.isReady(languageCode: Settings.shared.language), "", 0)
+        }
         return await Task.detached(priority: .utility) { () -> (Bool, String, Int64) in
             switch engine {
+            case .fluidAudio:
+                guard let option = ParakeetModelOption.find(id: id),
+                      ParakeetASR.isDownloaded(option, root: root) else { return (false, "", 0) }
+                let dir = option.dir(root: root)
+                return (true, dir.path, ModelDisk.directoryBytes(dir))
+            case .appleSpeech:
+                return (false, "", 0)
             case .llamaCPP:
                 if let custom = CustomGGUFModel.parse(id) {
                     guard GGUFDownloader.customComplete(custom) else { return (false, "", 0) }

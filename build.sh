@@ -153,6 +153,15 @@ fi
 # Bundle any dylibs SwiftPM emitted alongside the executable.
 find "$BIN_SRC" -maxdepth 1 -name "*.dylib" -exec cp {} "$FRI/" \; || true
 
+# SwiftPM resource bundles (FluidAudio ships one). The generated `Bundle.module`
+# accessor looks in Contents/Resources of an app. Universal builds keep one
+# copy per slice one level down; the bundles are arch-independent, so the
+# first of each name wins.
+find "$BIN_SRC" -maxdepth 2 -type d -name "*.bundle" | while read -r bundle; do
+  name="$(basename "$bundle")"
+  [ -e "$RES/$name" ] || cp -R "$bundle" "$RES/$name"
+done
+
 # Bundle the vendored llama.cpp / mtmd libraries (the Qwen3-ASR backend). These
 # aren't emitted by SwiftPM — they live in vendor/llama/lib — so copy the real
 # (unversioned-major) dylibs explicitly. Their install names are @rpath/… so the

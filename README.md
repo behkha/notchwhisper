@@ -2,7 +2,7 @@
 
 > A free, local voice-to-text app for macOS that lives in the **MacBook notch** and types your speech straight into whatever text field is focused — no subscriptions. Transcription never leaves your Mac; the optional AI pass goes to whichever connection you choose, local or hosted, and the app tells you which.
 
-NotchWhisper runs speech recognition **on your Mac** with [WhisperKit](https://github.com/argmaxinc/WhisperKit) (Core ML Whisper). Models download on demand from Hugging Face and never leave your machine. Hold a hotkey, speak, and the words appear wherever your cursor is — Notes, Messages, your editor, a browser input, anywhere.
+NotchWhisper runs speech recognition **on your Mac** with [WhisperKit](https://github.com/argmaxinc/WhisperKit) (Core ML Whisper), NVIDIA's Parakeet through [FluidAudio](https://github.com/FluidInference/FluidAudio), Qwen3-ASR through llama.cpp, or the recognizer built into macOS 26. Models download on demand from Hugging Face and never leave your machine. Hold a hotkey, speak, and the words appear wherever your cursor is — Notes, Messages, your editor, a browser input, anywhere.
 
 It's the open, local alternative to apps whose notch display is locked behind a paid plan.
 
@@ -147,9 +147,25 @@ Apple Silicon only. The **Models** page also offers **Qwen3-ASR** — Qwen's mul
 | Qwen3-ASR 1.7B (Q8) | ~2.5 GB | 16 GB+ |
 | Qwen3-ASR 1.7B (BF16) | ~4.7 GB | 24 GB+ |
 
-GGUF weights download on demand from `ggml-org/Qwen3-ASR-*-GGUF` into `~/Library/Application Support/NotchWhisper/Models/llama/`. **Hold-to-talk only** — live dictation stays on WhisperKit (Qwen3-ASR has no streaming/timestamp API). The dictionary-correction and local-LLM passes run on its output unchanged.
+GGUF weights download on demand from `ggml-org/Qwen3-ASR-*-GGUF` into `~/Library/Application Support/NotchWhisper/Models/llama/`. **Hold-to-talk only** — live dictation needs WhisperKit, Parakeet or Apple Speech (Qwen3-ASR has no streaming/timestamp API). The dictionary-correction and local-LLM passes run on its output unchanged.
 
 The prebuilt llama.cpp libraries are vendored in `vendor/llama/` (pinned to a llama.cpp release; regenerate or bump with `scripts/fetch_llama.sh`). `build.sh` copies them into `NotchWhisper.app/Contents/Frameworks` and the ad-hoc/self-signed `--deep` signature covers them. For a **notarized** release each `vendor/llama` dylib must be signed with your Developer ID, the hardened runtime, and a secure timestamp before notarization.
+
+### Parakeet (FluidAudio)
+
+Apple Silicon only. [Parakeet TDT](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) is NVIDIA's FastConformer + token-and-duration transducer — a different architecture from Whisper, so its Core ML bundles (`Preprocessor`, `Encoder`, `Decoder`, `JointDecision`) are opened by [FluidAudio](https://github.com/FluidInference/FluidAudio) rather than WhisperKit. It runs on the Neural Engine at roughly 100× real time, fast enough to re-decode the live window on every tick, so it drives **live dictation** as well as hold-to-talk, uploads and meetings.
+
+| Model | Download | Languages |
+| --- | --- | --- |
+| Parakeet Ultra | ~632 MB | 25 European languages — the most accurate build |
+| Parakeet v3 | ~483 MB | 25 European languages |
+| Parakeet v2 (English) | ~464 MB | English only, best recall on rare words |
+
+Weights come from FluidInference's `*-coreml` repositories into `~/Library/Application Support/NotchWhisper/Models/fluidaudio/`; searching the Hub for one of those repositories installs the same catalog model. **Import** also accepts a Parakeet folder from disk. Parakeet takes no prompt, so dictionary terms reach its text through the correction pass rather than as a bias.
+
+### Apple Speech (macOS 26+)
+
+On macOS 26 and later, **Apple Speech** uses the recognizer built into the system (`SpeechAnalyzer` / `SpeechTranscriber`) — nothing to download for languages macOS already has; others are fetched and managed by macOS itself. It can't detect the language on its own, so it follows the language setting (or the Mac's language when that's auto). It supports live dictation, and dictionary terms are passed to it as contextual strings.
 
 ---
 
@@ -294,11 +310,15 @@ Sources/NotchWhisper/
 ├── MicrophoneViews.swift Microphone picker (Settings + menu bar) and the test meter row
 ├── MicrophoneSelfTest.swift --mic-selftest: choice rules + real routed captures via BlackHole
 ├── AudioFileImport.swift Decodes a picked audio/video file to 16 kHz mono (AVAudioFile → AVAssetReader)
-├── Transcriber.swift     Engine façade: WhisperKit wrapper + routes llama:* ids to LlamaASR
+├── Transcriber.swift     Engine façade: WhisperKit wrapper + routes llama:*, parakeet:* and apple:* ids
 ├── LlamaASR.swift        llama.cpp / mtmd engine for GGUF Qwen3-ASR (hold-to-talk)
 ├── LlamaModels.swift     Qwen3-ASR GGUF catalog (llama:* ids)
+├── ParakeetASR.swift     FluidAudio engine for Parakeet TDT (download, load, transcribe)
+├── ParakeetModels.swift  Parakeet catalog (parakeet:* ids)
+├── AppleSpeechASR.swift  SpeechAnalyzer engine + locale asset installs (apple:speech)
+├── EngineSegment.swift   Timed text spans from the non-Whisper engines, grouped for live dictation
 ├── GGUFDownloader.swift  Resumable 2-file GGUF download from Hugging Face
-├── LiveTranscriber.swift Continuous type-as-you-speak loop (WhisperKit only)
+├── LiveTranscriber.swift Continuous type-as-you-speak loop (WhisperKit, Parakeet, Apple Speech)
 ├── AutoTyper.swift       Accessibility insert + CGEvent keystroke fallback
 ├── HotkeyMonitor.swift   Global hotkey tap (bare modifier / combination / key + modifiers)
 ├── HotkeyRecorder.swift  Shortcut recorder for Settings (keyDown + flagsChanged)

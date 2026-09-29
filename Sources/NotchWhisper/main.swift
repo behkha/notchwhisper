@@ -118,6 +118,75 @@ if let i = CommandLine.arguments.firstIndex(of: "--gguf-selftest"),
     exit(code)
 }
 
+// `NotchWhisper --parakeet-download-selftest <parakeet:…>` runs the app's
+// Parakeet download path (FluidAudio's transfer plus the disk-byte sampler the
+// progress bar reads) and prints what the UI would show. It writes model files
+// only — never the installation registry. Bad arguments exit rather than fall
+// through to a full app launch.
+if let i = CommandLine.arguments.firstIndex(of: "--parakeet-download-selftest") {
+    guard CommandLine.arguments.count >= i + 2,
+          let option = ParakeetModelOption.find(id: CommandLine.arguments[i + 1]) else {
+        fputs("usage: --parakeet-download-selftest <\(ParakeetModelOption.all.map(\.id).joined(separator: "|"))>\n", stderr)
+        exit(2)
+    }
+    nonisolated(unsafe) var done = false
+    nonisolated(unsafe) var code: Int32 = 0
+    Task { @MainActor in
+        let state = AppState.shared
+        let transcriber = Transcriber(state, Settings.shared)
+        let ticker = Task { @MainActor in
+            while !Task.isCancelled {
+                if state.isDownloading {
+                    fputs("parakeet-download-selftest: \(state.downloadLabel) \(Int((state.displayProgress * 100).rounded()))% · \(state.downloadDetailText)\n", stderr)
+                }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
+        let ok = await transcriber.download(modelId: option.id)
+        ticker.cancel()
+        let complete = ParakeetASR.isDownloaded(option)
+        fputs("parakeet-download-selftest: ok=\(ok) isDownloaded=\(complete)\n", stderr)
+        code = ok && complete ? 0 : 1
+        done = true
+    }
+    while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+    exit(code)
+}
+
+// `NotchWhisper --models-selftest` prints how the model layer sees the Parakeet
+// and Apple Speech engines on this Mac — install state, compatibility, live
+// support — and how a Parakeet repository found on the Hub is routed. The
+// registry runs read-only: it scans the real disk but writes nothing.
+if CommandLine.arguments.contains("--models-selftest") {
+    nonisolated(unsafe) var done = false
+    Task { @MainActor in
+        defer { done = true }
+        ModelRegistry.readOnly = true
+        let registry = ModelRegistry.shared
+        await registry.scan()
+        for d in ModelCatalogService.builtIn where d.engine == .fluidAudio || d.engine == .appleSpeech {
+            let compat = ModelCompatibility.evaluate(d)
+            print("\(d.id) · \(d.engine.detailName) · \(registry.lifecycle(of: d.id).label) · \(compat.verdict.label)"
+                  + " · \(d.capabilities.languageCountLabel) · live=\(ModelEngine.supportsLive(d.id)) · trust=\(d.trust.label)")
+            if compat.verdict.isBlocking { print("  why: \(compat.summary)") }
+        }
+        var query = HFHubQuery()
+        query.text = "parakeet-tdt-0.6b-v3-coreml"
+        let hub = (try? await HFHub.searchInstallable(query)) ?? []
+        for model in hub where model.repoId.lowercased().hasPrefix("fluidinference/") {
+            let d = ModelCatalogService.descriptor(forHubModel: model)
+            print("hub \(model.repoId) → \(d.id) · \(d.engine.displayName) · installable=\(model.canInstall)")
+        }
+        if let meta = try? await HFModelSearch.fetchMetadata(repoId: "FluidInference/parakeet-tdt-0.6b-v3-coreml") {
+            for v in meta.variants {
+                print("variant \(v.id) · \(v.label) · \(v.sizeLabel) · supported=\(v.isSupported)")
+            }
+        }
+    }
+    while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+    exit(0)
+}
+
 // `NotchWhisper --llama-selftest <model.gguf> <mmproj.gguf> <audio.wav> ["context"]`
 // runs the Qwen3-ASR (llama.cpp / mtmd) engine headless over a 16 kHz WAV and
 // prints the transcript — an end-to-end check of the C integration with no UI.

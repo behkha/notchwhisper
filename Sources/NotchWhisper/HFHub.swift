@@ -178,12 +178,21 @@ struct HFHubModel: Identifiable, Hashable {
         let format = detectedFormat
         switch format {
         case .coreML:
-            // WhisperKit loads compiled bundles; an uncompiled .mlpackage is a
-            // Core ML repo it still cannot open.
+            // Core ML is a container, not an architecture. A Parakeet build the
+            // catalog knows installs through FluidAudio; anything else has to
+            // carry Whisper's three bundles for WhisperKit to open it.
+            if ParakeetModelOption.find(repoId: repoId) != nil { return .installable(.coreML) }
             let compiled = fileNames.contains { $0.contains(".mlmodelc/") }
-            return compiled
+            guard compiled else {
+                return .unsupported(.coreML, reason: "These Core ML weights aren't compiled (.mlmodelc), which NotchWhisper's engines need.")
+            }
+            let bundles = Set(fileNames.compactMap { path -> String? in
+                path.split(separator: "/").first { $0.hasSuffix(".mlmodelc") }.map(String.init)
+            })
+            let whisper = ModelDisk.coreMLBundles.allSatisfy { bundles.contains($0) }
+            return whisper
                 ? .installable(.coreML)
-                : .unsupported(.coreML, reason: "These Core ML weights aren't compiled (.mlmodelc), which WhisperKit needs.")
+                : .unsupported(.coreML, reason: ModelRuntimeRegistry.coreMLArchitectureReason)
         case .gguf:
             // The GGUF speech backend needs the audio projector alongside the
             // decoder; a bare GGUF here is a text model.
@@ -192,7 +201,7 @@ struct HFHubModel: Identifiable, Hashable {
             return hasProjector
                 ? .installable(.gguf)
                 : .unsupported(.gguf, reason: "No mmproj audio projector in this repository, which the speech backend needs to read audio.")
-        case .safetensors, .onnx, .other:
+        case .safetensors, .onnx, .other, .system:
             let ct2 = fileNames.contains { $0.lowercased().hasSuffix("model.bin") }
                 && rawTags.contains { $0.lowercased().contains("ctranslate2") }
             if ct2 {

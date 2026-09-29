@@ -268,6 +268,11 @@ final class ModelRegistry: ObservableObject {
         let root = ModelStorageLocation.currentRoot
         let records = installations
 
+        // Apple Speech has no files of ours: it counts as installed when macOS
+        // has the recognizer for the language dictation will use.
+        await AppleSpeechSupport.refresh()
+        let appleReady = await AppleSpeechASR.isReady(languageCode: settings.language)
+
         struct ScanResult: Sendable {
             var installed: Set<String> = []
             var corrupted: Set<String> = []
@@ -275,7 +280,7 @@ final class ModelRegistry: ObservableObject {
             var paths: [String: String] = [:]
         }
 
-        let result = await Task.detached(priority: .utility) { () -> ScanResult in
+        var result = await Task.detached(priority: .utility) { () -> ScanResult in
             var out = ScanResult()
 
             // 1. Built-in Whisper catalog.
@@ -302,7 +307,19 @@ final class ModelRegistry: ObservableObject {
                 }
             }
 
-            // 3. Recorded custom / imported models — trust the recorded path,
+            // 3. Built-in Parakeet catalog.
+            for m in ParakeetModelOption.all {
+                let dir = m.dir(root: root)
+                if ParakeetASR.isDownloaded(m, root: root) {
+                    out.installed.insert(m.id)
+                    out.sizes[m.id] = ModelDisk.directoryBytes(dir)
+                    out.paths[m.id] = dir.path
+                } else if ModelDisk.directoryBytes(dir) > 0 {
+                    out.corrupted.insert(m.id)
+                }
+            }
+
+            // 4. Recorded custom / imported models — trust the recorded path,
             //    then re-verify its contents.
             for (id, record) in records where record.source != .builtIn {
                 let url = URL(fileURLWithPath: record.installedPath, isDirectory: true)
@@ -325,6 +342,10 @@ final class ModelRegistry: ObservableObject {
                     complete = ModelDisk.hasCoreMLWeights(url)
                 case .llamaCPP:
                     complete = ModelDisk.directoryBytes(url) > 0
+                case .fluidAudio:
+                    complete = ParakeetASR.detectVersion(in: url) != nil
+                case .appleSpeech:
+                    continue    // system-managed; resolved outside this task
                 }
                 if complete {
                     out.installed.insert(id)
@@ -343,6 +364,11 @@ final class ModelRegistry: ObservableObject {
             }
             return out
         }.value
+
+        if appleReady {
+            result.installed.insert(AppleSpeechModel.id)
+            result.paths[AppleSpeechModel.id] = ""
+        }
 
         installedIds = result.installed
         corruptedIds = result.corrupted
@@ -503,13 +529,20 @@ final class ModelRegistry: ObservableObject {
         guard let record = installations[id] else { return false }
         let path = record.installedPath
         let engine = record.engine
-        let ok = await Task.detached(priority: .utility) { () -> Bool in
-            let url = URL(fileURLWithPath: path, isDirectory: true)
-            switch engine {
-            case .whisperKit: return ModelDisk.hasCoreMLWeights(url)
-            case .llamaCPP:   return ModelDisk.directoryBytes(url) > 0
-            }
-        }.value
+        let ok: Bool
+        if engine == .appleSpeech {
+            ok = await AppleSpeechASR.isReady(languageCode: settings.language)
+        } else {
+            ok = await Task.detached(priority: .utility) { () -> Bool in
+                let url = URL(fileURLWithPath: path, isDirectory: true)
+                switch engine {
+                case .whisperKit:  return ModelDisk.hasCoreMLWeights(url)
+                case .llamaCPP:    return ModelDisk.directoryBytes(url) > 0
+                case .fluidAudio:  return ParakeetASR.detectVersion(in: url) != nil
+                case .appleSpeech: return true
+                }
+            }.value
+        }
         var updated = record
         updated.verification = ok ? .verified : .failed
         installations[id] = updated
@@ -524,6 +557,7 @@ final class ModelRegistry: ObservableObject {
     enum RemoveRefusal: LocalizedError {
         case isActive(String)
         case busy
+        case systemModel
 
         var errorDescription: String? {
             switch self {
@@ -531,6 +565,8 @@ final class ModelRegistry: ObservableObject {
                 return "\(name) is currently active. Choose another model before removing it."
             case .busy:
                 return "A download or model load is running — try again in a moment."
+            case .systemModel:
+                return "Apple Speech is part of macOS. Its language files are managed by the system, not by NotchWhisper."
             }
         }
     }
@@ -541,6 +577,7 @@ final class ModelRegistry: ObservableObject {
     /// Never allow the running engine's files to disappear underneath it.
     func canRemove(_ id: String) -> Result<Void, RemoveRefusal> {
         if id == activeId { return .failure(.isActive(descriptor(for: id).displayName)) }
+        if AppleSpeechModel.isAppleId(id) { return .failure(.systemModel) }
         if ModelDownloadQueue.shared.job(for: id) != nil { return .failure(.busy) }
         return .success(())
     }
@@ -620,7 +657,13 @@ final class ModelRegistry: ObservableObject {
 
     // MARK: Persistence
 
+    /// Set by headless self-tests before first use: scan and resolve against
+    /// the real disk, but never rewrite the installation file the running app
+    /// also owns.
+    static var readOnly = false
+
     private func persist() {
+        guard !Self.readOnly else { return }
         let list = Array(installations.values)
         guard let data = try? JSONEncoder().encode(list) else { return }
         try? FileManager.default.createDirectory(
@@ -630,11 +673,23 @@ final class ModelRegistry: ObservableObject {
 
     private func load() {
         guard let data = try? Data(contentsOf: storeURL),
-              let list = try? JSONDecoder().decode([ModelInstallation].self, from: data) else { return }
-        installations = Dictionary(uniqueKeysWithValues: list.map { ($0.id, $0) })
+              let list = try? JSONDecoder().decode([Lenient<ModelInstallation>].self, from: data) else { return }
+        // One record this build can't read (an engine added by a newer build,
+        // after a downgrade) must not take every other record down with it.
+        let records = list.compactMap(\.value)
+        installations = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
     }
 }
 
 extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+/// Decodes to nil instead of throwing, so one unreadable element doesn't fail
+/// the array around it.
+private struct Lenient<Value: Decodable>: Decodable {
+    let value: Value?
+    init(from decoder: Decoder) throws {
+        value = try? Value(from: decoder)
+    }
 }

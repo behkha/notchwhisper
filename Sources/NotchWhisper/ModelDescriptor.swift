@@ -13,19 +13,47 @@ enum ModelEngine: String, Codable, Hashable, CaseIterable {
     case whisperKit
     /// GGUF Qwen3-ASR through the vendored llama.cpp + mtmd.
     case llamaCPP
+    /// Core ML Parakeet TDT through FluidAudio.
+    case fluidAudio
+    /// Apple's built-in on-device recognizer (SpeechAnalyzer, macOS 26+).
+    case appleSpeech
 
     var displayName: String {
         switch self {
-        case .whisperKit: return "WhisperKit"
-        case .llamaCPP:   return "llama.cpp"
+        case .whisperKit:  return "WhisperKit"
+        case .llamaCPP:    return "llama.cpp"
+        case .fluidAudio:  return "FluidAudio"
+        case .appleSpeech: return "Apple Speech"
         }
     }
 
     var detailName: String {
         switch self {
-        case .whisperKit: return "WhisperKit · Core ML"
-        case .llamaCPP:   return "llama.cpp · Metal"
+        case .whisperKit:  return "WhisperKit · Core ML"
+        case .llamaCPP:    return "llama.cpp · Metal"
+        case .fluidAudio:  return "FluidAudio · Core ML"
+        case .appleSpeech: return "Apple Speech · built in"
         }
+    }
+
+    /// Which engine runs a model id — the one routing table every caller uses,
+    /// so a new id shape can't be routed differently in two places.
+    @MainActor
+    static func of(_ modelId: String) -> ModelEngine {
+        if LlamaModelOption.isLlamaId(modelId) || CustomGGUFModel.isCustomGGUFId(modelId) { return .llamaCPP }
+        if ParakeetModelOption.isParakeetId(modelId) { return .fluidAudio }
+        if AppleSpeechModel.isAppleId(modelId) { return .appleSpeech }
+        if modelId.hasPrefix(Transcriber.importedPrefix) {
+            return ModelRegistry.shared.installations[modelId]?.engine ?? .whisperKit
+        }
+        return .whisperKit
+    }
+
+    /// Whether a model can drive live dictation. Everything but the llama.cpp
+    /// engine can; that one decodes whole utterances only.
+    @MainActor
+    static func supportsLive(_ modelId: String) -> Bool {
+        ModelRuntimeRegistry.runtime(for: of(modelId)).supportsStreaming
     }
 }
 
@@ -33,6 +61,8 @@ enum ModelEngine: String, Codable, Hashable, CaseIterable {
 /// installed; the rest exist so unsupported models can be explained (§69).
 enum ModelFileFormat: String, Codable, Hashable, CaseIterable, Identifiable {
     case coreML, gguf, safetensors, onnx, other
+    /// Shipped with macOS and managed by it — there are no files to install.
+    case system
     var id: String { rawValue }
 
     var displayName: String {
@@ -42,6 +72,7 @@ enum ModelFileFormat: String, Codable, Hashable, CaseIterable, Identifiable {
         case .safetensors: return "Safetensors"
         case .onnx:        return "ONNX"
         case .other:       return "Other"
+        case .system:      return "Built into macOS"
         }
     }
 }
@@ -55,6 +86,8 @@ struct SupportedRuntime: Identifiable {
     /// Hardware acceleration paths, in the order the backend prefers them.
     let accelerators: [String]
     let minimumOS: String
+    /// The same floor as a major version, for the compatibility check.
+    let minimumMajorOS: Int
     let requiresAppleSilicon: Bool
     /// Can drive live (streaming) dictation, not just hold-to-talk.
     let supportsStreaming: Bool
@@ -72,6 +105,7 @@ enum ModelRuntimeRegistry {
             formats: [.coreML],
             accelerators: ["Neural Engine", "GPU", "CPU"],
             minimumOS: "macOS 14",
+            minimumMajorOS: 14,
             requiresAppleSilicon: false,
             supportsStreaming: true,
             executesRepositoryCode: false,
@@ -82,15 +116,46 @@ enum ModelRuntimeRegistry {
             formats: [.gguf],
             accelerators: ["Metal GPU", "CPU"],
             minimumOS: "macOS 14",
+            minimumMajorOS: 14,
             requiresAppleSilicon: true,
             supportsStreaming: false,
             executesRepositoryCode: false,
             loaderDescription: "Loads GGUF tensors through the bundled llama.cpp. No repository code is executed."
         ),
+        SupportedRuntime(
+            engine: .fluidAudio,
+            formats: [.coreML],
+            accelerators: ["Neural Engine", "CPU"],
+            minimumOS: "macOS 14",
+            minimumMajorOS: 14,
+            requiresAppleSilicon: true,
+            // ~100× real time, so the live window is simply re-decoded each tick.
+            supportsStreaming: true,
+            executesRepositoryCode: false,
+            loaderDescription: "Loads compiled Parakeet .mlmodelc bundles through FluidAudio. No repository code is executed."
+        ),
+        SupportedRuntime(
+            engine: .appleSpeech,
+            formats: [.system],
+            accelerators: ["Neural Engine"],
+            minimumOS: "macOS 26",
+            minimumMajorOS: 26,
+            requiresAppleSilicon: true,
+            supportsStreaming: true,
+            executesRepositoryCode: false,
+            loaderDescription: "Uses the speech recognizer built into macOS. Language assets are downloaded and managed by the system."
+        ),
     ]
 
     static func runtime(for engine: ModelEngine) -> SupportedRuntime {
         all.first { $0.engine == engine } ?? all[0]
+    }
+
+    /// The runtime can run on this Mac's macOS at all — the hardware check is
+    /// separate, because its explanation is different.
+    static func osSupports(_ runtime: SupportedRuntime) -> Bool {
+        if runtime.engine == .appleSpeech { return AppleSpeechSupport.isAvailable }
+        return ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= runtime.minimumMajorOS
     }
 
     /// Every format the app can install today.
@@ -111,10 +176,17 @@ enum ModelRuntimeRegistry {
             return "This repository ships ONNX weights. NotchWhisper has no ONNX runtime."
         case .other:
             return "NotchWhisper couldn't identify a weight format it can load in this repository."
-        case .coreML, .gguf:
+        case .coreML:
+            return coreMLArchitectureReason
+        case .gguf, .system:
             return ""
         }
     }
+
+    /// Core ML is a container, not an architecture: each engine opens only the
+    /// model families it implements.
+    static let coreMLArchitectureReason =
+        "These Core ML weights are for a model architecture NotchWhisper can't run. It runs Whisper (WhisperKit) and FluidInference's Parakeet builds (FluidAudio)."
 }
 
 // MARK: - Trust
@@ -444,6 +516,7 @@ struct ModelCompatibility {
     static func verdict(for model: ModelDescriptor, hw: HardwareInfo = .current) -> Verdict {
         let runtime = model.runtime
         if runtime.requiresAppleSilicon, !hw.isAppleSilicon { return .unsupported }
+        if !ModelRuntimeRegistry.osSupports(runtime) { return .unsupported }
         if !ModelRuntimeRegistry.supports(model.format) { return .unsupported }
         let need = model.resources.memoryBytes
         guard need > 0 else { return .supported }
@@ -476,16 +549,24 @@ struct ModelCompatibility {
                 : "Needs an Apple Silicon Mac"
         ))
 
-        // 2. Format / runtime support.
+        // 2. Operating system.
+        let osOK = ModelRuntimeRegistry.osSupports(runtime)
+        if !osOK {
+            checks.append(Check(passed: false, text: "Needs \(runtime.minimumOS) or later"))
+        }
+
+        // 3. Format / runtime support.
         let formatOK = ModelRuntimeRegistry.supports(model.format)
         checks.append(Check(
             passed: formatOK,
             text: formatOK
-                ? "\(model.format.displayName) is supported by the \(runtime.engine.displayName) runtime"
+                ? (model.format == .system
+                    ? "Built into \(runtime.minimumOS) and later"
+                    : "\(model.format.displayName) is supported by the \(runtime.engine.displayName) runtime")
                 : ModelRuntimeRegistry.unsupportedReason(for: model.format)
         ))
 
-        // 3. Memory. Budget ~55% of physical RAM: what a background utility can
+        // 4. Memory. Budget ~55% of physical RAM: what a background utility can
         //    claim without paging the user's foreground app.
         let need = model.resources.memoryBytes
         let budget = Double(hw.physicalMemory) * 0.55
@@ -501,25 +582,27 @@ struct ModelCompatibility {
                     : "Needs roughly \(recommendedGB) GB RAM · you have \(memGB(hw))")
         ))
 
-        // 4. Acceleration.
+        // 5. Acceleration.
         let accel = hw.isAppleSilicon
             ? (model.engine == .llamaCPP ? "Metal acceleration available" : "Neural Engine available")
             : "CPU only — no Neural Engine on this Mac"
         checks.append(Check(passed: hw.isAppleSilicon, text: accel))
 
-        // 5. Disk.
+        // 6. Disk.
         let needDisk = model.resources.diskBytes
         let diskOK = needDisk <= 0 || freeDisk <= 0 || freeDisk >= needDisk + 500_000_000
         checks.append(Check(
             passed: diskOK,
-            text: needDisk <= 0
+            text: model.format == .system
+                ? "Nothing to download into the app — macOS manages the language assets"
+                : needDisk <= 0
                 ? "Download size unknown"
                 : "\(ByteCountFormatter.string(fromByteCount: max(0, freeDisk), countStyle: .file)) free disk space"
         ))
 
         // Verdict.
         var verdict: Verdict
-        if !archOK || !formatOK {
+        if !archOK || !osOK || !formatOK {
             verdict = .unsupported
         } else if need == 0 {
             verdict = .supported
@@ -552,7 +635,11 @@ struct ModelCompatibility {
         case .unsupported:
             summary = !archOK
                 ? "\(runtime.engine.displayName) needs an Apple Silicon Mac."
-                : ModelRuntimeRegistry.unsupportedReason(for: model.format)
+                : !osOK
+                    ? (runtime.engine == .appleSpeech
+                        ? "Apple Speech needs macOS 26 or later on a Mac that supports it."
+                        : "\(runtime.engine.displayName) needs \(runtime.minimumOS) or later.")
+                    : ModelRuntimeRegistry.unsupportedReason(for: model.format)
         }
 
         return ModelCompatibility(
@@ -576,14 +663,20 @@ struct ModelCompatibility {
 @MainActor
 enum ModelCatalogService {
 
-    /// Every model the app ships knowledge of, Whisper + Qwen3-ASR.
+    /// Every model the app ships knowledge of: Whisper, Qwen3-ASR, Parakeet and
+    /// Apple Speech.
     static var builtIn: [ModelDescriptor] {
-        WhisperModelOption.all.map(descriptor(for:)) + LlamaModelOption.all.map(descriptor(for:))
+        WhisperModelOption.all.map(descriptor(for:))
+            + LlamaModelOption.all.map(descriptor(for:))
+            + ParakeetModelOption.all.map(descriptor(for:))
+            + [appleSpeechDescriptor]
     }
 
     /// Descriptor for any model id — catalog, custom repo, or imported.
     static func descriptor(forId id: String, installation: ModelInstallation? = nil) -> ModelDescriptor {
         if let llama = LlamaModelOption.find(id: id) { return descriptor(for: llama) }
+        if let parakeet = ParakeetModelOption.find(id: id) { return descriptor(for: parakeet) }
+        if id == AppleSpeechModel.id { return appleSpeechDescriptor }
         if let whisper = WhisperModelOption.all.first(where: { $0.id == id || $0.folderName == id }) {
             return descriptor(for: whisper)
         }
@@ -727,6 +820,98 @@ enum ModelCatalogService {
         )
     }
 
+    // MARK: Parakeet (FluidAudio)
+
+    static func descriptor(for m: ParakeetModelOption) -> ModelDescriptor {
+        // Same 2.4–9 % scale the Whisper catalog uses, so the bars compare.
+        let accuracy = 1 - (min(max(m.englishWER, 2.4), 9.0) - 2.4) / (9.0 - 2.4)
+        return ModelDescriptor(
+            id: m.id,
+            displayName: m.display,
+            provider: "NVIDIA",
+            providerHandle: "nvidia",
+            repositoryId: m.repoId,
+            repositoryURL: m.repositoryURL,
+            revision: nil,
+            folderName: m.folderName,
+            engine: .fluidAudio,
+            format: .coreML,
+            trust: m.verified ? .verified : .official,
+            license: "cc-by-4.0",
+            packagerNote: "Core ML build by FluidInference",
+            capabilities: ModelCapabilities(
+                languages: m.languages,
+                languageSource: m.languages.count > 1
+                    ? "Parakeet TDT v3 model card (25 European languages)"
+                    : "Parakeet TDT v2 model card (English-only)",
+                speechToText: true,
+                translation: false,
+                timestamps: true,
+                wordTimestamps: true,
+                streaming: true,
+                diarization: false
+            ),
+            resources: ModelResources(
+                parameterCount: "0.6B",
+                diskBytes: m.sizeBytes,
+                memoryBytes: m.ramBytes,
+                quantization: nil
+            ),
+            accuracy: RatedMetric(
+                display: String(format: "WER %.2f%%", m.englishWER),
+                fraction: accuracy,
+                provenance: .published
+            ),
+            speed: RatedMetric(
+                display: "~110× real time",
+                fraction: 1.0,
+                provenance: .published
+            ),
+            blurb: m.blurb,
+            recommendation: m.recommendation,
+            isBuiltIn: true
+        )
+    }
+
+    // MARK: Apple Speech (built into macOS)
+
+    static var appleSpeechDescriptor: ModelDescriptor {
+        ModelDescriptor(
+            id: AppleSpeechModel.id,
+            displayName: AppleSpeechModel.displayName,
+            provider: "Apple",
+            providerHandle: "apple",
+            repositoryId: "",
+            repositoryURL: URL(string: "https://developer.apple.com/documentation/speech/speechtranscriber")!,
+            revision: nil,
+            folderName: nil,
+            engine: .appleSpeech,
+            format: .system,
+            trust: .verified,
+            license: nil,
+            packagerNote: "Built into macOS 26 and later",
+            capabilities: ModelCapabilities(
+                languages: AppleSpeechSupport.languages,
+                languageSource: AppleSpeechSupport.didRefresh
+                    ? "Locales this Mac's recognizer supports"
+                    : "Locales macOS 27 supports",
+                speechToText: true,
+                translation: false,
+                timestamps: true,
+                wordTimestamps: false,
+                streaming: true,
+                diarization: false
+            ),
+            resources: ModelResources(parameterCount: nil, diskBytes: 0, memoryBytes: 0, quantization: nil),
+            // Apple publishes no WER or speed figure for it.
+            accuracy: .unknown,
+            speed: .unknown,
+            blurb: "The on-device recognizer built into macOS. It doesn't detect the language by itself — it follows your language setting, or your Mac's language when that's set to auto.",
+            recommendation: "No download for languages macOS already has. Other languages are fetched and managed by macOS.",
+            isBuiltIn: true
+        )
+    }
+
     // MARK: Installed custom / imported models
 
     static func descriptor(for install: ModelInstallation) -> ModelDescriptor {
@@ -754,9 +939,9 @@ enum ModelCatalogService {
                 languageSource: install.languages.isEmpty ? nil : "Repository metadata",
                 speechToText: true,
                 translation: false,
-                timestamps: install.engine == .whisperKit,
-                wordTimestamps: install.engine == .whisperKit,
-                streaming: install.engine == .whisperKit,
+                timestamps: install.engine != .llamaCPP,
+                wordTimestamps: install.engine == .whisperKit || install.engine == .fluidAudio,
+                streaming: ModelRuntimeRegistry.runtime(for: install.engine).supportsStreaming,
                 diarization: false
             ),
             resources: ModelResources(
@@ -781,6 +966,9 @@ enum ModelCatalogService {
     /// render a card without fetching the file list. Anything the Hub did not
     /// publish stays unknown and renders as "—" — never as a guess (§13).
     static func descriptor(forHubModel hub: HFHubModel) -> ModelDescriptor {
+        // A Parakeet build the catalog ships is that catalog model, whether it
+        // was found on the Hub or in the list — one id, one install path.
+        if let parakeet = ParakeetModelOption.find(repoId: hub.repoId) { return descriptor(for: parakeet) }
         let org = hub.author
         // Recognized upstream publishers. "Official" describes who published
         // it, never whether this app has tested it (§ trust).
@@ -810,9 +998,9 @@ enum ModelCatalogService {
                 languageSource: hub.languages.isEmpty ? nil : "Hugging Face model card",
                 speechToText: true,
                 translation: hub.tags.contains { $0.lowercased().contains("translation") },
-                timestamps: engine == .whisperKit,
-                wordTimestamps: engine == .whisperKit,
-                streaming: engine == .whisperKit,
+                timestamps: engine != .llamaCPP,
+                wordTimestamps: engine != .llamaCPP,
+                streaming: engine != .llamaCPP,
                 diarization: hub.tags.contains { $0.lowercased().contains("diariz") }
             ),
             resources: ModelResources(
@@ -864,6 +1052,9 @@ enum ModelCatalogService {
     /// Descriptor for one installable build inside a repository.
     static func descriptor(forVariant variant: ModelVariant,
                            in metadata: HFRepoMetadata) -> ModelDescriptor {
+        // A repository the shipped catalog already knows installs as that
+        // catalog model, so it lands under the same id whichever way it's found.
+        if let parakeet = ParakeetModelOption.find(id: variant.id) { return descriptor(for: parakeet) }
         let org = metadata.author
         let engine: ModelEngine = variant.format == .gguf ? .llamaCPP : .whisperKit
         return ModelDescriptor(
@@ -925,8 +1116,8 @@ enum ModelCatalogService {
                 ?? URL(string: "https://huggingface.co")!,
             revision: nil,
             folderName: folder,
-            engine: LlamaModelOption.isLlamaId(id) ? .llamaCPP : .whisperKit,
-            format: LlamaModelOption.isLlamaId(id) ? .gguf : .coreML,
+            engine: ModelEngine.of(id),
+            format: ModelEngine.of(id) == .llamaCPP ? .gguf : .coreML,
             trust: .community,
             license: nil,
             packagerNote: nil,

@@ -307,10 +307,14 @@ enum ModelDisk {
         for folder in partialCatalogFolders(root: root) {
             found.append(whisperCatalogRoot(root).appendingPathComponent(folder, isDirectory: true))
         }
-        // WhisperKit's per-file resume staging + orphaned .incomplete files.
+        // WhisperKit's per-file resume staging + orphaned .incomplete files,
+        // and FluidAudio's `.partial` resume files.
+        let fluidRoot = ParakeetModelOption.root(root).standardizedFileURL.path
         if let en = fm.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey]) {
             for case let url as URL in en {
                 if url.lastPathComponent.hasSuffix(".incomplete") { found.append(url) }
+                if url.lastPathComponent.hasSuffix(".partial"),
+                   url.standardizedFileURL.path.hasPrefix(fluidRoot) { found.append(url) }
                 if url.lastPathComponent == "download",
                    url.deletingLastPathComponent().lastPathComponent == "huggingface" {
                     found.append(url)

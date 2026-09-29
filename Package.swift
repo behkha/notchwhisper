@@ -20,6 +20,9 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(url: "https://github.com/argmaxinc/WhisperKit.git", branch: "main"),
+        // Parakeet (NVIDIA FastConformer-TDT) on Core ML — the third engine.
+        // Pinned: its model layout and decoder contract change between minors.
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.17.4"),
     ],
     targets: [
         // C interop for the vendored llama.cpp + mtmd headers.
@@ -34,6 +37,7 @@ let package = Package(
             name: "NotchWhisper",
             dependencies: [
                 .product(name: "WhisperKit", package: "WhisperKit"),
+                .product(name: "FluidAudio", package: "FluidAudio"),
                 "CLlama",
             ],
             linkerSettings: llamaLinkerSettings

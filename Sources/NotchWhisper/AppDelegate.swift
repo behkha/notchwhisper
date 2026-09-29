@@ -459,10 +459,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Live dictation streams partials and needs segment timestamps — only
-    /// WhisperKit provides them. With a `llama:*` Qwen3-ASR model active every
-    /// trigger falls back to hold-to-talk regardless of what it asked for.
-    var canStreamLive: Bool { !LlamaModelOption.isLlamaId(settings.modelId) }
+    /// Live dictation streams partials and needs segment timestamps — WhisperKit,
+    /// Parakeet and Apple Speech provide them. With a Qwen3-ASR (llama.cpp)
+    /// model active every trigger falls back to hold-to-talk regardless of what
+    /// it asked for.
+    var canStreamLive: Bool { ModelEngine.supportsLive(settings.modelId) }
 
     /// What the Record button and the menu bar do: they have no binding of
     /// their own, so they follow the global live-dictation setting.

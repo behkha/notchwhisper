@@ -158,9 +158,26 @@ struct HFRepoMetadata: Codable, Hashable {
         .sorted { $0.sizeBytes < $1.sizeBytes }
     }
 
+    /// A Parakeet repository the shipped catalog knows. FluidInference keeps
+    /// the bundles at the repository root (not in a folder per build), and the
+    /// catalog entry — not the file list — decides which of them are needed.
+    var parakeetVariants: [ModelVariant] {
+        guard let option = ParakeetModelOption.find(repoId: repoId) else { return [] }
+        return [ModelVariant(
+            id: option.id,
+            label: option.display,
+            format: .coreML,
+            quantization: nil,
+            sizeBytes: option.sizeBytes,
+            files: files.filter { !$0.path.hasPrefix(".") }.sorted { $0.path < $1.path },
+            isSupported: true,
+            unsupportedReason: nil
+        )]
+    }
+
     /// Every installable build, best-supported first.
     var variants: [ModelVariant] {
-        let all = coreMLVariants + ggufVariants
+        let all = parakeetVariants + coreMLVariants + ggufVariants
         return all.sorted {
             if $0.isSupported != $1.isSupported { return $0.isSupported }
             return $0.sizeBytes < $1.sizeBytes

@@ -251,7 +251,9 @@ enum ModelRecommender {
             out.append(RecommendationReason(
                 text: model.engine == .llamaCPP
                     ? "Runs on the Metal GPU on Apple Silicon"
-                    : "Runs on the Neural Engine on Apple Silicon"))
+                    : model.engine == .appleSpeech
+                        ? "Built into macOS — runs on the Neural Engine"
+                        : "Runs on the Neural Engine on Apple Silicon"))
         }
         if let measured = ModelBenchmarkService.shared.result(for: model.id) {
             out.append(RecommendationReason(

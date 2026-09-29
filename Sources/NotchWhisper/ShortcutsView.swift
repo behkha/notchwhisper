@@ -146,7 +146,7 @@ struct ShortcutsSection: View {
     /// before the delegate exists (SwiftUI previews, the settings window
     /// opening during launch).
     private var canStreamLive: Bool {
-        AppDelegate.shared?.canStreamLive ?? !LlamaModelOption.isLlamaId(settings.modelId)
+        AppDelegate.shared?.canStreamLive ?? ModelEngine.supportsLive(settings.modelId)
     }
 
     private func warning(for binding: HotkeyBinding) -> String? {
@@ -414,8 +414,8 @@ struct HotkeyBindingEditor: View {
                  ?? "Behaves the way the Live dictation setting says — \(draft.effectiveActivation.label.lowercased()) right now. Pick one of the others to pin this shortcut regardless of that setting.")
                 .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
                 .fixedSize(horizontal: false, vertical: true)
-            if draft.effectiveActivation == .toggleLive, LlamaModelOption.isLlamaId(settings.modelId) {
-                Label("\(ModelRegistry.shared.descriptor(for: settings.modelId).displayName) can't stream, so this shortcut runs as hold-to-talk until you switch to a Whisper model.",
+            if draft.effectiveActivation == .toggleLive, !ModelEngine.supportsLive(settings.modelId) {
+                Label("\(ModelRegistry.shared.descriptor(for: settings.modelId).displayName) can't stream, so this shortcut runs as hold-to-talk until you switch to a Whisper, Parakeet or Apple Speech model.",
                       systemImage: "info.circle")
                     .font(Tokens.TypeScale.micro)
                     .foregroundStyle(Tokens.Color.warn)

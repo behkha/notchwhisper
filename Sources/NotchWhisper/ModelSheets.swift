@@ -880,7 +880,7 @@ struct ModelImportSheet: View {
                         Text("Drop a supported model onto the Models page, or choose one here.")
                             .font(Tokens.TypeScale.callout)
                             .foregroundStyle(Tokens.Color.textSec)
-                        Text("Accepted: a Core ML Whisper folder containing AudioEncoder.mlmodelc, TextDecoder.mlmodelc and MelSpectrogram.mlmodelc, or a GGUF speech model with its matching mmproj file.")
+                        Text("Accepted: a Core ML Whisper folder containing AudioEncoder.mlmodelc, TextDecoder.mlmodelc and MelSpectrogram.mlmodelc, a Core ML Parakeet folder (Preprocessor, Encoder, Decoder and JointDecision bundles with parakeet_vocab.json), or a GGUF speech model with its matching mmproj file.")
                             .font(Tokens.TypeScale.caption)
                             .foregroundStyle(Tokens.Color.textTert)
                             .fixedSize(horizontal: false, vertical: true)

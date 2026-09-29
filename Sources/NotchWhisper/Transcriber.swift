@@ -15,6 +15,16 @@ import WhisperKit
     /// active model id is `llama:*`; hold-to-talk (batch) transcription only.
     let llama = LlamaASR()
 
+    /// Third engine: Parakeet TDT via FluidAudio, while a `parakeet:*` model
+    /// (or an imported Parakeet folder) is active.
+    let parakeet = ParakeetASR()
+
+    /// Fourth engine: the recognizer built into macOS 26+, for `apple:speech`.
+    let appleSpeech = AppleSpeechASR()
+    /// The language `appleSpeech` was loaded for. Apple's recognizer is per
+    /// locale, so a dictation in another language reloads it first.
+    private var appleLanguage: String?
+
     /// The single in-flight load, so concurrent callers (the `.modelChanged`
     /// notification, `requestDownload`, a dictation start, the launch task)
     /// share ONE `WhisperKit` construction instead of racing several. Racing
@@ -60,7 +70,8 @@ import WhisperKit
     @discardableResult
     func ensureLoaded(modelId: String) async -> Bool {
         if loadedModelId == modelId, state.modelStatus == .ready,
-           (whisper != nil || llama.loadedModelId == modelId) {
+           (whisper != nil || llama.loadedModelId == modelId
+            || parakeet.loadedModelId == modelId || appleSpeech.loadedModelId == modelId) {
             return true
         }
         // Someone is already loading exactly this model → await their result.
@@ -124,9 +135,28 @@ import WhisperKit
         }
     }
 
+    /// Frees every engine except `engine`, so switching models never leaves
+    /// two sets of weights resident — or a stale engine observable as ready.
+    private func releaseEngines(keeping engine: ModelEngine) async {
+        if engine != .llamaCPP, llama.loadedModelId != nil { llama.unload() }
+        if engine != .fluidAudio { parakeet.unload() }
+        if engine != .appleSpeech { appleSpeech.unload(); appleLanguage = nil }
+        if engine != .whisperKit, let old = whisper {
+            await old.unloadModels()
+            whisper = nil
+        }
+    }
+
     private func load(modelId: String) async -> Bool {
         if LlamaModelOption.isLlamaId(modelId) {
             return await loadLlama(modelId: modelId)
+        }
+        // Before the "<repo>:<folder>" parsers below: these ids contain a colon too.
+        if ParakeetModelOption.isParakeetId(modelId) {
+            return await loadParakeet(modelId: modelId)
+        }
+        if AppleSpeechModel.isAppleId(modelId) {
+            return await loadAppleSpeech(modelId: modelId)
         }
         if modelId.hasPrefix(Self.importedPrefix) {
             return await loadImported(modelId: modelId)
@@ -150,8 +180,11 @@ import WhisperKit
         fputs("NotchWhisper: loading model \(label) (\(modelId))...\n", stderr)
         beginLoadProgress(label)
 
-        // Switching away from the llama engine: free its weights first.
+        // Switching away from another engine: free its weights first.
         if llama.loadedModelId != nil { llama.unload() }
+        parakeet.unload()
+        appleSpeech.unload()
+        appleLanguage = nil
 
         // Tear down any previously-loaded model first so a stale instance for a
         // different variant can never be observed as "ready" after a switch.
@@ -294,9 +327,8 @@ import WhisperKit
         fputs("NotchWhisper: loading model \(label) (\(modelId))...\n", stderr)
         beginLoadProgress(label)
 
-        // Tear down WhisperKit so a stale instance can't be observed as ready.
-        if let old = whisper { await old.unloadModels() }
-        whisper = nil
+        // Tear down the other engines so a stale one can't be observed as ready.
+        await releaseEngines(keeping: .llamaCPP)
         loadedModelId = nil
 
         let threads = max(4, ProcessInfo.processInfo.activeProcessorCount - 2)
@@ -356,7 +388,7 @@ import WhisperKit
         switch record.engine {
         case .whisperKit:
             beginLoadProgress(label)
-            if llama.loadedModelId != nil { llama.unload() }
+            await releaseEngines(keeping: .whisperKit)
             if let old = whisper { await old.unloadModels() }
             whisper = nil
             loadedModelId = nil
@@ -382,19 +414,134 @@ import WhisperKit
                 modelId: modelId, label: label,
                 modelPath: weights.path, mmprojPath: projector.path
             )
+
+        case .fluidAudio:
+            return await loadParakeetEngine(modelId: modelId, label: label) {
+                try await self.parakeet.loadFolder(dir, modelId: modelId)
+            }
+
+        case .appleSpeech:
+            // Never imported — Apple's model has no files to import.
+            return await loadAppleSpeech(modelId: AppleSpeechModel.id)
         }
     }
 
-    /// True when the active engine is llama.cpp / Qwen3-ASR (hold-to-talk only).
-    var activeEngineIsLlama: Bool {
-        let id = loadedModelId ?? ""
-        if LlamaModelOption.isLlamaId(id) { return true }
-        if CustomGGUFModel.isCustomGGUFId(id) { return true }
-        if id.hasPrefix(Self.importedPrefix) {
-            return ModelRegistry.shared.installations[id]?.engine == .llamaCPP
+    // MARK: - Parakeet (FluidAudio)
+
+    private func loadParakeet(modelId: String) async -> Bool {
+        guard let option = ParakeetModelOption.find(id: modelId) else {
+            state.modelStatus = .error("Unknown Parakeet model '\(modelId)'.")
+            state.statusMessage = "Unknown model."
+            return false
         }
-        return false
+        guard ParakeetASR.isDownloaded(option, root: modelDir) else {
+            beginLoadProgress(option.display)
+            state.modelStatus = .error("\(option.display) isn't downloaded yet.")
+            state.statusMessage = "Download \(option.display) first."
+            endLoadProgress(success: false)
+            return false
+        }
+        let root = modelDir
+        return await loadParakeetEngine(modelId: modelId, label: option.display) {
+            try await self.parakeet.load(option, root: root)
+        }
     }
+
+    /// Shared Parakeet load path — the catalog and imported folders differ only
+    /// in how the bundles are found.
+    private func loadParakeetEngine(modelId: String, label: String,
+                                    _ body: () async throws -> Void) async -> Bool {
+        fputs("NotchWhisper: loading model \(label) (\(modelId))...\n", stderr)
+        beginLoadProgress(label)
+        await releaseEngines(keeping: .fluidAudio)
+        loadedModelId = nil
+        state.modelLoadProgress = 0.4
+        state.modelLoadPhase = "Loading \(label) onto the Neural Engine…"
+        do {
+            try await body()
+            if Task.isCancelled { parakeet.unload(); endLoadProgress(success: false); return false }
+            // The first decode pays for Core ML's lazy set-up; pay it here, not
+            // in the user's first dictation.
+            state.modelLoadProgress = 0.85
+            state.modelLoadPhase = "Almost ready…"
+            _ = try? await parakeet.transcribe([Float](repeating: 0, count: 16_000), languageCode: nil)
+            loadedModelId = modelId
+            state.modelStatus = .ready
+            endLoadProgress(success: true)
+            state.statusMessage = ""
+            fputs("NotchWhisper: model \(label) loaded OK (FluidAudio)\n", stderr)
+            return true
+        } catch {
+            parakeet.unload()
+            state.modelStatus = .error(error.localizedDescription)
+            state.statusMessage = error.localizedDescription
+            endLoadProgress(success: false)
+            fputs("NotchWhisper: Parakeet model load FAILED: \(error)\n", stderr)
+            return false
+        }
+    }
+
+    // MARK: - Apple Speech
+
+    private func loadAppleSpeech(modelId: String) async -> Bool {
+        let label = AppleSpeechModel.displayName
+        fputs("NotchWhisper: loading model \(label) (\(modelId))...\n", stderr)
+        beginLoadProgress(label)
+        await releaseEngines(keeping: .appleSpeech)
+        loadedModelId = nil
+        let language = effectiveLanguage
+        if !(await AppleSpeechASR.isReady(languageCode: language)) {
+            state.modelLoadPhase = "Downloading Apple's speech model for this language…"
+        }
+        do {
+            try await appleSpeech.load(modelId: modelId, languageCode: language) { p in
+                Task { @MainActor in
+                    let st = AppState.shared
+                    guard st.isLoadingModel else { return }
+                    let value = 0.1 + 0.75 * p
+                    if value > st.modelLoadProgress { st.modelLoadProgress = value }
+                }
+            }
+            appleLanguage = language
+            if Task.isCancelled { appleSpeech.unload(); endLoadProgress(success: false); return false }
+            state.modelLoadProgress = 0.9
+            state.modelLoadPhase = "Almost ready…"
+            // Brings Apple's models into memory now rather than on the first word.
+            _ = try? await appleSpeech.transcribe([Float](repeating: 0, count: 16_000))
+            loadedModelId = modelId
+            state.modelStatus = .ready
+            endLoadProgress(success: true)
+            state.statusMessage = ""
+            fputs("NotchWhisper: model \(label) loaded OK (\(appleSpeech.locale?.identifier ?? "?"))\n", stderr)
+            return true
+        } catch {
+            appleSpeech.unload()
+            state.modelStatus = .error(error.localizedDescription)
+            state.statusMessage = error.localizedDescription
+            endLoadProgress(success: false)
+            fputs("NotchWhisper: Apple Speech load FAILED: \(error)\n", stderr)
+            return false
+        }
+    }
+
+    /// Apple's recognizer is per locale: when a dictation asks for another
+    /// language (a shortcut can name one), switch before decoding.
+    private func ensureAppleLanguage() async throws {
+        let wanted = effectiveLanguage
+        if appleSpeech.locale != nil, appleLanguage == wanted { return }
+        try await appleSpeech.load(modelId: AppleSpeechModel.id, languageCode: wanted) { _ in }
+        appleLanguage = wanted
+    }
+
+    /// The engine behind the loaded model (WhisperKit when nothing is loaded,
+    /// whose paths then report `notLoaded`).
+    var activeEngine: ModelEngine {
+        guard let id = loadedModelId else { return .whisperKit }
+        return ModelEngine.of(id)
+    }
+
+    /// True when the active engine is llama.cpp / Qwen3-ASR (hold-to-talk only).
+    var activeEngineIsLlama: Bool { activeEngine == .llamaCPP }
 
     /// llama.cpp GGUF Qwen3-ASR models present on disk (by model id).
     func availableLocalLlamaModelIds() -> [String] {
@@ -464,10 +611,20 @@ import WhisperKit
     private func tokenIfGated(_ repo: String) -> String? { Keychain.getToken() }
 
     func transcribe(_ samples: [Float], biasTerms: [String] = []) async throws -> String {
-        if activeEngineIsLlama {
+        switch activeEngine {
+        case .llamaCPP:
             return try await llama.transcribe(
                 samples, context: llamaContextPrompt(biasTerms: biasTerms)
             )
+        case .fluidAudio:
+            // Parakeet takes no prompt: dictionary terms reach the text through
+            // the correction pass that runs after every transcription.
+            return try await parakeet.transcribe(samples, languageCode: effectiveLanguage).text
+        case .appleSpeech:
+            try await ensureAppleLanguage()
+            return try await appleSpeech.transcribe(samples, contextualStrings: biasTerms).text
+        case .whisperKit:
+            break
         }
         let segments = try await decode(samples, biasTerms: biasTerms)
         return segments.map { $0.text }
@@ -492,13 +649,27 @@ import WhisperKit
         isCancelled: @escaping @Sendable () -> Bool = { false },
         onProgress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async throws -> String {
-        if activeEngineIsLlama {
+        switch activeEngine {
+        case .llamaCPP:
             return try await llama.transcribe(
                 samples,
                 context: llamaContextPrompt(biasTerms: biasTerms),
                 isCancelled: isCancelled,
                 onProgress: onProgress
             )
+        case .fluidAudio:
+            return try await parakeet.transcribeLong(
+                samples, languageCode: effectiveLanguage,
+                isCancelled: isCancelled, onProgress: onProgress
+            ).text
+        case .appleSpeech:
+            try await ensureAppleLanguage()
+            return try await appleSpeech.transcribe(
+                samples, contextualStrings: biasTerms,
+                isCancelled: isCancelled, onProgress: onProgress
+            ).text
+        case .whisperKit:
+            break
         }
         guard let w = whisper else { throw TranscriberError.notLoaded }
 
@@ -553,6 +724,7 @@ import WhisperKit
     /// fallbacks) — each pass is cheap so words can stream out as you speak.
     func liveTranscribeChunk(_ samples: [Float], runningText: String, biasTerms: [String] = []) async throws -> String {
         if activeEngineIsLlama { throw TranscriberError.liveUnsupported }
+        if activeEngine != .whisperKit { return try await transcribe(samples, biasTerms: biasTerms) }
         guard let w = whisper else { throw TranscriberError.notLoaded }
 
         // Prompt context: recent already-transcribed text (capped so the token
@@ -630,8 +802,30 @@ import WhisperKit
     /// (no temperature fallbacks) for low latency, timestamps ON so segments
     /// carry real audio positions (the confirmation logic in LiveTranscriber
     /// needs them), dictionary bias as a prefill prompt.
-    func liveTranscribe(_ samples: [Float], biasTerms: [String] = []) async throws -> [TranscriptionSegment] {
-        if activeEngineIsLlama { throw TranscriberError.liveUnsupported }
+    ///
+    /// `typedBoundary` is where already-typed audio ends inside `samples`, in
+    /// seconds. Whisper's own segmentation is left alone; the other engines
+    /// split their segments there (see `EngineSegment.group`).
+    func liveTranscribe(_ samples: [Float], biasTerms: [String] = [],
+                        typedBoundary: Double? = nil) async throws -> [TranscriptionSegment] {
+        switch activeEngine {
+        case .llamaCPP:
+            throw TranscriberError.liveUnsupported
+        case .fluidAudio:
+            // Fast enough to re-decode the whole window every tick. Segments
+            // close at sentence ends and pauses, which is what lets the live
+            // loop type settled text early (see `EngineSegment.group`).
+            let out = try await parakeet.transcribe(samples, languageCode: effectiveLanguage,
+                                                    splitAt: typedBoundary)
+            return Self.whisperSegments(out.segments)
+        case .appleSpeech:
+            try await ensureAppleLanguage()
+            let out = try await appleSpeech.transcribe(samples, contextualStrings: biasTerms,
+                                                       splitAt: typedBoundary)
+            return Self.whisperSegments(out.segments)
+        case .whisperKit:
+            break
+        }
         guard let w = whisper else { throw TranscriberError.notLoaded }
 
         // Short bias prompt only: a long prefill on a short window makes
@@ -680,17 +874,38 @@ import WhisperKit
         let text: String
     }
 
+    /// The live loop is written against WhisperKit's segment type; the other
+    /// engines' timed spans map onto the fields it reads (start, end, text).
+    private static func whisperSegments(_ segments: [EngineSegment]) -> [TranscriptionSegment] {
+        segments.enumerated().map { index, segment in
+            TranscriptionSegment(id: index, start: Float(segment.start), end: Float(segment.end),
+                                 text: " " + segment.text)
+        }
+    }
+
     /// Timestamped decode of one clip — the meeting transcript's unit of work.
     /// Whisper returns real segment times; Qwen3-ASR has no timestamp API, so
     /// its whole clip becomes one segment spanning the clip.
     func transcribeTimed(_ samples: [Float], biasTerms: [String] = []) async throws -> [TimedSegment] {
         let seconds = Double(samples.count) / Double(WhisperKit.sampleRate)
-        if activeEngineIsLlama {
+        switch activeEngine {
+        case .llamaCPP:
             let text = try await llama.transcribe(
                 samples, context: llamaContextPrompt(biasTerms: biasTerms),
                 isCancelled: { false }, onProgress: { _ in }
             ).trimmingCharacters(in: .whitespacesAndNewlines)
             return text.isEmpty ? [] : [TimedSegment(start: 0, end: seconds, text: text)]
+        case .fluidAudio:
+            let out = try await parakeet.transcribeLong(
+                samples, languageCode: effectiveLanguage, isCancelled: { false }, onProgress: { _ in }
+            )
+            return out.segments.map { TimedSegment(start: $0.start, end: $0.end, text: $0.text) }
+        case .appleSpeech:
+            try await ensureAppleLanguage()
+            let out = try await appleSpeech.transcribe(samples, contextualStrings: biasTerms)
+            return out.segments.map { TimedSegment(start: $0.start, end: $0.end, text: $0.text) }
+        case .whisperKit:
+            break
         }
         guard let w = whisper else { throw TranscriberError.notLoaded }
         var initialPrompt: [Int]?
@@ -739,6 +954,12 @@ import WhisperKit
     func download(modelId: String) async -> Bool {
         if let llamaOpt = LlamaModelOption.find(id: modelId) {
             return await GGUFDownloader.download(llamaOpt)
+        }
+        if let parakeetOpt = ParakeetModelOption.find(id: modelId) {
+            return await downloadParakeet(parakeetOpt)
+        }
+        if AppleSpeechModel.isAppleId(modelId) {
+            return await installAppleSpeech(modelId: modelId)
         }
         if let custom = CustomGGUFModel.parse(modelId) {
             return await GGUFDownloader.downloadCustom(custom, totalBytes: expectedBytes(modelId))
@@ -882,6 +1103,85 @@ import WhisperKit
             AppState.shared.showToast("Download failed after \(maxAttempts) attempts: \(lastError?.localizedDescription ?? "unknown error")")
         }
         return false
+    }
+
+    /// Download a Parakeet model through FluidAudio's downloader. Byte progress
+    /// comes from the same disk sampler the WhisperKit path uses — FluidAudio
+    /// writes straight into the model folder as `.partial` files.
+    private func downloadParakeet(_ option: ParakeetModelOption) async -> Bool {
+        let root = modelDir
+        let label = option.display
+        state.isDownloading = true
+        state.downloadingModelId = option.id
+        state.downloadProgress = 0
+        state.downloadLabel = "Downloading \(label)…"
+        state.resetDownloadStats()
+        // The catalog size is what FluidAudio writes; the queue replaces it
+        // with the bytes actually on disk once the files are verified.
+        let total = option.sizeBytes
+        let sampler = startDownloadStatsSampler(
+            repoRoot: ParakeetModelOption.root(root), folder: option.folderName, totalBytes: { total }
+        )
+        defer {
+            sampler.cancel()
+            state.isDownloading = false
+            state.downloadingModelId = nil
+            state.downloadLabel = ""
+        }
+        do {
+            try await ParakeetASR.download(option, root: root) {
+                Task { @MainActor in
+                    AppState.shared.downloadLabel = "Optimizing \(label) for this Mac…"
+                }
+            }
+            guard ParakeetASR.isDownloaded(option, root: root) else {
+                throw TranscriberError.downloadIncomplete
+            }
+            state.downloadProgress = 1.0
+            if state.downloadBytesTotal > 0 { state.downloadBytesDone = state.downloadBytesTotal }
+            fputs("NotchWhisper: download of \(label) completed\n", stderr)
+            return true
+        } catch {
+            // A pause/cancel from the install queue lands here; the `.partial`
+            // files stay so the next attempt resumes.
+            if Task.isCancelled { return false }
+            fputs("NotchWhisper: Parakeet download failed: \(error)\n", stderr)
+            state.showToast("Download failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// "Installing" Apple Speech asks macOS for the recognizer of the dictation
+    /// language. The system downloads and owns the files.
+    private func installAppleSpeech(modelId: String) async -> Bool {
+        state.isDownloading = true
+        state.downloadingModelId = modelId
+        state.downloadProgress = 0
+        state.resetDownloadStats()
+        defer {
+            state.isDownloading = false
+            state.downloadingModelId = nil
+            state.downloadLabel = ""
+        }
+        do {
+            let locale = try await AppleSpeechASR.resolveLocale(effectiveLanguage)
+            let language = locale.localizedString(forIdentifier: locale.identifier) ?? locale.identifier
+            state.downloadLabel = "Getting Apple Speech for \(language)…"
+            try await AppleSpeechASR.install(locale) { fraction in
+                Task { @MainActor in
+                    if fraction > AppState.shared.downloadProgress {
+                        AppState.shared.downloadProgress = fraction
+                    }
+                }
+            }
+            state.downloadProgress = 1.0
+            return true
+        } catch {
+            if Task.isCancelled { return false }
+            fputs("NotchWhisper: Apple Speech install failed: \(error)\n", stderr)
+            state.showToast(error.localizedDescription)
+            return false
+        }
     }
 
     /// Best-known download size for a model that may not be installed yet: the
