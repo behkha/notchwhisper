@@ -20,6 +20,9 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
         popover.behavior = .transient
         popover.animates = true
+        // The panel is designed for one ground; without this the popover's
+        // own chrome (material, arrow) follows a light system appearance.
+        popover.appearance = NSAppearance(named: .darkAqua)
         popover.delegate = self
         let panel = MenuPanel(close: { [weak self] in self?.popover.performClose(nil) })
             .environmentObject(state)
@@ -95,6 +98,9 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
 // MARK: - The SwiftUI panel
 
+/// The menu-bar panel, laid out like Control Center: a status header, one
+/// large record module, a module of quick controls, the shortcut legend, and
+/// a quiet footer — all on the popover's own dark material.
 private struct MenuPanel: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
@@ -108,189 +114,31 @@ private struct MenuPanel: View {
 
     var body: some View {
         let _ = theme.theme
-        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            // Header
-            HStack(spacing: Tokens.Space.x2) {
-                statusDot
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(statusText)
-                        .font(Tokens.TypeScale.body.weight(.semibold))
-                        .foregroundStyle(Tokens.Color.text)
-                    Text(ModelRegistry.shared.descriptor(for: settings.modelId).displayName)
-                        .font(Tokens.TypeScale.micro)
-                        .foregroundStyle(Tokens.Color.textTert)
-                }
-                Spacer()
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            header
 
             if state.isDownloading || state.isLoadingModel {
                 ProgressView(value: max(state.isDownloading ? state.displayProgress : state.modelLoadProgress, 0.02))
                     .tint(Tokens.Color.accent)
+                    .padding(.horizontal, 4)
             }
 
-            // Primary action
-            Button {
-                NotificationCenter.default.post(name: .toggleRecord, object: nil)
-                close()
-            } label: {
-                Label(primaryTitle, systemImage: primaryIcon)
-                    .frame(maxWidth: .infinity)
-            }
-            .primaryAction(full: true)
-            .disabled(primaryDisabled)
+            recordModule
 
-            // Quick toggles
-            VStack(spacing: 0) {
-                MicrophoneMenuBarRow()
-                Divider().overlay(Tokens.Color.hairline)
-                toggleRow("dot.radiowaves.left.and.right", "Live dictation", isOn: $settings.liveDictation)
-                    .onChange(of: settings.liveDictation) { _, _ in
-                        NotificationCenter.default.post(name: .dictationChanged, object: nil)
-                    }
-                if state.meetingRecording {
-                    Divider().overlay(Tokens.Color.hairline)
-                    Button {
-                        Task { await MeetingStore.shared.stop() }
-                        close()
-                    } label: {
-                        HStack(spacing: Tokens.Space.x2) {
-                            Image(systemName: "record.circle")
-                                .font(.system(size: 12)).foregroundStyle(Tokens.Color.record).frame(width: 18)
-                            Text("Stop meeting recording")
-                                .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.text)
-                            Spacer(minLength: 0)
-                            Text(AudioFileImport.durationLabel(seconds: MeetingStore.shared.elapsed))
-                                .font(Tokens.TypeScale.micro).monospacedDigit().foregroundStyle(Tokens.Color.textTert)
-                        }
-                        .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 6)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                if state.discardedRecordingAvailable {
-                    // The silence gate dropped the last capture (spec 04); this
-                    // is the escape hatch for a whisperer or a quiet mic.
-                    Divider().overlay(Tokens.Color.hairline)
-                    Button {
-                        AppDelegate.shared?.transcribeDiscardedRecording()
-                        close()
-                    } label: {
-                        HStack(spacing: Tokens.Space.x2) {
-                            Image(systemName: "waveform.badge.exclamationmark")
-                                .font(.system(size: 12)).foregroundStyle(Tokens.Color.warn).frame(width: 18)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text("Transcribe anyway")
-                                    .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.text)
-                                Text("The last recording sounded silent and was skipped.")
-                                    .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 6)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                if profiles.enabledCount > 0 {
-                    Divider().overlay(Tokens.Color.hairline)
-                    toggleRow("app.badge", "Ignore app profile once",
-                              isOn: $profiles.bypassNextDictation)
-                }
-                if settings.llmEnabled {
-                    Divider().overlay(Tokens.Color.hairline)
-                    HStack(spacing: Tokens.Space.x2) {
-                        Image(systemName: modes.symbol(for: settings.processingMode))
-                            .font(.system(size: 12)).foregroundStyle(Tokens.Color.accent).frame(width: 18)
-                        Text("Mode").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
-                        Spacer()
-                        Menu {
-                            Button(ProcessingMode.offLabel) { settings.processingMode = .off }
-                            if !modes.modes.isEmpty {
-                                Section("Your modes") {
-                                    ForEach(modes.modes) { mode in
-                                        Button(mode.name) { settings.processingMode = .custom(mode.id) }
-                                    }
-                                }
-                            }
-                            Divider()
-                            Button("Manage modes…") {
-                                AppDelegate.shared?.showMainWindow()
-                                NotificationCenter.default.post(name: .openAIPage, object: AITab.modes.rawValue)
-                                close()
-                            }
-                        } label: {
-                            Text(modes.label(for: settings.processingMode)).lineLimit(1)
-                        }
-                        .menuStyle(.borderlessButton).frame(width: 140)
-                    }
-                    .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 6)
-
-                    if settings.llmNeedsConnection {
-                        Divider().overlay(Tokens.Color.hairline)
-                        Button {
-                            AppDelegate.shared?.showMainWindow()
-                            NotificationCenter.default.post(name: .openAIPage, object: AITab.connections.rawValue)
-                            close()
-                        } label: {
-                            HStack(spacing: Tokens.Space.x2) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 11)).foregroundStyle(Tokens.Color.warn).frame(width: 18)
-                                Text("Add an AI connection to run modes")
-                                    .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textSec)
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 6)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous).strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+            controlsModule
 
             shortcutList
 
             UpdateBanner(compact: true)
 
-            // Latest transcript
-            if let rec = history.records.first {
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(rec.finalText, forType: .string)
-                    close()
-                } label: {
-                    HStack(spacing: Tokens.Space.x2) {
-                        Image(systemName: "doc.on.doc").font(.system(size: 11)).foregroundStyle(Tokens.Color.textTert)
-                        Text(rec.finalText).lineLimit(1).truncationMode(.tail)
-                            .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, Tokens.Space.x2).padding(.vertical, 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Copy last transcript")
-            }
+            if let rec = history.records.first { lastTranscript(rec) }
 
-            Divider().overlay(Tokens.Color.hairline)
+            Hairline().padding(.horizontal, 4)
 
-            // Footer
-            HStack(spacing: Tokens.Space.x4) {
-                footerButton("Open", "macwindow") { AppDelegate.shared?.showMainWindow(); close() }
-                footerButton("Apps", "app.badge") {
-                    AppDelegate.shared?.showMainWindow()
-                    NotificationCenter.default.post(name: .openAppsPage, object: nil)
-                    close()
-                }
-                footerButton("Settings", "gearshape") { AppDelegate.shared?.showSettings(); close() }
-                Spacer()
-                footerButton("Quit", "power") { NSApp.terminate(nil) }
-            }
+            footer
         }
-        .padding(Tokens.Space.x4)
-        .frame(width: 320)
-        .background(AuroraBackground())
+        .padding(12)
+        .frame(width: 340)
         .environment(\.colorScheme, .dark)
         .tint(Tokens.Color.accent)
         // The popover makes its window key, which paints the system focus ring
@@ -299,74 +147,294 @@ private struct MenuPanel: View {
         .focusEffectDisabled()
     }
 
-    /// Every shortcut with its glyph, so "which key does what" is answerable
-    /// without opening Settings. Nothing here fires a recording — a hold-to-talk
-    /// binding has no meaning as a click.
+    // MARK: Header
+
+    private var header: some View {
+        HStack(spacing: Tokens.Space.x2 + 2) {
+            StatusDot(color: dotColor, size: 7,
+                      pulsing: state.mode == .recording || state.mode == .dictating)
+                .frame(width: 14)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(statusText)
+                    .font(Tokens.TypeScale.headline)
+                    .foregroundStyle(Tokens.Color.text)
+                Text(ModelRegistry.shared.descriptor(for: settings.modelId).displayName)
+                    .font(Tokens.TypeScale.caption)
+                    .foregroundStyle(Tokens.Color.textTert)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Text("NotchWhisper")
+                .font(Tokens.TypeScale.caption.weight(.medium))
+                .foregroundStyle(Tokens.Color.textQuat)
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 2)
+    }
+
+    // MARK: Record module
+
+    private var recordModule: some View {
+        let live = state.mode == .recording || state.mode == .dictating
+        return Button {
+            NotificationCenter.default.post(name: .toggleRecord, object: nil)
+            close()
+        } label: {
+            HStack(spacing: Tokens.Space.x3) {
+                ZStack {
+                    Circle()
+                        .fill(live
+                              ? AnyShapeStyle(LinearGradient(colors: [Tokens.Color.record, Tokens.Color.recordDark],
+                                                             startPoint: .top, endPoint: .bottom))
+                              : AnyShapeStyle(Tokens.Color.accentGradient))
+                        .overlay(Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.4), .white.opacity(0.02)],
+                                                                      startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                        .shadow(color: (live ? Tokens.Color.record : Tokens.Color.accent).opacity(0.3), radius: 6, y: 2)
+                    Image(systemName: primaryIcon)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(live ? .white : Tokens.Color.onAccent)
+                }
+                .frame(width: 38, height: 38)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(primaryTitle)
+                        .font(Tokens.TypeScale.headline)
+                        .foregroundStyle(Tokens.Color.text)
+                    if let primary = hotkeys.primary, !live, primary.effectiveActivation != .editSelection {
+                        HStack(spacing: 5) {
+                            Text(primary.effectiveActivation == .toggleLive ? "or press" : "or hold")
+                                .font(Tokens.TypeScale.caption)
+                                .foregroundStyle(Tokens.Color.textTert)
+                            KeyCap(text: primary.display, compact: true)
+                        }
+                    } else if live {
+                        Text("Click to stop")
+                            .font(Tokens.TypeScale.caption)
+                            .foregroundStyle(Tokens.Color.textTert)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(ModuleButtonStyle())
+        .disabled(primaryDisabled)
+    }
+
+    // MARK: Controls module
+
+    private var controlsModule: some View {
+        VStack(spacing: 0) {
+            MicrophoneMenuBarRow()
+            divider
+            toggleRow("dot.radiowaves.left.and.right", "Live dictation", isOn: $settings.liveDictation)
+                .onChange(of: settings.liveDictation) { _, _ in
+                    NotificationCenter.default.post(name: .dictationChanged, object: nil)
+                }
+            if state.meetingRecording {
+                divider
+                Button {
+                    Task { await MeetingStore.shared.stop() }
+                    close()
+                } label: {
+                    HStack(spacing: Tokens.Space.x2 + 2) {
+                        Image(systemName: "record.circle")
+                            .font(.system(size: 13)).foregroundStyle(Tokens.Color.record).frame(width: 18)
+                        Text("Stop meeting recording")
+                            .font(Tokens.TypeScale.body).foregroundStyle(Tokens.Color.text)
+                        Spacer(minLength: 0)
+                        Text(AudioFileImport.durationLabel(seconds: MeetingStore.shared.elapsed))
+                            .font(Tokens.TypeScale.caption).monospacedDigit().foregroundStyle(Tokens.Color.textTert)
+                    }
+                    .padding(.horizontal, 10).frame(minHeight: 34)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(RowButtonStyle())
+            }
+            if state.discardedRecordingAvailable {
+                // The silence gate dropped the last capture (spec 04); this
+                // is the escape hatch for a whisperer or a quiet mic.
+                divider
+                Button {
+                    AppDelegate.shared?.transcribeDiscardedRecording()
+                    close()
+                } label: {
+                    HStack(spacing: Tokens.Space.x2 + 2) {
+                        Image(systemName: "waveform.badge.exclamationmark")
+                            .font(.system(size: 13)).foregroundStyle(Tokens.Color.warn).frame(width: 18)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Transcribe anyway")
+                                .font(Tokens.TypeScale.body).foregroundStyle(Tokens.Color.text)
+                            Text("The last recording sounded silent and was skipped.")
+                                .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(RowButtonStyle())
+            }
+            if profiles.enabledCount > 0 {
+                divider
+                toggleRow("app.badge", "Ignore app profile once",
+                          isOn: $profiles.bypassNextDictation)
+            }
+            if settings.llmEnabled {
+                divider
+                HStack(spacing: Tokens.Space.x2 + 2) {
+                    Image(systemName: modes.symbol(for: settings.processingMode))
+                        .font(.system(size: 13)).foregroundStyle(Tokens.Color.textSec).frame(width: 18)
+                    Text("Mode").font(Tokens.TypeScale.body).foregroundStyle(Tokens.Color.text)
+                    Spacer()
+                    Menu {
+                        Button(ProcessingMode.offLabel) { settings.processingMode = .off }
+                        if !modes.modes.isEmpty {
+                            Section("Your modes") {
+                                ForEach(modes.modes) { mode in
+                                    Button(mode.name) { settings.processingMode = .custom(mode.id) }
+                                }
+                            }
+                        }
+                        Divider()
+                        Button("Manage modes…") {
+                            AppDelegate.shared?.showMainWindow()
+                            NotificationCenter.default.post(name: .openAIPage, object: AITab.modes.rawValue)
+                            close()
+                        }
+                    } label: {
+                        Text(modes.label(for: settings.processingMode)).lineLimit(1)
+                    }
+                    .popupMenuStyle()
+                    .controlSize(.small)
+                    .frame(maxWidth: 150)
+                }
+                .padding(.horizontal, 10).frame(minHeight: 36)
+
+                if settings.llmNeedsConnection {
+                    divider
+                    Button {
+                        AppDelegate.shared?.showMainWindow()
+                        NotificationCenter.default.post(name: .openAIPage, object: AITab.connections.rawValue)
+                        close()
+                    } label: {
+                        HStack(spacing: Tokens.Space.x2 + 2) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 12)).foregroundStyle(Tokens.Color.warn).frame(width: 18)
+                            Text("Add an AI connection to run modes")
+                                .font(Tokens.TypeScale.callout).foregroundStyle(Tokens.Color.textSec)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .bold)).foregroundStyle(Tokens.Color.textQuat)
+                        }
+                        .padding(.horizontal, 10).frame(minHeight: 34)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(RowButtonStyle())
+                }
+            }
+        }
+        .modulePlate()
+    }
+
+    private var divider: some View {
+        Hairline().padding(.leading, 38)
+    }
+
+    /// Every shortcut with its key drawn, so "which key does what" is
+    /// answerable without opening Settings. Nothing here fires a recording —
+    /// a hold-to-talk binding has no meaning as a click.
     @ViewBuilder
     private var shortcutList: some View {
         let enabled = hotkeys.bindings.filter { $0.enabled && $0.keyCode != 0 }
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Text("SHORTCUTS")
-                    .font(Tokens.TypeScale.eyebrow).tracking(1.2)
+                Text("Shortcuts")
+                    .font(Tokens.TypeScale.captionSB)
                     .foregroundStyle(Tokens.Color.textTert)
                 Spacer()
-                Button("Edit") { AppDelegate.shared?.showSettings(); close() }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.micro)
-                    .foregroundStyle(Tokens.Color.accent)
+                Button("Edit") { AppDelegate.shared?.openSettings(.shortcuts); close() }
+                    .quietAction()
             }
             if enabled.isEmpty {
                 Text("No shortcut set — use the button above.")
-                    .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
+                    .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
             } else {
                 ForEach(enabled.prefix(5)) { binding in
                     HStack(spacing: Tokens.Space.x2) {
                         Image(systemName: binding.effectiveActivation.symbolName)
-                            .font(.system(size: 10)).foregroundStyle(Tokens.Color.accent).frame(width: 14)
+                            .font(.system(size: 11)).foregroundStyle(Tokens.Color.textTert).frame(width: 16)
                         Text(binding.name.isEmpty ? "Untitled" : binding.name)
-                            .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textSec)
+                            .font(Tokens.TypeScale.callout).foregroundStyle(Tokens.Color.textSec)
                             .lineLimit(1)
                         Spacer(minLength: Tokens.Space.x2)
-                        Text(binding.display)
-                            .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
-                            .lineLimit(1)
+                        KeyCap(text: binding.display, compact: true)
                     }
                 }
                 if enabled.count > 5 {
                     Text("+\(enabled.count - 5) more")
-                        .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
+                        .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
                 }
             }
         }
-        .padding(.horizontal, Tokens.Space.x2)
+        .padding(.horizontal, 6)
+        .padding(.top, 2)
+    }
+
+    private func lastTranscript(_ rec: TranscriptRecord) -> some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(rec.finalText, forType: .string)
+            close()
+        } label: {
+            HStack(spacing: Tokens.Space.x2) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Last transcript")
+                        .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
+                    Text(rec.finalText).lineLimit(1).truncationMode(.tail)
+                        .font(Tokens.TypeScale.callout).foregroundStyle(Tokens.Color.textSec)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 11)).foregroundStyle(Tokens.Color.textTert)
+            }
+            .padding(.horizontal, 6).padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(RowButtonStyle())
+        .help("Copy last transcript")
+    }
+
+    // MARK: Footer
+
+    private var footer: some View {
+        HStack(spacing: 2) {
+            Button("Open NotchWhisper") { AppDelegate.shared?.showMainWindow(); close() }
+                .quietAction(tint: Tokens.Color.text)
+            Spacer()
+            IconButton(systemImage: "square.grid.2x2", help: "App profiles", size: 26) {
+                AppDelegate.shared?.showMainWindow()
+                NotificationCenter.default.post(name: .openAppsPage, object: nil)
+                close()
+            }
+            IconButton(systemImage: "gearshape", help: "Settings", size: 26) {
+                AppDelegate.shared?.showSettings(); close()
+            }
+            IconButton(systemImage: "power", help: "Quit NotchWhisper", size: 26) { NSApp.terminate(nil) }
+        }
+        .padding(.leading, -3)
     }
 
     private func toggleRow(_ icon: String, _ title: String, isOn: Binding<Bool>) -> some View {
-        HStack(spacing: Tokens.Space.x2) {
-            Image(systemName: icon).font(.system(size: 12)).foregroundStyle(Tokens.Color.accent).frame(width: 18)
-            Text(title).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
+        HStack(spacing: Tokens.Space.x2 + 2) {
+            Image(systemName: icon).font(.system(size: 13)).foregroundStyle(Tokens.Color.textSec).frame(width: 18)
+            Text(title).font(Tokens.TypeScale.body).foregroundStyle(Tokens.Color.text)
             Spacer()
             Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.mini)
         }
-        .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 6)
+        .padding(.horizontal, 10).frame(minHeight: 36)
     }
 
-    private func footerButton(_ title: String, _ icon: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 10, weight: .semibold))
-                Text(title).font(Tokens.TypeScale.micro)
-            }
-            .foregroundStyle(Tokens.Color.textSec)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var statusDot: some View {
-        Circle().fill(dotColor).frame(width: 8, height: 8)
-            .shadow(color: dotColor.opacity(0.6), radius: 3)
-    }
     private var dotColor: SwiftUI.Color {
         switch state.mode {
         case .idle: return state.modelStatus == .ready ? Tokens.Color.success : Tokens.Color.warn
@@ -382,9 +450,9 @@ private struct MenuPanel: View {
             if state.isDownloading { return "Downloading model…" }
             if state.isLoadingModel { return "Loading model…" }
             switch state.modelStatus {
-            case .ready: return settings.liveDictation ? "Ready to dictate" : "Ready — hold to talk"
+            case .ready: return settings.liveDictation ? "Ready to dictate" : "Ready"
             case .error: return "Model error"
-            default: return "Starting up…"
+            default: return settings.modelPreload.preloadsAtLaunch ? "Starting up…" : "Loads on first use"
             }
         case .recording: return "Listening…"
         case .dictating: return "Dictating…"
@@ -404,7 +472,79 @@ private struct MenuPanel: View {
     private var primaryIcon: String {
         (state.mode == .recording || state.mode == .dictating) ? "stop.fill" : "mic.fill"
     }
+    /// Recording can start whenever a model is resident — or installed but not
+    /// loaded yet, because starting a recording loads it (the hotkey path does
+    /// the same). Only a model that is loading, downloading, failed or absent
+    /// blocks the button.
     private var primaryDisabled: Bool {
-        state.modelStatus != .ready && state.mode == .idle
+        guard state.mode == .idle else { return false }
+        switch state.modelStatus {
+        case .ready: return false
+        case .unknown: return ModelRegistry.shared.installedIds.isEmpty
+        default: return true
+        }
+    }
+}
+
+// MARK: - Module styling
+
+private extension View {
+    /// A Control Center module: a lit translucent plate on the popover material.
+    func modulePlate() -> some View {
+        self
+            .background(Tokens.Color.white(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(LinearGradient(colors: [Tokens.Color.white(0.10), Tokens.Color.white(0.03)],
+                                                 startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+/// The record module: a module plate that brightens on hover and dims when
+/// the engine can't take a recording yet.
+private struct ModuleButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    func makeBody(configuration: Configuration) -> some View {
+        ModuleBody(configuration: configuration, isEnabled: isEnabled)
+    }
+    private struct ModuleBody: View {
+        let configuration: ButtonStyleConfiguration
+        let isEnabled: Bool
+        @ViewState private var hovering = false
+        var body: some View {
+            configuration.label
+                .background(Tokens.Color.white(hovering && isEnabled ? 0.10 : 0.06),
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(LinearGradient(colors: [Tokens.Color.white(0.10), Tokens.Color.white(0.03)],
+                                                     startPoint: .top, endPoint: .bottom), lineWidth: 1)
+                )
+                .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
+                .onHover { hovering = $0 }
+                .animation(Tokens.Motion.hover, value: hovering)
+        }
+    }
+}
+
+/// A plain row that washes on hover — for tappable rows inside a module.
+private struct RowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        StyledBody(configuration: configuration)
+    }
+    private struct StyledBody: View {
+        let configuration: ButtonStyleConfiguration
+        @ViewState private var hovering = false
+        var body: some View {
+            configuration.label
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(hovering ? Tokens.Color.hoverFill : .clear)
+                )
+                .opacity(configuration.isPressed ? 0.7 : 1)
+                .onHover { hovering = $0 }
+        }
     }
 }

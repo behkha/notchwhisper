@@ -19,6 +19,9 @@ extension Notification.Name {
     static let openAIPage = Notification.Name("NotchWhisper.openAIPage")
     /// Open the Apps page (app profiles) in the main window.
     static let openAppsPage = Notification.Name("NotchWhisper.openAppsPage")
+    /// Open a page of the main window. `object` carries a `MainView.Nav` raw
+    /// value ("models", "transcripts", …).
+    static let openMainPage = Notification.Name("NotchWhisper.openMainPage")
     /// Open the Hugging Face browser window. `object` may carry a `String` to
     /// seed the search field with.
     static let openHubBrowser = Notification.Name("NotchWhisper.openHubBrowser")

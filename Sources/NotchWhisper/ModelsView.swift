@@ -261,8 +261,10 @@ struct ModelsView: View {
                     discoverSection.id(Self.discoverAnchor)
                     storageSection
                 }
-                .padding(Tokens.Space.x8)
-                .frame(maxWidth: 1040, alignment: .leading)
+                .padding(.horizontal, Tokens.Layout.pagePadH)
+                .padding(.top, Tokens.Layout.pagePadTop)
+                .padding(.bottom, Tokens.Space.x10)
+                .frame(maxWidth: Tokens.Layout.wideContentMaxW + Tokens.Layout.pagePadH * 2, alignment: .leading)
                 .frame(maxWidth: .infinity)
                 .onChange(of: browseRequests) { _, _ in
                     withAnimation(Tokens.Motion.ease(reduceMotion: Tokens.A11y.reduceMotion)) {
@@ -272,7 +274,7 @@ struct ModelsView: View {
                 }
             }
         }
-        .scrollIndicators(.never)
+        .scrollIndicators(.automatic)
     }
 
     private static let discoverAnchor = "discover-section"
@@ -282,12 +284,12 @@ struct ModelsView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x4) {
             HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.x4) {
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Models")
                         .font(Tokens.TypeScale.largeTitle)
                         .foregroundStyle(Tokens.Color.text)
                     Text("Manage the speech recognition engines installed on your Mac.")
-                        .font(Tokens.TypeScale.callout)
+                        .font(Tokens.TypeScale.body)
                         .foregroundStyle(Tokens.Color.textSec)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -300,36 +302,25 @@ struct ModelsView: View {
                         headerActions(iconOnly: false)
                         headerActions(iconOnly: true)
                     }
-                    Menu {
+                    MoreMenu(help: "More model options") {
                         Button("Model storage…") { route = .storage }
                         Button("Compare models…") { openCompare() }
                         Divider()
                         Button("Search Hugging Face…") { openHubBrowser() }
                         Button("Add from Hugging Face URL…") { route = .pasteURL }
                         Button("Reveal models folder") { storageLocation.revealInFinder() }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Tokens.Color.textSec)
-                            .frame(width: 30, height: 26)
-                            .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
-                            .contentShape(Capsule())
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .accessibilityLabel("More model options")
                 }
             }
 
             HStack(spacing: Tokens.Space.x3) {
                 Label(hw.summary, systemImage: hw.isAppleSilicon ? "memorychip" : "cpu")
-                    .font(Tokens.TypeScale.caption)
+                    .font(Tokens.TypeScale.callout)
                     .foregroundStyle(Tokens.Color.textTert)
                 if let freshness = metadata.freshnessLabel, metadata.isOnline {
-                    Text("·").foregroundStyle(Tokens.Color.textTert)
+                    Text("·").foregroundStyle(Tokens.Color.textQuat)
                     Text(freshness)
-                        .font(Tokens.TypeScale.caption)
+                        .font(Tokens.TypeScale.callout)
                         .foregroundStyle(Tokens.Color.textTert)
                 }
                 Spacer(minLength: 0)
@@ -429,9 +420,7 @@ struct ModelsView: View {
             ModelSectionHeader("Active model") {
                 if registry.defaultId != registry.activeId {
                     Button("Set as default") { registry.defaultId = registry.activeId }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.micro)
-                        .foregroundStyle(Tokens.Color.accent)
+                        .quietAction()
                         .help("The model each new dictation starts with.")
                 }
             }
@@ -450,27 +439,24 @@ struct ModelsView: View {
     private var recentlyUsedStrip: some View {
         let recent = registry.recentlyUsed(limit: 3)
         if !recent.isEmpty {
-            HStack(spacing: Tokens.Space.x3) {
+            FlowLayout(spacing: Tokens.Space.x2, lineSpacing: Tokens.Space.x2) {
                 Text("Recently used")
-                    .font(Tokens.TypeScale.micro)
+                    .font(Tokens.TypeScale.callout)
                     .foregroundStyle(Tokens.Color.textTert)
+                    .frame(minHeight: 29)
+                    .padding(.trailing, Tokens.Space.x1)
                 ForEach(recent, id: \.0.id) { model, date in
                     Button { actions.activate(model.id) } label: {
-                        HStack(spacing: 5) {
-                            Text(model.displayName).font(Tokens.TypeScale.micro.weight(.medium))
-                            Text(Self.relative(date)).font(Tokens.TypeScale.micro)
+                        HStack(spacing: 6) {
+                            Text(model.displayName).font(Tokens.TypeScale.callout.weight(.medium))
+                                .foregroundStyle(Tokens.Color.text)
+                            Text(Self.relative(date)).font(Tokens.TypeScale.caption)
                                 .foregroundStyle(Tokens.Color.textTert)
                         }
-                        .foregroundStyle(Tokens.Color.textSec)
-                        .padding(.horizontal, Tokens.Space.x2)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(Tokens.Color.fillQuieter))
-                        .contentShape(Capsule())
                     }
-                    .buttonStyle(Pressable(scale: 0.97))
+                    .secondaryAction()
                     .help("Switch to \(model.displayName)")
                 }
-                Spacer(minLength: 0)
             }
         }
     }
@@ -487,9 +473,7 @@ struct ModelsView: View {
             ModelSectionHeader("Installed", count: countLabel(all.count, "model")) {
                 if installed.count >= 2 {
                     Button("Compare") { openCompare() }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.micro)
-                        .foregroundStyle(Tokens.Color.accent)
+                        .quietAction()
                 }
             }
 
@@ -576,17 +560,9 @@ struct ModelsView: View {
                 Button {
                     openHubBrowser()
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "sparkle.magnifyingglass").font(.system(size: 10, weight: .semibold))
-                        Text("Search Hugging Face").font(Tokens.TypeScale.micro.weight(.semibold))
-                    }
-                    .foregroundStyle(Tokens.Color.accent)
-                    .padding(.horizontal, Tokens.Space.x2)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(Tokens.Color.accent.opacity(0.14)))
-                    .contentShape(Capsule())
+                    Label("Search Hugging Face", systemImage: "sparkle.magnifyingglass")
                 }
-                .buttonStyle(Pressable(scale: 0.97))
+                .quietAction()
                 .accessibilityLabel("Search all of Hugging Face")
 
                 Menu {
@@ -594,14 +570,10 @@ struct ModelsView: View {
                         ForEach(ModelSortOrder.allCases) { Text($0.label).tag($0) }
                     }
                 } label: {
-                    HStack(spacing: 4) {
-                        Text("Sort: \(sort.label)").font(Tokens.TypeScale.micro)
-                        Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
-                    }
-                    .foregroundStyle(Tokens.Color.textSec)
+                    Text("Sort: \(sort.label)")
                 }
                 .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
+                .tint(Tokens.Color.textSec)
                 .fixedSize()
             }
 
@@ -652,9 +624,7 @@ struct ModelsView: View {
                             showAllDiscover = true
                         }
                     }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.captionSB)
-                    .foregroundStyle(Tokens.Color.accent)
+                    .quietAction()
                 }
             }
         }
@@ -683,10 +653,11 @@ struct ModelsView: View {
             }
         }
         .padding(.horizontal, Tokens.Space.x3)
-        .padding(.vertical, 9)
-        .background(Tokens.Color.fillQuiet, in: Capsule())
-        .overlay(Capsule().strokeBorder(
-            searchFocused ? Tokens.Color.accent.opacity(0.5) : Tokens.Color.hairline, lineWidth: 1))
+        .frame(height: 34)
+        .background(Tokens.Color.black(0.22), in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous).strokeBorder(
+            searchFocused ? Tokens.Color.accent.opacity(0.7) : Tokens.Color.hairline,
+            lineWidth: searchFocused ? 1.5 : 1))
     }
 
     /// The bridge out of the page's local search and into the whole Hub. The
@@ -703,22 +674,20 @@ struct ModelsView: View {
                 Text(trimmed.isEmpty
                      ? "Browse every speech model on Hugging Face"
                      : "Search Hugging Face for “\(trimmed)”")
-                    .font(Tokens.TypeScale.caption)
+                    .font(Tokens.TypeScale.callout)
                     .foregroundStyle(Tokens.Color.textSec)
                 Spacer(minLength: 0)
-                Text("⇧⌘F")
-                    .font(Tokens.TypeScale.micro.monospacedDigit())
-                    .foregroundStyle(Tokens.Color.textTert)
+                KeyCap(text: "⇧⌘F", compact: true)
                 Image(systemName: "arrow.right")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(Tokens.Color.textTert)
             }
             .padding(.horizontal, Tokens.Space.x3)
-            .padding(.vertical, 7)
+            .padding(.vertical, 9)
             .background(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-                .fill(Tokens.Color.accent.opacity(0.07)))
+                .fill(Tokens.Color.white(0.04)))
             .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-                .strokeBorder(Tokens.Color.accent.opacity(0.18), lineWidth: 1))
+                .strokeBorder(Tokens.Color.hairline, lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
         }
         .buttonStyle(Pressable(scale: 0.995))
@@ -788,20 +757,16 @@ struct ModelsView: View {
         Menu {
             content()
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 Text(selection ?? title)
-                    .font(Tokens.TypeScale.micro.weight(selection == nil ? .regular : .semibold))
-                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
+                    .font(Tokens.TypeScale.callout.weight(selection == nil ? .regular : .semibold))
+                    .foregroundStyle(selection == nil ? Tokens.Color.textSec : Tokens.Color.text)
+                Image(systemName: "chevron.down").font(.system(size: 7.5, weight: .bold))
+                    .foregroundStyle(Tokens.Color.textTert)
             }
-            .foregroundStyle(selection == nil ? Tokens.Color.textSec : Tokens.Color.accent)
-            .padding(.horizontal, Tokens.Space.x2)
-            .padding(.vertical, 5)
-            .background(Capsule().fill(selection == nil ? Tokens.Color.fillQuieter
-                                       : Tokens.Color.accent.opacity(0.12)))
-            .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
-            .contentShape(Capsule())
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(FilterPillStyle(active: selection != nil))
         .menuIndicator(.hidden)
         .fixedSize()
         .accessibilityLabel("\(title) filter, \(selection ?? "not set")")
@@ -821,9 +786,7 @@ struct ModelsView: View {
                 if let t = filters.trust { FilterChip(text: t.label) { filters.trust = nil } }
                 if let c = filters.compatibility { FilterChip(text: c.label) { filters.compatibility = nil } }
                 Button("Clear all") { filters.clear() }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.micro)
-                    .foregroundStyle(Tokens.Color.textTert)
+                    .quietAction(tint: Tokens.Color.textSec)
             }
         }
     }
@@ -843,24 +806,15 @@ struct ModelsView: View {
                         filters.clear()
                         query = suggestion
                     }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.micro)
-                    .foregroundStyle(Tokens.Color.accent)
-                    .padding(.horizontal, Tokens.Space.x2)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(Tokens.Color.accent.opacity(0.12)))
+                    .secondaryAction()
                 }
             }
             HStack(spacing: Tokens.Space.x3) {
                 Button("Search Hugging Face") { openHubBrowser() }
-                .buttonStyle(.plain)
-                .font(Tokens.TypeScale.captionSB)
-                .foregroundStyle(Tokens.Color.accent)
+                .quietAction()
                 if !filters.isEmpty {
                     Button("Clear filters") { filters.clear() }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.captionSB)
-                        .foregroundStyle(Tokens.Color.textSec)
+                        .quietAction(tint: Tokens.Color.textSec)
                 }
             }
         }
@@ -875,9 +829,7 @@ struct ModelsView: View {
         VStack(alignment: .leading, spacing: Tokens.Space.x3) {
             ModelSectionHeader("Storage") {
                 Button("Manage storage") { route = .storage }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.micro)
-                    .foregroundStyle(Tokens.Color.accent)
+                    .quietAction()
             }
             VStack(alignment: .leading, spacing: Tokens.Space.x3) {
                 StorageBar(report: storageReport)
@@ -889,8 +841,7 @@ struct ModelsView: View {
                                 .foregroundStyle(Tokens.Color.textSec)
                                 .lineLimit(1)
                             if item.id == registry.activeId {
-                                Text("Active").font(Tokens.TypeScale.micro)
-                                    .foregroundStyle(Tokens.Color.success)
+                                Chip(text: "Active", tint: Tokens.Color.success)
                             }
                             Spacer(minLength: Tokens.Space.x3)
                             Text(ModelStorageReport.label(item.bytes))
@@ -898,7 +849,7 @@ struct ModelsView: View {
                                 .monospacedDigit()
                                 .foregroundStyle(Tokens.Color.textTert)
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 5)
                     }
                     if storageReport.incompleteBytes > 0 {
                         HStack(spacing: Tokens.Space.x2) {
@@ -931,7 +882,7 @@ struct ModelsView: View {
                         .font(Tokens.TypeScale.largeTitle)
                         .foregroundStyle(Tokens.Color.text)
                     Text("Install an on-device model to start transcribing. Everything runs on your Mac — audio never leaves it.")
-                        .font(Tokens.TypeScale.callout)
+                        .font(Tokens.TypeScale.body)
                         .foregroundStyle(Tokens.Color.textSec)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -940,10 +891,10 @@ struct ModelsView: View {
                     IconTile(hw.isAppleSilicon ? "memorychip.fill" : "cpu", size: 32)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("We detected")
-                            .font(Tokens.TypeScale.micro)
+                            .font(Tokens.TypeScale.caption)
                             .foregroundStyle(Tokens.Color.textTert)
                         Text(hw.summary)
-                            .font(Tokens.TypeScale.captionSB)
+                            .font(Tokens.TypeScale.headline)
                             .foregroundStyle(Tokens.Color.text)
                     }
                     Spacer(minLength: 0)
@@ -971,9 +922,7 @@ struct ModelsView: View {
                     }
                     .secondaryAction()
                     Button("Import model") { importer.presentOpenPanel() }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.captionSB)
-                        .foregroundStyle(Tokens.Color.textSec)
+                        .quietAction(tint: Tokens.Color.textSec)
                     Spacer(minLength: 0)
                 }
 
@@ -993,11 +942,13 @@ struct ModelsView: View {
                     }
                 }
             }
-            .padding(Tokens.Space.x8)
-            .frame(maxWidth: 900, alignment: .leading)
+            .padding(.horizontal, Tokens.Layout.pagePadH)
+            .padding(.top, Tokens.Layout.pagePadTop)
+            .padding(.bottom, Tokens.Space.x10)
+            .frame(maxWidth: Tokens.Layout.contentMaxW + Tokens.Layout.pagePadH * 2, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
-        .scrollIndicators(.never)
+        .scrollIndicators(.automatic)
     }
 
     // MARK: Loading (§83)
@@ -1022,8 +973,9 @@ struct ModelsView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(Tokens.Space.x8)
-        .frame(maxWidth: 1040, alignment: .leading)
+        .padding(.horizontal, Tokens.Layout.pagePadH)
+        .padding(.top, Tokens.Layout.pagePadTop)
+        .frame(maxWidth: Tokens.Layout.wideContentMaxW + Tokens.Layout.pagePadH * 2, alignment: .leading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
@@ -1031,7 +983,7 @@ struct ModelsView: View {
 
     private var dropOverlay: some View {
         ZStack {
-            Tokens.Color.bgDeep.opacity(0.7)
+            Tokens.Color.bgDeep.opacity(0.78)
             VStack(spacing: Tokens.Space.x3) {
                 Image(systemName: "square.and.arrow.down.fill")
                     .font(.system(size: 34, weight: .light))
@@ -1407,3 +1359,4 @@ struct ModelLoadBar: View {
         .accessibilityLabel("Loading model, \(Int(state.modelLoadProgress * 100)) percent")
     }
 }
+

@@ -132,20 +132,18 @@ struct ConnectionEditor: View {
                             Text(isFetchingModels ? "Loading…" : "List models")
                         }
                     }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.captionSB)
-                    .foregroundStyle(Tokens.Color.accent)
+                    .quietAction()
                     .disabled(isFetchingModels || LLMServerClient.chatURL(from: endpoint) == nil)
                 } else {
-                    Menu("Choose (\(availableModels.count))") {
+                    Menu {
                         ForEach(availableModels, id: \.self) { candidate in
                             Button(candidate) { model = candidate }
                         }
+                    } label: {
+                        MenuLabel("Choose (\(availableModels.count))")
+                            .font(Tokens.TypeScale.callout.weight(.medium))
                     }
-                    .menuStyle(.borderlessButton)
-                    .font(Tokens.TypeScale.captionSB)
-                    .foregroundStyle(Tokens.Color.accent)
-                    .frame(width: 130)
+                    .secondaryMenu()
                 }
             }
             TextField(provider.modelPlaceholder, text: $model)
@@ -460,9 +458,7 @@ struct ModeEditor: View {
             Button(showAdvanced ? "Hide long-dictation option" : "Long dictations") {
                 withAnimation(Tokens.Motion.ease) { showAdvanced.toggle() }
             }
-            .buttonStyle(.plain)
-            .font(Tokens.TypeScale.caption)
-            .foregroundStyle(Tokens.Color.accent)
+            .quietAction()
 
             if showAdvanced {
                 HStack(alignment: .top, spacing: Tokens.Space.x3) {
@@ -474,7 +470,7 @@ struct ModeEditor: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: Tokens.Space.x2)
-                    Toggle("", isOn: $singleDocument).labelsHidden().toggleStyle(.switch)
+                    Toggle("", isOn: $singleDocument).labelsHidden().toggleStyle(.switch).controlSize(.small)
                 }
                 .padding(Tokens.Space.x3)
                 .background(Tokens.Color.fillQuieter, in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))
@@ -497,9 +493,7 @@ struct ModeEditor: View {
                         Text(isPreviewing ? "Running…" : "Run on sample")
                     }
                 }
-                .buttonStyle(.plain)
-                .font(Tokens.TypeScale.captionSB)
-                .foregroundStyle(Tokens.Color.accent)
+                .quietAction()
                 .disabled(isPreviewing || connections.active == nil
                           || instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -575,7 +569,7 @@ struct ModeEditor: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: Tokens.Space.x2)
-            Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch)
+            Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
         }
         .padding(Tokens.Space.x3)
         .background(Tokens.Color.fillQuieter, in: RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous))

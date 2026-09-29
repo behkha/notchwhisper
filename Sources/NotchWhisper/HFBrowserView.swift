@@ -51,8 +51,10 @@ struct HFBrowserView: View {
         .frame(minWidth: 780, idealWidth: 1100, maxWidth: .infinity,
                minHeight: 600, idealHeight: 820, maxHeight: .infinity,
                alignment: .top)
-        .background(Tokens.Color.bg)
+        .background(AuroraBackground())
         .environment(\.colorScheme, .dark)
+        .tint(Tokens.Color.accent)
+        .focusEffectDisabled()
         .task {
             searchFocused = true
             await search.seed(opener.seed)
@@ -77,20 +79,18 @@ struct HFBrowserView: View {
                         .foregroundStyle(Tokens.Color.text)
                 }
                 Text("Search every speech model on the Hub and install the ones this Mac can run.")
-                    .font(Tokens.TypeScale.caption)
+                    .font(Tokens.TypeScale.body)
                     .foregroundStyle(Tokens.Color.textSec)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
             Link(destination: URL(string: "https://huggingface.co/models?pipeline_tag=automatic-speech-recognition")!) {
-                HStack(spacing: 3) {
+                HStack(spacing: 4) {
                     Text("Open the Hub")
-                    Image(systemName: "arrow.up.right")
+                    Image(systemName: "arrow.up.right").font(.system(size: 9, weight: .bold))
                 }
-                .font(Tokens.TypeScale.micro)
-                .foregroundStyle(Tokens.Color.accent)
             }
-            .buttonStyle(.plain)
+            .quietAction()
         }
         .padding(.horizontal, Tokens.Space.x5)
         // The window draws its content under a transparent titlebar, so the
@@ -148,41 +148,21 @@ struct HFBrowserView: View {
             }
         }
         .padding(.horizontal, Tokens.Space.x3)
-        .padding(.vertical, 10)
-        .background(Tokens.Color.fillQuiet, in: Capsule())
-        .overlay(Capsule().strokeBorder(
-            searchFocused ? Tokens.Color.accent.opacity(0.55) : Tokens.Color.hairline, lineWidth: 1))
+        .frame(height: 36)
+        .background(Tokens.Color.black(0.22), in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous).strokeBorder(
+            searchFocused ? Tokens.Color.accent.opacity(0.7) : Tokens.Color.hairline,
+            lineWidth: searchFocused ? 1.5 : 1))
     }
 
     /// Installable-first is the honest default. "Runs here" asks the Hub for
     /// the formats this app can load; "Everything" drops that and labels each
     /// result with the reason it can't run (§69).
     private var scopePicker: some View {
-        HStack(spacing: 0) {
-            ForEach(HFHubSearchModel.Scope.allCases) { scope in
-                scopeButton(scope)
-            }
-        }
-        .padding(2)
-        .background(Capsule().fill(Tokens.Color.fillQuieter))
-        .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Result scope")
-    }
-
-    private func scopeButton(_ scope: HFHubSearchModel.Scope) -> some View {
-        let selected = search.scope == scope
-        return Button { search.setScope(scope) } label: {
-            Text(scope.label)
-                .font(Tokens.TypeScale.micro.weight(selected ? .semibold : .regular))
-                .foregroundStyle(selected ? Tokens.Color.onAccent : Tokens.Color.textSec)
-                .padding(.horizontal, Tokens.Space.x3)
-                .padding(.vertical, 5)
-                .background(Capsule().fill(selected ? Tokens.Color.accent : .clear))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        SegmentedTabs(options: HFHubSearchModel.Scope.allCases.map { ($0, $0.label) },
+                      selection: Binding(get: { search.scope }, set: { search.setScope($0) }))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Result scope")
     }
 
     private var sortMenu: some View {
@@ -194,14 +174,17 @@ struct HFBrowserView: View {
             }
             .pickerStyle(.inline)
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: search.query.sort.symbol).font(.system(size: 9, weight: .semibold))
-                Text(search.query.sort.label).font(Tokens.TypeScale.micro)
-                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
+            HStack(spacing: 5) {
+                Image(systemName: search.query.sort.symbol).font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Tokens.Color.textTert)
+                Text(search.query.sort.label).font(Tokens.TypeScale.callout.weight(.medium))
+                    .foregroundStyle(Tokens.Color.textSec)
+                Image(systemName: "chevron.down").font(.system(size: 7.5, weight: .bold))
+                    .foregroundStyle(Tokens.Color.textTert)
             }
-            .foregroundStyle(Tokens.Color.textSec)
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(FilterPillStyle(active: false))
         .menuIndicator(.hidden)
         .fixedSize()
         .onChange(of: search.query.sort) { _, _ in search.reloadNow() }
@@ -299,20 +282,16 @@ struct HFBrowserView: View {
         Menu {
             content()
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 Text(selection ?? title)
-                    .font(Tokens.TypeScale.micro.weight(selection == nil ? .regular : .semibold))
-                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
+                    .font(Tokens.TypeScale.callout.weight(selection == nil ? .regular : .semibold))
+                    .foregroundStyle(selection == nil ? Tokens.Color.textSec : Tokens.Color.text)
+                Image(systemName: "chevron.down").font(.system(size: 7.5, weight: .bold))
+                    .foregroundStyle(Tokens.Color.textTert)
             }
-            .foregroundStyle(selection == nil ? Tokens.Color.textSec : Tokens.Color.accent)
-            .padding(.horizontal, Tokens.Space.x2)
-            .padding(.vertical, 5)
-            .background(Capsule().fill(selection == nil ? Tokens.Color.fillQuieter
-                                       : Tokens.Color.accent.opacity(0.12)))
-            .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
-            .contentShape(Capsule())
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(FilterPillStyle(active: selection != nil))
         .menuIndicator(.hidden)
         .fixedSize()
         .accessibilityLabel("\(title) filter, \(selection ?? "not set")")
@@ -349,9 +328,7 @@ struct HFBrowserView: View {
                     FilterChip(text: "@\(author)") { setFacet { $0.author = nil } }
                 }
                 Button("Clear filters") { setFacet { $0.clearFacets() } }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.micro)
-                    .foregroundStyle(Tokens.Color.textTert)
+                    .quietAction(tint: Tokens.Color.textSec)
             }
         }
     }
@@ -374,9 +351,7 @@ struct HFBrowserView: View {
                     .foregroundStyle(Tokens.Color.textTert)
                 if search.scope == .installable {
                     Button("Search the whole Hub") { search.setScope(.everything) }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.micro)
-                        .foregroundStyle(Tokens.Color.accent)
+                        .quietAction()
                 }
             }
             Spacer(minLength: 0)
@@ -488,9 +463,7 @@ struct HFBrowserView: View {
                 }
             } else {
                 Button("Load more results") { search.loadMore() }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.captionSB)
-                    .foregroundStyle(Tokens.Color.accent)
+                    .quietAction()
             }
         }
         .frame(maxWidth: .infinity)
@@ -512,9 +485,7 @@ struct HFBrowserView: View {
                     Button(term) {
                         setFacet { $0.clearFacets(); $0.text = term }
                     }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.micro)
-                    .foregroundStyle(Tokens.Color.accent)
+                    .quietAction()
                     .padding(.horizontal, Tokens.Space.x2)
                     .padding(.vertical, 4)
                     .background(Capsule().fill(Tokens.Color.accent.opacity(0.12)))
@@ -522,9 +493,7 @@ struct HFBrowserView: View {
             }
             if search.scope == .installable {
                 Button("Search the whole Hub") { search.setScope(.everything) }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.captionSB)
-                    .foregroundStyle(Tokens.Color.accent)
+                    .quietAction()
             }
         }
         .padding(Tokens.Space.x5)

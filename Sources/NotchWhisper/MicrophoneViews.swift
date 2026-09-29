@@ -39,7 +39,7 @@ struct MicrophoneMenu: View {
         } label: {
             Text(label).lineLimit(1).truncationMode(.tail)
         }
-        .menuStyle(.borderlessButton)
+        .popupMenuStyle()
         .help("The microphone NotchWhisper records from")
     }
 
@@ -79,26 +79,28 @@ struct MicrophoneMenuBarRow: View {
 
     var body: some View {
         let resolution = inputs.resolution(for: settings)
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: Tokens.Space.x2) {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: Tokens.Space.x2 + 2) {
                 Image(systemName: resolution.device?.symbolName ?? "mic.slash")
-                    .font(.system(size: 12))
-                    .foregroundStyle(resolution.device == nil ? Tokens.Color.warn : Tokens.Color.accent)
+                    .font(.system(size: 13))
+                    .foregroundStyle(resolution.device == nil ? Tokens.Color.warn : Tokens.Color.textSec)
                     .frame(width: 18)
-                Text("Microphone").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
+                Text("Microphone").font(Tokens.TypeScale.body).foregroundStyle(Tokens.Color.text)
                     .fixedSize()
+                Spacer(minLength: Tokens.Space.x2)
                 MicrophoneMenu(caption: .device)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .controlSize(.small)
+                    .frame(maxWidth: 170)
             }
             if let message = resolution.message {
                 Text(message)
-                    .font(Tokens.TypeScale.micro)
+                    .font(Tokens.TypeScale.caption)
                     .foregroundStyle(resolution.device == nil ? Tokens.Color.warn : Tokens.Color.textTert)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 18 + Tokens.Space.x2)
+                    .padding(.leading, 18 + Tokens.Space.x2 + 2)
             }
         }
-        .padding(.horizontal, Tokens.Space.x3).padding(.vertical, 6)
+        .padding(.horizontal, 10).padding(.vertical, 7)
     }
 }
 
@@ -196,9 +198,9 @@ struct MicLevelBar: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Tokens.Color.fillQuiet)
+                Capsule().fill(Tokens.Color.black(0.3))
                 Capsule()
-                    .fill(Tokens.Color.accentGradient)
+                    .fill(Tokens.Color.accent)
                     .frame(width: max(active ? 4 : 0, geo.size.width * CGFloat(level)))
                     .animation(Tokens.Motion.meter, value: level)
             }

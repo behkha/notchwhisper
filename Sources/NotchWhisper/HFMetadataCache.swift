@@ -406,9 +406,7 @@ final class HFMetadataCache: ObservableObject {
     /// "Updated 12 minutes ago" / "Showing cached data from yesterday".
     var freshnessLabel: String? {
         guard let date = lastSuccessfulRefresh else { return nil }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        return "Updated " + formatter.localizedString(for: date, relativeTo: Date())
+        return "Updated " + date.relativeLabel
     }
 
     // MARK: Persistence

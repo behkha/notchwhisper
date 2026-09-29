@@ -268,30 +268,24 @@ struct FileTranscribeView: View {
 
     var body: some View {
         let _ = theme.theme
-        ScrollView {
-            VStack(alignment: .leading, spacing: Tokens.Space.x6) {
-                SectionHeader("Transcribe a file",
-                              eyebrow: "Upload",
-                              subtitle: "Drop in a recording — it's transcribed on this Mac, and nothing is uploaded anywhere.") {
-                    Chip(text: ModelRegistry.shared.descriptor(for: settings.modelId).displayName,
-                         systemImage: "cpu", tint: Tokens.Color.accent)
-                }
-
-                if model.fileURL == nil {
-                    dropZone
-                } else {
-                    fileCard
-                }
-
-                if let error = model.errorMessage { errorBanner(error) }
-
-                if !model.text.isEmpty { resultCard }
+        PageScroll(spacing: Tokens.Space.x6) {
+            SectionHeader("Transcribe a File",
+                          eyebrow: "Private to this Mac",
+                          subtitle: "Drop in a recording — it's transcribed on this Mac, and nothing is uploaded anywhere.") {
+                Chip(text: ModelRegistry.shared.descriptor(for: settings.modelId).displayName,
+                     systemImage: "cpu", tint: Tokens.Color.textSec, filled: false)
             }
-            .padding(Tokens.Space.x8)
-            .frame(maxWidth: 940, alignment: .leading)
-            .frame(maxWidth: .infinity)
+
+            if model.fileURL == nil {
+                dropZone
+            } else {
+                fileCard
+            }
+
+            if let error = model.errorMessage { errorBanner(error) }
+
+            if !model.text.isEmpty { resultCard }
         }
-        .scrollIndicators(.never)
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { handleDrop($0) }
     }
 
@@ -299,29 +293,44 @@ struct FileTranscribeView: View {
 
     private var dropZone: some View {
         VStack(spacing: Tokens.Space.x3) {
-            IconTile("arrow.up.doc.fill", size: 56)
-            Text("Drop an audio or video file")
+            ZStack {
+                Circle()
+                    .fill(RadialGradient(colors: [Tokens.Color.white(0.08), Tokens.Color.white(0.015)],
+                                         center: .top, startRadius: 0, endRadius: 48))
+                Circle()
+                    .strokeBorder(LinearGradient(colors: [Tokens.Color.edgeLight, .clear],
+                                                 startPoint: .top, endPoint: .bottom), lineWidth: 1)
+                Image(systemName: dropTargeted ? "arrow.down" : "waveform")
+                    .font(.system(size: 24, weight: .regular))
+                    .foregroundStyle(dropTargeted ? Tokens.Color.accent : Tokens.Color.textSec)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .frame(width: 68, height: 68)
+            .padding(.bottom, Tokens.Space.x1)
+            Text(dropTargeted ? "Release to add the file" : "Drop an audio or video file")
                 .font(Tokens.TypeScale.title2)
                 .foregroundStyle(Tokens.Color.text)
             Text("MP3, WAV, M4A, AAC, FLAC, AIFF, CAF, MP4, MOV — any length.")
-                .font(Tokens.TypeScale.callout)
+                .font(Tokens.TypeScale.body)
                 .foregroundStyle(Tokens.Color.textSec)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)
-            Button("Choose file…") { model.pick() }
+            Button("Choose File…") { model.pick() }
                 .primaryAction()
-                .padding(.top, Tokens.Space.x1)
+                .padding(.top, Tokens.Space.x2)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 320)
-        .card(padding: nil)
+        .frame(height: 340)
+        .background(
+            RoundedRectangle(cornerRadius: Tokens.Radius.xl, style: .continuous)
+                .fill(dropTargeted ? Tokens.Color.accent.opacity(0.06) : Tokens.Color.black(0.18))
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
+            RoundedRectangle(cornerRadius: Tokens.Radius.xl, style: .continuous)
                 .strokeBorder(
-                    Tokens.Color.accent.opacity(dropTargeted ? 0.9 : 0.28),
-                    style: StrokeStyle(lineWidth: dropTargeted ? 2 : 1, dash: [7, 6])
+                    dropTargeted ? Tokens.Color.accent.opacity(0.85) : Tokens.Color.hairlineStrong,
+                    style: StrokeStyle(lineWidth: dropTargeted ? 1.5 : 1, dash: [6, 5])
                 )
-                .padding(6)
         )
         .animation(Tokens.Motion.quick(reduceMotion: Tokens.A11y.reduceMotion), value: dropTargeted)
     }
@@ -331,10 +340,10 @@ struct FileTranscribeView: View {
     private var fileCard: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x4) {
             HStack(alignment: .top, spacing: Tokens.Space.x3) {
-                IconTile("waveform", size: 40)
+                IconTile("waveform", tint: Tokens.Color.accent, size: 40)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(model.fileName)
-                        .font(Tokens.TypeScale.title2)
+                        .font(Tokens.TypeScale.title3)
                         .foregroundStyle(Tokens.Color.text)
                         .lineLimit(1).truncationMode(.middle)
                     Text(metaLine)
@@ -381,7 +390,7 @@ struct FileTranscribeView: View {
             default:
                 Button { model.reset() } label: { Label("Remove", systemImage: "xmark") }
                     .secondaryAction()
-                Button(model.phase == .done ? "Transcribe again" : "Transcribe") {
+                Button(model.phase == .done ? "Transcribe Again" : "Transcribe") {
                     model.transcribe()
                 }
                 .primaryAction()
@@ -417,9 +426,9 @@ struct FileTranscribeView: View {
     private var resultCard: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x3) {
             HStack(spacing: Tokens.Space.x2) {
-                Text("TRANSCRIPT")
-                    .font(Tokens.TypeScale.eyebrow).tracking(1.2)
-                    .foregroundStyle(Tokens.Color.textTert)
+                Text("Transcript")
+                    .font(Tokens.TypeScale.headline)
+                    .foregroundStyle(Tokens.Color.text)
                 Chip(text: "\(model.wordCount) words", tint: Tokens.Color.textSec, filled: false)
                 if !model.corrections.isEmpty {
                     Chip(text: "\(model.corrections.count) dictionary fix\(model.corrections.count == 1 ? "" : "es")",
@@ -447,8 +456,9 @@ struct FileTranscribeView: View {
                 .scrollContentBackground(.hidden)
                 .background(.clear)
                 .frame(minHeight: 260)
-                .padding(Tokens.Space.x2)
-                .background(Tokens.Color.fillQuieter,
+                .lineSpacing(3)
+                .padding(Tokens.Space.x3)
+                .background(Tokens.Color.black(0.2),
                             in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
@@ -463,23 +473,7 @@ struct FileTranscribeView: View {
     }
 
     private func errorBanner(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: Tokens.Space.x2) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Tokens.Color.warn)
-            Text(message)
-                .font(Tokens.TypeScale.callout)
-                .foregroundStyle(Tokens.Color.text)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(Tokens.Space.x3)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Tokens.Color.warn.opacity(0.12),
-                    in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-                .strokeBorder(Tokens.Color.warn.opacity(0.25), lineWidth: 1)
-        )
+        NoticeBanner(icon: "exclamationmark.triangle.fill", title: "Something went wrong", message: message)
     }
 
     // MARK: Drop handling

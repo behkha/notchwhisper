@@ -28,35 +28,25 @@ struct AIView: View {
 
     var body: some View {
         let _ = theme.theme
-        ScrollView {
-            VStack(alignment: .leading, spacing: Tokens.Space.x5) {
-                SectionHeader("AI", eyebrow: subtitleEyebrow,
-                              subtitle: "Connect a model, then teach it the ways you want your dictation written.") {
-                    Button {
-                        if tab == .connections { newConnection() } else { newMode() }
-                    } label: {
-                        Label(tab == .connections ? "New connection" : "New mode", systemImage: "plus")
-                    }
-                    .primaryAction()
-                    .disabled(tab == .modes && !connections.hasUsableConnection)
+        PageScroll(spacing: Tokens.Space.x6) {
+            SectionHeader("AI", eyebrow: subtitleEyebrow,
+                          subtitle: "Connect a model, then teach it the ways you want your dictation written.") {
+                Button {
+                    if tab == .connections { newConnection() } else { newMode() }
+                } label: {
+                    Label(tab == .connections ? "New Connection" : "New Mode", systemImage: "plus")
                 }
-
-                Picker("", selection: $tab) {
-                    ForEach(AITab.allCases) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented).labelsHidden()
-                .frame(maxWidth: 280)
-
-                switch tab {
-                case .connections: connectionsSection
-                case .modes:       modesSection
-                }
+                .primaryAction()
+                .disabled(tab == .modes && !connections.hasUsableConnection)
             }
-            .padding(Tokens.Space.x8)
-            .frame(maxWidth: 940, alignment: .leading)
-            .frame(maxWidth: .infinity)
+
+            SegmentedTabs(options: AITab.allCases.map { ($0, $0.label) }, selection: $tab)
+
+            switch tab {
+            case .connections: connectionsSection
+            case .modes:       modesSection
+            }
         }
-        .scrollIndicators(.never)
         .sheet(item: $editingConnection) { connection in
             ConnectionEditor(connection: connection)
         }
@@ -106,10 +96,10 @@ struct AIView: View {
                 action: { newConnection() }
             )
             .frame(height: 300)
-            .card(padding: nil)
+            .card(padding: nil, elevated: false)
         } else {
-            VStack(spacing: Tokens.Space.x3) {
-                ForEach(connections.connections) { connection in
+            VStack(alignment: .leading, spacing: Tokens.Space.x2) {
+                GroupedList(connections.connections, onSelect: { editingConnection = $0 }) { connection in
                     ConnectionCard(
                         connection: connection,
                         isActive: connections.activeID == connection.id,
@@ -120,13 +110,13 @@ struct AIView: View {
                         remove: { connectionToDelete = connection }
                     )
                 }
-            }
 
-            Text("Transcripts are sent to the active connection each time a processing mode runs. A connection on localhost keeps everything on this Mac; a hosted one sends your text to that provider.")
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.textTert)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, Tokens.Space.x2)
+                Text("Transcripts are sent to the active connection each time a processing mode runs. A connection on localhost keeps everything on this Mac; a hosted one sends your text to that provider.")
+                    .font(Tokens.TypeScale.caption)
+                    .foregroundStyle(Tokens.Color.textTert)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, Tokens.Space.x1)
+            }
         }
     }
 
@@ -148,13 +138,18 @@ struct AIView: View {
                     action: connections.hasUsableConnection ? { newMode() } : nil
                 )
                 .frame(height: 310)
-                .card(padding: nil)
+                .card(padding: nil, elevated: false)
 
                 templatesRow
             }
         } else {
-            VStack(spacing: Tokens.Space.x3) {
-                ForEach(modes.modes) { mode in
+            VStack(alignment: .leading, spacing: Tokens.Space.x2) {
+                GroupLabel("Your modes") {
+                    Text("\(modes.modes.count)")
+                        .font(Tokens.TypeScale.caption).monospacedDigit()
+                        .foregroundStyle(Tokens.Color.textTert)
+                }
+                GroupedList(modes.modes, onSelect: { editingMode = $0 }) { mode in
                     ModeCard(
                         mode: mode,
                         isActive: settings.processingMode == .custom(mode.id),
@@ -171,35 +166,17 @@ struct AIView: View {
     }
 
     private var lockedBanner: some View {
-        HStack(alignment: .top, spacing: Tokens.Space.x3) {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Tokens.Color.warn)
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Modes need an AI connection")
-                    .font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.text)
-                Text("Add a connection with an address and a model name, then come back here to write modes.")
-                    .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: Tokens.Space.x3)
-            Button("Add connection") { tab = .connections; newConnection() }
+        NoticeBanner(icon: "lock.fill", title: "Modes need an AI connection",
+                     message: "Add a connection with an address and a model name, then come back here to write modes.") {
+            Button("Add Connection") { tab = .connections; newConnection() }
                 .secondaryAction()
         }
-        .padding(Tokens.Space.x4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Tokens.Color.warn.opacity(0.12), in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-            .strokeBorder(Tokens.Color.warn.opacity(0.25), lineWidth: 1))
     }
 
     private var templatesRow: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
-            Text("START FROM A TEMPLATE")
-                .font(Tokens.TypeScale.eyebrow).tracking(1.2)
-                .foregroundStyle(Tokens.Color.textTert)
-            HStack(spacing: Tokens.Space.x2) {
+        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+            GroupLabel("Start from a template")
+            FlowLayout {
                 ForEach(CustomMode.templates) { template in
                     Button {
                         var copy = template
@@ -208,17 +185,13 @@ struct AIView: View {
                         editingMode = copy
                     } label: {
                         Label(template.name, systemImage: template.symbolName)
-                            .font(Tokens.TypeScale.micro)
-                            .foregroundStyle(Tokens.Color.textSec)
-                            .padding(.horizontal, Tokens.Space.x3)
-                            .padding(.vertical, 7)
-                            .background(Capsule().fill(Tokens.Color.fillQuiet))
-                            .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+                            .font(Tokens.TypeScale.callout)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
-                    .buttonStyle(.plain)
+                    .secondaryAction()
                     .disabled(!connections.hasUsableConnection)
                 }
-                Spacer(minLength: 0)
             }
         }
     }
@@ -267,14 +240,12 @@ private struct ConnectionCard: View {
     let test: () -> Void
     let remove: () -> Void
 
-    @ViewState private var hover = false
-
     var body: some View {
-        HStack(alignment: .top, spacing: Tokens.Space.x3) {
+        HStack(alignment: .center, spacing: Tokens.Space.x3) {
             IconTile(connection.provider.symbolName,
                      tint: isActive ? Tokens.Color.accent : Tokens.Color.textSec, size: 34)
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: Tokens.Space.x2) {
                     Text(connection.name)
                         .font(Tokens.TypeScale.body.weight(.semibold))
@@ -282,14 +253,13 @@ private struct ConnectionCard: View {
                     if isActive { Chip(text: "Active", tint: Tokens.Color.accent) }
                     Chip(text: connection.isLocal ? "On this Mac" : "Cloud",
                          systemImage: connection.isLocal ? "desktopcomputer" : "cloud",
-                         tint: connection.isLocal ? Tokens.Color.success : Tokens.Color.warn,
-                         filled: false)
+                         tint: connection.isLocal ? Tokens.Color.success : Tokens.Color.warn)
                     if !connection.isUsable {
                         Chip(text: "Incomplete", tint: Tokens.Color.danger)
                     }
                 }
                 Text(connection.subtitle)
-                    .font(Tokens.TypeScale.caption)
+                    .font(Tokens.TypeScale.callout)
                     .foregroundStyle(Tokens.Color.textTert)
                     .lineLimit(1).truncationMode(.middle)
                 if let result { testLine(result) }
@@ -297,37 +267,21 @@ private struct ConnectionCard: View {
 
             Spacer(minLength: Tokens.Space.x3)
 
-            HStack(spacing: Tokens.Space.x2) {
+            HStack(spacing: Tokens.Space.x1) {
                 if !isActive {
                     Button("Use") { activate() }
                         .secondaryAction()
                         .disabled(!connection.isUsable)
                 }
-                Menu {
+                MoreMenu {
                     Button("Edit…") { edit() }
                     Button("Test connection") { test() }
                     if !isActive { Button("Make active") { activate() }.disabled(!connection.isUsable) }
                     Divider()
                     Button("Delete", role: .destructive) { remove() }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Tokens.Color.textSec)
-                        .frame(width: 30, height: 30)
-                        .contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(width: 30)
             }
         }
-        .padding(Tokens.Space.x4)
-        .card(radius: Tokens.Radius.md, padding: nil, elevated: false)
-        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-            .strokeBorder(isActive ? Tokens.Color.accent.opacity(0.35) : .clear, lineWidth: 1))
-        .onHover { hover = $0 }
-        .hoverLift(hover)
-        .onTapGesture { edit() }
     }
 
     @ViewBuilder
@@ -336,14 +290,14 @@ private struct ConnectionCard: View {
         case .testing:
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
-                Text("Testing…").font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
+                Text("Testing…").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
             }
         case .ok(let message):
             Label(message, systemImage: "checkmark.circle.fill")
-                .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.success)
+                .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.success)
         case .failed(let message):
             Label(message, systemImage: "exclamationmark.triangle.fill")
-                .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.danger)
+                .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.danger)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -360,8 +314,6 @@ private struct ModeCard: View {
     let duplicate: () -> Void
     let remove: () -> Void
 
-    @ViewState private var hover = false
-
     var body: some View {
         HStack(alignment: .top, spacing: Tokens.Space.x3) {
             IconTile(mode.symbolName, tint: isActive ? Tokens.Color.accent : Tokens.Color.textSec, size: 34)
@@ -374,51 +326,37 @@ private struct ModeCard: View {
                     if isActive { Chip(text: "Selected", tint: Tokens.Color.accent) }
                 }
                 Text(mode.instructions)
-                    .font(Tokens.TypeScale.caption)
+                    .font(Tokens.TypeScale.callout)
                     .foregroundStyle(Tokens.Color.textSec)
-                    .lineLimit(3)
+                    .lineSpacing(1.5)
+                    .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: Tokens.Space.x2) {
+                HStack(spacing: 6) {
                     Chip(text: mode.creativity.label, tint: Tokens.Color.textSec, filled: false)
                     if mode.singleDocument {
                         Chip(text: "One document", systemImage: "doc.text",
                              tint: Tokens.Color.textSec, filled: false)
                     }
                 }
+                .padding(.top, 1)
             }
 
             Spacer(minLength: Tokens.Space.x3)
 
-            HStack(spacing: Tokens.Space.x2) {
+            HStack(spacing: Tokens.Space.x1) {
                 if !isActive {
                     Button("Use") { use() }
                         .secondaryAction()
                         .disabled(!canRun)
                 }
-                Menu {
+                MoreMenu {
                     Button("Edit…") { edit() }
                     Button("Duplicate") { duplicate() }
                     if !isActive { Button("Use for dictation") { use() }.disabled(!canRun) }
                     Divider()
                     Button("Delete", role: .destructive) { remove() }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Tokens.Color.textSec)
-                        .frame(width: 30, height: 30)
-                        .contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(width: 30)
             }
         }
-        .padding(Tokens.Space.x4)
-        .card(radius: Tokens.Radius.md, padding: nil, elevated: false)
-        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-            .strokeBorder(isActive ? Tokens.Color.accent.opacity(0.35) : .clear, lineWidth: 1))
-        .onHover { hover = $0 }
-        .hoverLift(hover)
-        .onTapGesture { edit() }
     }
 }

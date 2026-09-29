@@ -91,36 +91,30 @@ struct ShortcutsSection: View {
     /// Starting points. These only PREFILL the editor — nothing is installed
     /// behind the user's back.
     private var starterRow: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
+        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
             HStack {
-                Text("START FROM")
-                    .font(Tokens.TypeScale.eyebrow).tracking(1.2)
+                Text("Start from")
+                    .font(Tokens.TypeScale.callout.weight(.medium))
                     .foregroundStyle(Tokens.Color.textTert)
                 Spacer()
-                Button { editing = blank() } label: { Label("New shortcut", systemImage: "plus") }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.captionSB)
-                    .foregroundStyle(Tokens.Color.accent)
+                Button { editing = blank() } label: { Label("New Shortcut", systemImage: "plus") }
+                    .quietAction()
             }
-            HStack(spacing: Tokens.Space.x2) {
+            FlowLayout {
                 ForEach(HotkeyBinding.starters) { starter in
                     Button { start(from: starter) } label: {
                         Label(starter.name, systemImage: starter.symbolName)
-                            .font(Tokens.TypeScale.micro)
-                            .foregroundStyle(Tokens.Color.textSec)
-                            .padding(.horizontal, Tokens.Space.x3)
-                            .padding(.vertical, 7)
-                            .background(Capsule().fill(Tokens.Color.fillQuiet))
-                            .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+                            .font(Tokens.TypeScale.callout)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
-                    .buttonStyle(.plain)
+                    .secondaryAction()
                     .help(starter.hint)
                 }
-                Spacer(minLength: 0)
             }
         }
         .padding(.horizontal, Tokens.Space.x4)
-        .padding(.vertical, Tokens.Space.x3)
+        .padding(.vertical, Tokens.Space.x4)
     }
 
     // MARK: Copy
@@ -211,19 +205,19 @@ private struct BindingRow: View {
     let remove: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: Tokens.Space.x3) {
+        HStack(alignment: .center, spacing: Tokens.Space.x3) {
             IconTile(binding.effectiveActivation.symbolName,
-                     tint: binding.enabled ? Tokens.Color.accent : Tokens.Color.textTert)
+                     tint: binding.enabled ? Tokens.Color.text : Tokens.Color.textTert, size: 30)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: Tokens.Space.x2) {
                     Text(binding.name.isEmpty ? "Untitled shortcut" : binding.name)
                         .font(Tokens.TypeScale.body.weight(.medium))
-                        .foregroundStyle(Tokens.Color.text)
+                        .foregroundStyle(binding.enabled ? Tokens.Color.text : Tokens.Color.textSec)
                     if binding.keyCode == 0 {
                         Chip(text: "No key", tint: Tokens.Color.warn)
                     }
-                    if !binding.enabled { Chip(text: "Off", tint: Tokens.Color.textTert) }
+                    if !binding.enabled { Chip(text: "Off", tint: Tokens.Color.textTert, filled: false) }
                 }
                 Text(summary)
                     .font(Tokens.TypeScale.caption)
@@ -232,7 +226,7 @@ private struct BindingRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if let warning {
                     Label(warning, systemImage: "exclamationmark.triangle.fill")
-                        .font(Tokens.TypeScale.micro)
+                        .font(Tokens.TypeScale.caption)
                         .foregroundStyle(Tokens.Color.warn)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -241,36 +235,18 @@ private struct BindingRow: View {
             Spacer(minLength: Tokens.Space.x3)
 
             if binding.keyCode != 0 {
-                Text(binding.display)
-                    .font(Tokens.TypeScale.body.weight(.medium))
-                    .lineLimit(1)
-                    .foregroundStyle(binding.enabled ? Tokens.Color.text : Tokens.Color.textTert)
-                    .padding(.horizontal, Tokens.Space.x2)
-                    .padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
-                        .fill(Tokens.Color.fillQuiet))
-                    .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
-                        .strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+                KeyCap(text: binding.display, dimmed: !binding.enabled)
             }
 
             Toggle("", isOn: Binding(get: { binding.enabled }, set: { _ in toggle() }))
-                .labelsHidden().toggleStyle(.switch).controlSize(.mini)
+                .labelsHidden().toggleStyle(.switch).controlSize(.small)
 
-            Menu {
+            MoreMenu {
                 Button("Edit…") { edit() }
                 Button("Duplicate") { duplicate() }
                 Divider()
                 Button("Delete", role: .destructive) { remove() }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Tokens.Color.textSec)
-                    .frame(width: 26, height: 26)
-                    .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .frame(width: 26)
         }
         .padding(.horizontal, Tokens.Space.x4)
         .padding(.vertical, Tokens.Space.x3)
@@ -332,8 +308,8 @@ struct HotkeyBindingEditor: View {
             Divider().overlay(Tokens.Color.hairline)
 
             HStack {
-                // Why "Add shortcut" is dead. The shared button style does not
-                // dim on `.disabled`, so the reason has to be written out.
+                // Why "Add shortcut" is unavailable, written out — a dimmed
+                // button alone doesn't say what's missing.
                 if let duplicate {
                     Label("“\(duplicate.name)” already uses this shortcut",
                           systemImage: "exclamationmark.triangle.fill")
@@ -452,9 +428,9 @@ struct HotkeyBindingEditor: View {
 
     private var overridesSection: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            Text("WHAT CHANGES WHEN YOU PRESS IT")
-                .font(Tokens.TypeScale.eyebrow).tracking(1.2)
-                .foregroundStyle(Tokens.Color.textTert)
+            Text("What changes when you press it")
+                .font(Tokens.TypeScale.headline)
+                .foregroundStyle(Tokens.Color.textSec)
 
             HotkeyOverridePicker(
                 title: "Processing mode",
@@ -578,8 +554,8 @@ private struct HotkeyOverridePicker<Options: View>: View {
             } label: {
                 Text(selectionLabel ?? "Global").lineLimit(1)
             }
-            .menuStyle(.borderlessButton)
-            .frame(width: 230)
+            .popupMenuStyle()
+            .frame(width: 200)
         }
     }
 }

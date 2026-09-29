@@ -228,13 +228,9 @@ struct ModelDetailSheet: View {
                 // A warning, not a block (§9) — the user decides.
                 HStack(spacing: Tokens.Space.x2) {
                     Button("Choose a smaller model") { onClose() }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.captionSB)
-                        .foregroundStyle(Tokens.Color.accent)
+                        .quietAction()
                     Button("Download anyway") { queue.enqueue(effectiveModel) }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.captionSB)
-                        .foregroundStyle(Tokens.Color.textSec)
+                        .quietAction(tint: Tokens.Color.textSec)
                     Spacer(minLength: 0)
                 }
             }
@@ -281,9 +277,7 @@ struct ModelDetailSheet: View {
                 Spacer(minLength: 0)
                 if benchmarks.result(for: model.id) == nil, lifecycle.isInstalled {
                     Button("Run benchmark") { actions.benchmark(model.id) }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.micro)
-                        .foregroundStyle(Tokens.Color.accent)
+                        .quietAction()
                 }
             }
 
@@ -563,9 +557,7 @@ struct ModelDetailSheet: View {
                             NSWorkspace.shared.open(
                                 model.repositoryURL.appendingPathComponent("blob/main/LICENSE"))
                         }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.caption)
-                        .foregroundStyle(Tokens.Color.accent)
+                        .quietAction()
                         Spacer(minLength: 0)
                     }
                     if Self.restrictiveLicenses.contains(license.lowercased()) {

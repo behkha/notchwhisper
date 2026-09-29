@@ -19,47 +19,42 @@ struct AppsView: View {
 
     var body: some View {
         let _ = theme.theme
-        ScrollView {
-            VStack(alignment: .leading, spacing: Tokens.Space.x5) {
-                SectionHeader("Apps", eyebrow: eyebrow,
-                              subtitle: "Give an app its own dictation behaviour. Anything you don't set here keeps using your global settings.") {
-                    Button { newProfile() } label: { Label("New profile", systemImage: "plus") }
-                        .primaryAction()
-                }
-
-                if store.profiles.isEmpty {
-                    EmptyStateView(
-                        icon: "app.badge",
-                        title: "Same settings everywhere",
-                        message: "NotchWhisper writes the same way in every app right now. Add a profile to change the mode, the AI connection or the typing behaviour for one app.",
-                        actionTitle: "Add your first profile",
-                        action: { newProfile() }
-                    )
-                    .frame(height: 300)
-                    .card(padding: nil)
-                } else {
-                    VStack(spacing: Tokens.Space.x3) {
-                        ForEach(store.profiles) { profile in
-                            ProfileCard(
-                                profile: profile,
-                                summary: summary(for: profile),
-                                toggle: { store.setEnabled(!profile.enabled, for: profile) },
-                                edit: { editing = profile },
-                                duplicate: { duplicate(profile) },
-                                remove: { toDelete = profile }
-                            )
-                        }
-                    }
-                }
-
-                suggestionsRow
-                footnote
+        PageScroll(spacing: Tokens.Space.x6) {
+            SectionHeader("Apps", eyebrow: eyebrow,
+                          subtitle: "Give an app its own dictation behaviour. Anything you don't set here keeps using your global settings.") {
+                Button { newProfile() } label: { Label("New Profile", systemImage: "plus") }
+                    .primaryAction()
             }
-            .padding(Tokens.Space.x8)
-            .frame(maxWidth: 940, alignment: .leading)
-            .frame(maxWidth: .infinity)
+
+            if store.profiles.isEmpty {
+                EmptyStateView(
+                    icon: "square.grid.2x2",
+                    title: "Same settings everywhere",
+                    message: "NotchWhisper writes the same way in every app right now. Add a profile to change the mode, the AI connection or the typing behaviour for one app.",
+                    actionTitle: "Add your first profile",
+                    action: { newProfile() }
+                )
+                .frame(height: 300)
+                .card(padding: nil, elevated: false)
+            } else {
+                VStack(alignment: .leading, spacing: Tokens.Space.x2) {
+                    GroupLabel("Profiles")
+                    GroupedList(store.profiles, onSelect: { editing = $0 }) { profile in
+                        ProfileCard(
+                            profile: profile,
+                            summary: summary(for: profile),
+                            toggle: { store.setEnabled(!profile.enabled, for: profile) },
+                            edit: { editing = profile },
+                            duplicate: { duplicate(profile) },
+                            remove: { toDelete = profile }
+                        )
+                    }
+                    footnote
+                }
+            }
+
+            suggestionsRow
         }
-        .scrollIndicators(.never)
         .sheet(item: $editing) { profile in
             AppProfileEditor(profile: profile)
         }
@@ -103,24 +98,17 @@ struct AppsView: View {
     }
 
     private var suggestionsRow: some View {
-        VStack(alignment: .leading, spacing: Tokens.Space.x2) {
-            Text("START FROM AN APP")
-                .font(Tokens.TypeScale.eyebrow).tracking(1.2)
-                .foregroundStyle(Tokens.Color.textTert)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: Tokens.Space.x2)],
-                      alignment: .leading, spacing: Tokens.Space.x2) {
+        VStack(alignment: .leading, spacing: Tokens.Space.x3) {
+            GroupLabel("Start from an app")
+            FlowLayout(lineSpacing: Tokens.Space.x2) {
                 ForEach(AppProfile.suggestions) { suggestion in
                     Button { start(from: suggestion) } label: {
                         Label(suggestion.name, systemImage: suggestion.symbolName)
-                            .font(Tokens.TypeScale.micro)
-                            .foregroundStyle(Tokens.Color.textSec)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, Tokens.Space.x3)
-                            .padding(.vertical, 7)
-                            .background(Capsule().fill(Tokens.Color.fillQuiet))
-                            .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+                            .font(Tokens.TypeScale.callout)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
-                    .buttonStyle(.plain)
+                    .secondaryAction()
                 }
             }
         }
@@ -131,7 +119,7 @@ struct AppsView: View {
             .font(Tokens.TypeScale.caption)
             .foregroundStyle(Tokens.Color.textTert)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, Tokens.Space.x2)
+            .padding(.horizontal, Tokens.Space.x1)
     }
 
     // MARK: Actions
@@ -174,65 +162,67 @@ private struct ProfileCard: View {
     let duplicate: () -> Void
     let remove: () -> Void
 
-    @ViewState private var hover = false
-
     var body: some View {
-        HStack(alignment: .top, spacing: Tokens.Space.x3) {
-            IconTile(profile.symbolName,
-                     tint: profile.enabled ? Tokens.Color.accent : Tokens.Color.textTert, size: 34)
+        HStack(alignment: .center, spacing: Tokens.Space.x3) {
+            leadingIcon
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: Tokens.Space.x2) {
                     Text(profile.name.isEmpty ? "Untitled profile" : profile.name)
                         .font(Tokens.TypeScale.body.weight(.semibold))
-                        .foregroundStyle(Tokens.Color.text)
-                    if !profile.enabled { Chip(text: "Off", tint: Tokens.Color.textTert) }
+                        .foregroundStyle(profile.enabled ? Tokens.Color.text : Tokens.Color.textSec)
+                    if !profile.enabled { Chip(text: "Off", tint: Tokens.Color.textTert, filled: false) }
                     if profile.bundleIDs.isEmpty {
                         Chip(text: "No apps", tint: Tokens.Color.warn)
                     }
                     if profile.targetsCLI {
                         Chip(text: "Command line", systemImage: "terminal",
-                             tint: Tokens.Color.accent, filled: false)
+                             tint: Tokens.Color.textSec, filled: false)
                     }
                 }
                 Text(summary)
-                    .font(Tokens.TypeScale.caption)
+                    .font(Tokens.TypeScale.callout)
                     .foregroundStyle(Tokens.Color.textSec)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-                appRow
+                // The big icon already names a single installed app; the row
+                // is for more apps, or for one that's no longer installed.
+                if profile.bundleIDs.count > 1
+                    || profile.bundleIDs.first.map({ AppCatalog.icon(for: $0) == nil }) == true {
+                    appRow
+                }
             }
 
             Spacer(minLength: Tokens.Space.x3)
 
             HStack(spacing: Tokens.Space.x2) {
                 Toggle("", isOn: Binding(get: { profile.enabled }, set: { _ in toggle() }))
-                    .labelsHidden().toggleStyle(.switch).controlSize(.mini)
-                Menu {
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                MoreMenu {
                     Button("Edit…") { edit() }
                     Button("Duplicate") { duplicate() }
                     Divider()
                     Button("Delete", role: .destructive) { remove() }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Tokens.Color.textSec)
-                        .frame(width: 30, height: 30)
-                        .contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(width: 30)
             }
         }
-        .padding(Tokens.Space.x4)
-        .card(radius: Tokens.Radius.md, padding: nil, elevated: false)
-        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-            .strokeBorder(profile.enabled ? Tokens.Color.accent.opacity(0.28) : .clear, lineWidth: 1))
-        .opacity(profile.enabled ? 1 : 0.7)
-        .onHover { hover = $0 }
-        .hoverLift(hover)
-        .onTapGesture { edit() }
+    }
+
+    /// The first app's real icon when there is one — the profile *is* that
+    /// app — otherwise the profile's own glyph.
+    @ViewBuilder
+    private var leadingIcon: some View {
+        if let first = profile.bundleIDs.first, let icon = AppCatalog.icon(for: first) {
+            Image(nsImage: icon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 36, height: 36)
+                .saturation(profile.enabled ? 1 : 0)
+                .opacity(profile.enabled ? 1 : 0.6)
+        } else {
+            IconTile(profile.symbolName,
+                     tint: profile.enabled ? Tokens.Color.text : Tokens.Color.textTert, size: 34)
+        }
     }
 
     private var appRow: some View {
@@ -247,7 +237,7 @@ private struct ProfileCard: View {
             }
             if profile.bundleIDs.count > 6 {
                 Text("+\(profile.bundleIDs.count - 6)")
-                    .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
+                    .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
             }
             Spacer(minLength: 0)
         }
@@ -369,11 +359,10 @@ struct AppProfileEditor: View {
                     Divider()
                     Button("Choose an app…") { chooseApp() }
                 } label: {
-                    Label("Add app", systemImage: "plus")
-                        .font(Tokens.TypeScale.micro)
+                    MenuLabel("Add App", systemImage: "plus")
+                        .font(Tokens.TypeScale.callout.weight(.medium))
                 }
-                .menuStyle(.borderlessButton)
-                .frame(width: 110)
+                .secondaryMenu()
             }
 
             if draft.bundleIDs.isEmpty {
@@ -506,9 +495,9 @@ struct AppProfileEditor: View {
 
     private var overridesSection: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            Text("WHAT CHANGES IN THESE APPS")
-                .font(Tokens.TypeScale.eyebrow).tracking(1.2)
-                .foregroundStyle(Tokens.Color.textTert)
+            Text("What changes in these apps")
+                .font(Tokens.TypeScale.headline)
+                .foregroundStyle(Tokens.Color.textSec)
 
             OverridePicker(
                 title: "Processing mode",
@@ -689,8 +678,8 @@ private struct OverridePicker<Options: View>: View {
             } label: {
                 Text(selectionLabel ?? "Global").lineLimit(1)
             }
-            .menuStyle(.borderlessButton)
-            .frame(width: 230)
+            .popupMenuStyle()
+            .frame(width: 200)
         }
     }
 }

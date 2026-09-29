@@ -497,7 +497,7 @@ struct NotchView: View {
                 Text(state.mode == .improving
                      ? (state.statusMessage.isEmpty ? "Improving…" : state.statusMessage)
                      : "Transcribing…")
-                    .font(Tokens.TypeScale.callout)
+                    .font(Tokens.TypeScale.notchCallout)
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(1)
                 AudioVisualizer(
@@ -519,7 +519,7 @@ struct NotchView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Tokens.Color.success)
                 Text("Done")
-                    .font(Tokens.TypeScale.callout)
+                    .font(Tokens.TypeScale.notchCallout)
                     .foregroundStyle(.white.opacity(0.9))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -530,7 +530,7 @@ struct NotchView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Tokens.Color.danger)
                 Text(state.statusMessage.isEmpty ? "Error" : state.statusMessage)
-                    .font(Tokens.TypeScale.callout)
+                    .font(Tokens.TypeScale.notchCallout)
                     .foregroundStyle(.white.opacity(0.9))
                     .lineLimit(2)
                     .truncationMode(.tail)
@@ -551,7 +551,7 @@ struct NotchView: View {
     private var sessionChip: some View {
         if !state.sessionLabel.isEmpty {
             Text(state.sessionLabel)
-                .font(Tokens.TypeScale.micro)
+                .font(Tokens.TypeScale.notchMicro)
                 .foregroundStyle(.white.opacity(0.8))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -573,7 +573,7 @@ struct NotchView: View {
                     .truncationMode(.tail)
                     .frame(maxWidth: 104)
             }
-            .font(Tokens.TypeScale.micro)
+            .font(Tokens.TypeScale.notchMicro)
             .foregroundStyle(lost ? Tokens.Color.danger : .white.opacity(0.8))
             .padding(.horizontal, 7)
             .padding(.vertical, 3)

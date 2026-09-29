@@ -61,10 +61,9 @@ struct ModelTrustBadge: View {
             Text(trust.label).font(Tokens.TypeScale.micro)
         }
         .foregroundStyle(trust == .verified ? Tokens.Color.success : Tokens.Color.textSec)
-        .padding(.horizontal, Tokens.Space.x2)
+        .padding(.horizontal, 7)
         .padding(.vertical, 3)
-        .background(Capsule().fill(Tokens.Color.fillQuiet))
-        .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+        .background(Capsule().fill(trust == .verified ? Tokens.Color.success.opacity(0.12) : Tokens.Color.fillQuiet))
         .help(trust.explanation)
         .accessibilityLabel("\(trust.label). \(trust.explanation)")
     }
@@ -106,8 +105,7 @@ struct CapabilityTag: View {
             .foregroundStyle(Tokens.Color.textSec)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(Capsule().fill(Tokens.Color.fillQuieter))
-            .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+            .background(Capsule().fill(Tokens.Color.fillQuiet))
     }
 }
 
@@ -139,17 +137,17 @@ struct MetricCell: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(Tokens.TypeScale.micro)
+                .font(Tokens.TypeScale.caption)
                 .foregroundStyle(Tokens.Color.textTert)
             Text(value)
-                .font(Tokens.TypeScale.callout.weight(.medium))
+                .font(Tokens.TypeScale.body.weight(.medium))
                 .foregroundStyle(isUnknown ? Tokens.Color.textTert : Tokens.Color.text)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             if let note {
                 Text(note)
-                    .font(Tokens.TypeScale.micro)
+                    .font(Tokens.TypeScale.caption)
                     .foregroundStyle(Tokens.Color.textTert)
             }
         }
@@ -197,7 +195,7 @@ struct ProvenanceFootnote: View {
     var body: some View {
         if let text {
             Text(text)
-                .font(Tokens.TypeScale.micro)
+                .font(Tokens.TypeScale.caption)
                 .foregroundStyle(Tokens.Color.textTert)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -211,7 +209,7 @@ struct DimensionBar: View {
 
     var body: some View {
         GeometryReader { geo in
-            Capsule().fill(Tokens.Color.fillQuiet)
+            Capsule().fill(Tokens.Color.black(0.3))
                 .overlay(alignment: .leading) {
                     if let value {
                         Capsule().fill(tint)
@@ -240,7 +238,7 @@ struct InlineBanner: View {
 
     private var tint: SwiftUI.Color {
         switch kind {
-        case .info:    return Tokens.Color.accent
+        case .info:    return Tokens.Color.textSec
         case .success: return Tokens.Color.success
         case .warning: return Tokens.Color.warn
         case .error:   return Tokens.Color.danger
@@ -257,18 +255,18 @@ struct InlineBanner: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: Tokens.Space.x3) {
+        HStack(alignment: .center, spacing: Tokens.Space.x3) {
             Image(systemName: symbol)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(tint)
-                .padding(.top, 1)
+                .frame(width: 20)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(Tokens.TypeScale.captionSB)
+                    .font(Tokens.TypeScale.headline)
                     .foregroundStyle(Tokens.Color.text)
                 if let message {
                     Text(message)
-                        .font(Tokens.TypeScale.caption)
+                        .font(Tokens.TypeScale.callout)
                         .foregroundStyle(Tokens.Color.textSec)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -277,24 +275,21 @@ struct InlineBanner: View {
             HStack(spacing: Tokens.Space.x2) {
                 if let secondaryTitle, let secondaryAction {
                     Button(secondaryTitle, action: secondaryAction)
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.captionSB)
-                        .foregroundStyle(Tokens.Color.textSec)
+                        .quietAction(tint: Tokens.Color.textSec)
                 }
                 if let actionTitle, let action {
                     Button(actionTitle, action: action)
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.captionSB)
-                        .foregroundStyle(tint)
+                        .secondaryAction()
                 }
             }
         }
-        .padding(Tokens.Space.x3)
+        .padding(.horizontal, Tokens.Space.x4)
+        .padding(.vertical, Tokens.Space.x3 + 2)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(0.10),
-                    in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-            .strokeBorder(tint.opacity(0.22), lineWidth: 1))
+        .background(kind == .info ? Tokens.Color.white(0.045) : tint.opacity(0.08),
+                    in: RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
+            .strokeBorder(kind == .info ? Tokens.Color.hairline : tint.opacity(0.18), lineWidth: 1))
         .accessibilityElement(children: .contain)
     }
 }
@@ -315,14 +310,13 @@ struct ModelSectionHeader<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: Tokens.Space.x3) {
-            Text(title.uppercased())
-                .font(Tokens.TypeScale.eyebrow)
-                .tracking(1.2)
-                .foregroundStyle(Tokens.Color.textTert)
+        HStack(alignment: .firstTextBaseline, spacing: Tokens.Space.x2) {
+            Text(title)
+                .font(Tokens.TypeScale.headline)
+                .foregroundStyle(Tokens.Color.textSec)
             if let count {
                 Text(count)
-                    .font(Tokens.TypeScale.micro)
+                    .font(Tokens.TypeScale.caption)
                     .foregroundStyle(Tokens.Color.textTert)
             }
             Spacer(minLength: 0)
@@ -445,7 +439,7 @@ struct DownloadProgressPanel: View {
         }
         .padding(Tokens.Space.x3)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Tokens.Color.fillQuieter,
+        .background(Tokens.Color.black(0.2),
                     in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
             .strokeBorder(Tokens.Color.hairline, lineWidth: 1))
@@ -617,7 +611,7 @@ struct StorageBar: View {
                             .fill(Tokens.Color.warn.opacity(0.6))
                             .frame(width: width(report.incompleteBytes, in: geo.size.width))
                     }
-                    Rectangle().fill(Tokens.Color.fillQuiet)
+                    Rectangle().fill(Tokens.Color.black(0.3))
                 }
                 .clipShape(Capsule())
             }
@@ -663,9 +657,9 @@ struct ToolbarIconButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 11, weight: .semibold))
+                Image(systemName: icon).font(.system(size: 11.5, weight: .medium))
                 if !iconOnly {
-                    Text(label).font(Tokens.TypeScale.captionSB).lineLimit(1).fixedSize()
+                    Text(label).font(Tokens.TypeScale.callout.weight(.medium)).lineLimit(1).fixedSize()
                 }
                 if let badge, badge > 0 {
                     Text("\(badge)")
@@ -677,11 +671,13 @@ struct ToolbarIconButton: View {
                         .background(Capsule().fill(Tokens.Color.accent))
                 }
             }
-            .foregroundStyle(Tokens.Color.textSec)
-            .padding(.horizontal, iconOnly ? Tokens.Space.x2 : Tokens.Space.x3)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(hovering ? Tokens.Color.fillQuiet : .clear))
-            .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+            .foregroundStyle(hovering ? Tokens.Color.text : Tokens.Color.textSec)
+            .padding(.horizontal, iconOnly ? 9 : Tokens.Space.x3)
+            .padding(.vertical, 6.5)
+            .background(Capsule().fill(hovering ? Tokens.Color.white(0.10) : Tokens.Color.white(0.06)))
+            .overlay(Capsule().strokeBorder(
+                LinearGradient(colors: [Tokens.Color.edgeLight, Tokens.Color.hairline.opacity(0.3)],
+                               startPoint: .top, endPoint: .bottom), lineWidth: 1))
             .contentShape(Capsule())
         }
         .buttonStyle(Pressable(scale: 0.97))
@@ -769,7 +765,7 @@ struct DisclosureSection<Content: View>: View {
                         .foregroundStyle(Tokens.Color.text)
                     if let subtitle {
                         Text(subtitle)
-                            .font(Tokens.TypeScale.micro)
+                            .font(Tokens.TypeScale.caption)
                             .foregroundStyle(Tokens.Color.textTert)
                     }
                     Spacer(minLength: 0)

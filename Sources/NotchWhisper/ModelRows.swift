@@ -36,13 +36,12 @@ struct ModelPrimaryButton: View {
             switch lifecycle {
             case .active:
                 HStack(spacing: 5) {
-                    Image(systemName: "checkmark.circle.fill").font(.system(size: 11, weight: .semibold))
-                    Text("Active").font(Tokens.TypeScale.captionSB)
+                    Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
+                    Text("In Use").font(Tokens.TypeScale.callout.weight(.medium))
                 }
                 .foregroundStyle(Tokens.Color.success)
                 .padding(.horizontal, Tokens.Space.x3)
                 .padding(.vertical, 6)
-                .background(Capsule().fill(Tokens.Color.success.opacity(0.14)))
                 .accessibilityLabel("\(model.displayName) is the active model")
 
             case .installed:
@@ -68,7 +67,7 @@ struct ModelPrimaryButton: View {
             case .queued, .downloading, .verifying, .updating, .removing:
                 HStack(spacing: 5) {
                     ProgressView().controlSize(.small).scaleEffect(0.7)
-                    Text(lifecycle.primaryActionLabel).font(Tokens.TypeScale.captionSB)
+                    Text(lifecycle.primaryActionLabel).font(Tokens.TypeScale.callout.weight(.medium))
                 }
                 .foregroundStyle(Tokens.Color.textSec)
                 .padding(.horizontal, Tokens.Space.x3)
@@ -80,23 +79,19 @@ struct ModelPrimaryButton: View {
 
     @ViewBuilder
     private func button(_ title: String, _ icon: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 11, weight: .semibold))
-                Text(title).font(Tokens.TypeScale.captionSB)
+        if prominent {
+            Button(action: action) {
+                Label(title, systemImage: icon).font(Tokens.TypeScale.callout.weight(.semibold))
             }
-            .foregroundStyle(prominent ? Tokens.Color.onAccent : Tokens.Color.accent)
-            .padding(.horizontal, Tokens.Space.x3)
-            .padding(.vertical, 6)
-            .background(
-                Capsule().fill(prominent
-                               ? AnyShapeStyle(Tokens.Color.accentGradient)
-                               : AnyShapeStyle(Tokens.Color.accent.opacity(0.14)))
-            )
-            .contentShape(Capsule())
+            .primaryAction()
+            .accessibilityLabel("\(title) \(model.displayName)")
+        } else {
+            Button(action: action) {
+                Text(title).font(Tokens.TypeScale.callout.weight(.medium))
+            }
+            .secondaryAction()
+            .accessibilityLabel("\(title) \(model.displayName)")
         }
-        .buttonStyle(Pressable(scale: 0.97))
-        .accessibilityLabel("\(title) \(model.displayName)")
     }
 }
 
@@ -133,13 +128,13 @@ struct ModelOverflowMenu: View {
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Tokens.Color.textTert)
-                .frame(width: 26, height: 22)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
+        .tint(Tokens.Color.textSec)
         .fixedSize()
         .accessibilityLabel("More actions for \(model.displayName)")
     }
@@ -179,7 +174,11 @@ struct InstalledModelRow: View {
                             .font(Tokens.TypeScale.body.weight(.medium))
                             .foregroundStyle(Tokens.Color.text)
                             .lineLimit(1)
-                        ModelStatusPill(lifecycle: lifecycle, compact: true)
+                        // "Ready" on every installed row is noise; the pill
+                        // only speaks up for a state worth noticing.
+                        if lifecycle != .installed && lifecycle != .active {
+                            ModelStatusPill(lifecycle: lifecycle, compact: true)
+                        }
                     }
                     Text(secondaryLine)
                         .font(Tokens.TypeScale.caption)
@@ -215,12 +214,12 @@ struct InstalledModelRow: View {
         .padding(.vertical, Tokens.Space.x3)
         .background {
             RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-                .fill(isSelected ? Tokens.Color.accent.opacity(0.10)
-                      : (hovering ? Tokens.Color.fillQuieter : .clear))
+                .fill(isSelected ? Tokens.Color.selectionFill
+                      : (hovering ? Tokens.Color.hoverFill : .clear))
         }
         .overlay {
             RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
-                .strokeBorder(isSelected ? Tokens.Color.accent.opacity(0.35) : .clear, lineWidth: 1)
+                .strokeBorder(isSelected ? Tokens.Color.accent.opacity(0.45) : .clear, lineWidth: 1)
         }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
@@ -260,11 +259,11 @@ struct DiscoverModelCard: View {
             HStack(alignment: .top, spacing: Tokens.Space.x2) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.displayName)
-                        .font(Tokens.TypeScale.title2)
+                        .font(Tokens.TypeScale.title3)
                         .foregroundStyle(Tokens.Color.text)
                         .lineLimit(1)
                     Text(model.provider)
-                        .font(Tokens.TypeScale.caption)
+                        .font(Tokens.TypeScale.callout)
                         .foregroundStyle(Tokens.Color.textTert)
                         .lineLimit(1)
                 }
@@ -279,7 +278,7 @@ struct DiscoverModelCard: View {
             }
 
             Text(model.blurb)
-                .font(Tokens.TypeScale.caption)
+                .font(Tokens.TypeScale.callout)
                 .foregroundStyle(Tokens.Color.textSec)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -308,7 +307,7 @@ struct DiscoverModelCard: View {
                     onRetry: { actions.retry(model.id) }
                 )
             } else {
-                Divider().overlay(Tokens.Color.hairline)
+                Hairline()
                 HStack(spacing: Tokens.Space.x2) {
                     ModelPrimaryButton(model: model, lifecycle: lifecycle, actions: actions,
                                        prominent: award != nil)
@@ -319,18 +318,8 @@ struct DiscoverModelCard: View {
         }
         .padding(Tokens.Space.x4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
-                .fill(Tokens.Color.surface)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
-                .strokeBorder(
-                    award != nil ? Tokens.Color.accent.opacity(0.30)
-                        : (hovering ? Tokens.Color.hairlineStrong : Tokens.Color.hairline),
-                    lineWidth: 1
-                )
-        }
+        .card(radius: Tokens.Radius.lg, padding: nil, elevated: false)
+        .brightness(hovering ? 0.02 : 0)
         .contentShape(RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous))
         .onHover { hovering = $0 }
         .animation(Tokens.Motion.hover, value: hovering)
@@ -354,11 +343,11 @@ struct RecommendationCard: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(recommendation.model.displayName)
-                    .font(Tokens.TypeScale.title2)
+                    .font(Tokens.TypeScale.title3)
                     .foregroundStyle(Tokens.Color.text)
                     .lineLimit(1)
                 Text(recommendation.model.provider)
-                    .font(Tokens.TypeScale.caption)
+                    .font(Tokens.TypeScale.callout)
                     .foregroundStyle(Tokens.Color.textTert)
             }
 
@@ -370,7 +359,7 @@ struct RecommendationCard: View {
                             .foregroundStyle(Tokens.Color.success)
                             .padding(.top, 2)
                         Text(reason.text)
-                            .font(Tokens.TypeScale.caption)
+                            .font(Tokens.TypeScale.callout)
                             .foregroundStyle(Tokens.Color.textSec)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -384,18 +373,13 @@ struct RecommendationCard: View {
                                    actions: actions, prominent: true)
                 Spacer(minLength: 0)
                 Button("Details") { actions.openDetails(recommendation.model) }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.captionSB)
-                    .foregroundStyle(Tokens.Color.textSec)
+                    .quietAction(tint: Tokens.Color.textSec)
             }
         }
         .padding(Tokens.Space.x4)
         .frame(width: 300, alignment: .leading)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
-            .fill(Tokens.Color.surface))
-        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
-            .strokeBorder(Tokens.Color.accent.opacity(0.22), lineWidth: 1))
+        .card(radius: Tokens.Radius.lg, padding: nil, elevated: false)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(recommendation.award.label): \(recommendation.model.displayName)")
     }
@@ -428,7 +412,7 @@ struct ActiveModelPanel: View {
                     }
                     HStack(spacing: Tokens.Space.x2) {
                         Text(model.provider)
-                            .font(Tokens.TypeScale.caption)
+                            .font(Tokens.TypeScale.callout)
                             .foregroundStyle(Tokens.Color.textTert)
                         ModelTrustBadge(trust: model.trust)
                         privacyTag
@@ -438,7 +422,7 @@ struct ActiveModelPanel: View {
             }
 
             Text(model.blurb)
-                .font(Tokens.TypeScale.callout)
+                .font(Tokens.TypeScale.body)
                 .foregroundStyle(Tokens.Color.textSec)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -465,54 +449,35 @@ struct ActiveModelPanel: View {
                 ModelLoadBar()
             }
 
+            Hairline()
+
             HStack(spacing: Tokens.Space.x2) {
                 Button { actions.openDetails(model) } label: {
-                    Label("Model details", systemImage: "info.circle")
-                        .font(Tokens.TypeScale.captionSB)
+                    Label("Model Details", systemImage: "info.circle")
+                        .font(Tokens.TypeScale.callout.weight(.medium))
                 }
-                .buttonStyle(Pressable(scale: 0.97))
-                .foregroundStyle(Tokens.Color.accent)
-                .padding(.horizontal, Tokens.Space.x3)
-                .padding(.vertical, 6)
-                .background(Capsule().fill(Tokens.Color.accent.opacity(0.14)))
+                .secondaryAction()
 
                 Button { actions.test(model.id) } label: {
                     Label("Test", systemImage: "waveform.badge.mic")
-                        .font(Tokens.TypeScale.captionSB)
+                        .font(Tokens.TypeScale.callout.weight(.medium))
                 }
-                .buttonStyle(Pressable(scale: 0.97))
-                .foregroundStyle(Tokens.Color.textSec)
-                .padding(.horizontal, Tokens.Space.x3)
-                .padding(.vertical, 6)
-                .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+                .secondaryAction()
 
                 Button { actions.benchmark(model.id) } label: {
-                    Label(benchmarks.result(for: model.id) == nil ? "Run benchmark" : "Re-run benchmark",
+                    Label(benchmarks.result(for: model.id) == nil ? "Run Benchmark" : "Re-run Benchmark",
                           systemImage: "gauge.with.dots.needle.50percent")
-                        .font(Tokens.TypeScale.captionSB)
+                        .font(Tokens.TypeScale.callout.weight(.medium))
                 }
-                .buttonStyle(Pressable(scale: 0.97))
-                .foregroundStyle(Tokens.Color.textSec)
-                .padding(.horizontal, Tokens.Space.x3)
-                .padding(.vertical, 6)
-                .overlay(Capsule().strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+                .secondaryAction()
 
                 Spacer(minLength: 0)
                 ModelOverflowMenu(model: model, lifecycle: lifecycle, actions: actions)
             }
         }
-        .padding(Tokens.Space.x5)
+        .padding(Tokens.Space.x6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
-                .fill(Tokens.Color.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
-                        .fill(Tokens.Color.accent.opacity(0.05))
-                )
-        }
-        .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.lg, style: .continuous)
-            .strokeBorder(Tokens.Color.accent.opacity(0.28), lineWidth: 1))
+        .card(radius: Tokens.Radius.xl, padding: nil)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Active model: \(model.displayName), \(engineStatusText)")
     }

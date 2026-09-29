@@ -93,8 +93,8 @@ struct UpdateView: View {
     private func versionColumn(_ label: String, _ value: String, detail: String,
                                date: Date?, tint: SwiftUI.Color) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label.uppercased())
-                .font(Tokens.TypeScale.eyebrow).tracking(1.2)
+            Text(label)
+                .font(Tokens.TypeScale.callout.weight(.medium))
                 .foregroundStyle(Tokens.Color.textTert)
             Text(value)
                 .font(Tokens.TypeScale.title1)
@@ -136,9 +136,7 @@ struct UpdateView: View {
                 Button(showLog ? "Hide build log" : "Show build log") {
                     withAnimation(Tokens.Motion.ease) { showLog.toggle() }
                 }
-                .buttonStyle(.plain)
-                .font(Tokens.TypeScale.caption)
-                .foregroundStyle(Tokens.Color.accent)
+                .quietAction()
 
                 if showLog {
                     ScrollViewReader { proxy in
@@ -170,10 +168,7 @@ struct UpdateView: View {
 
     private func changelog(_ update: AvailableUpdate) -> some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x2) {
-            Text("What's new".uppercased())
-                .font(Tokens.TypeScale.eyebrow).tracking(1.2)
-                .foregroundStyle(Tokens.Color.textTert)
-                .padding(.leading, Tokens.Space.x2)
+            GroupLabel("What's new")
             VStack(spacing: 0) {
                 ForEach(Array(update.entries.enumerated()), id: \.element.id) { index, entry in
                     if index > 0 {
@@ -235,7 +230,7 @@ struct UpdateView: View {
                 ProgressView().controlSize(.small)
                 Text("Checking…").font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
             } else if let last = checker.lastCheck {
-                Text("Last checked \(Self.relative.localizedString(for: last, relativeTo: Date()))")
+                Text("Last checked \(last.relativeLabel)")
                     .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
             }
             Spacer()
@@ -253,9 +248,7 @@ struct UpdateView: View {
                 }
             } else if let update = availableIgnoringSkip {
                 Button("Skip this version") { checker.skip(update) }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.caption)
-                    .foregroundStyle(Tokens.Color.textSec)
+                    .quietAction(tint: Tokens.Color.textSec)
                 Button("View on GitHub") { openCompareOnGitHub(update) }.secondaryAction()
                 Button("Update & Relaunch") { updater.start(update) }.primaryAction()
             } else {

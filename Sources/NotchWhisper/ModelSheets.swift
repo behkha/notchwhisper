@@ -108,9 +108,7 @@ struct AudioCapturePanel: View {
                 .disabled(isDecoding || (!isRecording && state.mode != .idle))
 
                 Button("Choose audio file…") { chooseFile() }
-                    .buttonStyle(.plain)
-                    .font(Tokens.TypeScale.captionSB)
-                    .foregroundStyle(Tokens.Color.accent)
+                    .quietAction()
                     .disabled(isRecording || isDecoding)
 
                 if isDecoding {
@@ -124,7 +122,7 @@ struct AudioCapturePanel: View {
             }
 
             if isRecording {
-                LevelsMeter(height: 40)
+                LevelsMeter(height: 40, live: true)
             }
 
             if state.mode != .idle && !isRecording {
@@ -322,9 +320,7 @@ struct ModelTestSheet: View {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(transcript, forType: .string)
                             }
-                            .buttonStyle(.plain)
-                            .font(Tokens.TypeScale.micro)
-                            .foregroundStyle(Tokens.Color.accent)
+                            .quietAction()
                         }
                         Text(transcript)
                             .font(Tokens.TypeScale.body)
@@ -423,13 +419,9 @@ struct ModelBenchmarkSheet: View {
                     }
                     Spacer(minLength: 0)
                     Button("Replace") { showSampleCapture = true }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.micro)
-                        .foregroundStyle(Tokens.Color.accent)
+                        .quietAction()
                     Button("Delete recording") { service.deleteSample() }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.micro)
-                        .foregroundStyle(Tokens.Color.danger)
+                        .quietAction(tint: Tokens.Color.danger)
                 }
                 .padding(Tokens.Space.x4)
                 .card(padding: nil, elevated: false)
@@ -445,9 +437,7 @@ struct ModelBenchmarkSheet: View {
                         .font(Tokens.TypeScale.caption)
                         .onSubmit { service.setReferenceTranscript(reference) }
                     Button("Save reference") { service.setReferenceTranscript(reference) }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.micro)
-                        .foregroundStyle(Tokens.Color.accent)
+                        .quietAction()
                 }
             } else {
                 AudioCapturePanel(prompt: "Record a short sample once — every model is then timed on exactly that audio, so the numbers are comparable.") { samples, name in
@@ -679,14 +669,10 @@ struct ModelCompareSheet: View {
                     }
                     Spacer(minLength: 0)
                     Button("Use \(left.displayName)") { registry.activate(leftId); onClose() }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.captionSB)
-                        .foregroundStyle(Tokens.Color.accent)
+                        .quietAction()
                         .disabled(leftId == registry.activeId)
                     Button("Use \(right.displayName)") { registry.activate(rightId); onClose() }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.captionSB)
-                        .foregroundStyle(Tokens.Color.accent)
+                        .quietAction()
                         .disabled(rightId == registry.activeId)
                 }
 
@@ -1011,9 +997,7 @@ struct ModelStorageSheet: View {
                             }
                             Spacer(minLength: 0)
                             Button("Review…") { confirmUnused = true }
-                                .buttonStyle(.plain)
-                                .font(Tokens.TypeScale.captionSB)
-                                .foregroundStyle(Tokens.Color.danger)
+                                .quietAction(tint: Tokens.Color.danger)
                         }
                     }
 
@@ -1036,9 +1020,7 @@ struct ModelStorageSheet: View {
                                     state.showToast("Freed \(ModelStorageReport.label(freed)).")
                                 }
                             }
-                            .buttonStyle(.plain)
-                            .font(Tokens.TypeScale.captionSB)
-                            .foregroundStyle(Tokens.Color.accent)
+                            .quietAction()
                         }
                     }
 
@@ -1055,9 +1037,7 @@ struct ModelStorageSheet: View {
                             .fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: Tokens.Space.x3) {
                             Button("Change location…") { changeLocation() }
-                                .buttonStyle(.plain)
-                                .font(Tokens.TypeScale.captionSB)
-                                .foregroundStyle(Tokens.Color.accent)
+                                .quietAction()
                                 .disabled(location.isMigrating)
                             if !location.isDefaultLocation {
                                 Button("Reset to default") {
@@ -1066,14 +1046,10 @@ struct ModelStorageSheet: View {
                                         catch { self.error = error.localizedDescription }
                                     }
                                 }
-                                .buttonStyle(.plain)
-                                .font(Tokens.TypeScale.captionSB)
-                                .foregroundStyle(Tokens.Color.textSec)
+                                .quietAction(tint: Tokens.Color.textSec)
                             }
                             Button("Reveal in Finder") { location.revealInFinder() }
-                                .buttonStyle(.plain)
-                                .font(Tokens.TypeScale.captionSB)
-                                .foregroundStyle(Tokens.Color.textSec)
+                                .quietAction(tint: Tokens.Color.textSec)
                             Spacer(minLength: 0)
                         }
                         if location.isMigrating {
@@ -1204,15 +1180,11 @@ struct DownloadCenterSheet: View {
                     HStack(spacing: Tokens.Space.x3) {
                         if queue.jobs.contains(where: { $0.state == .finished }) {
                             Button("Clear finished") { queue.dismissFinished() }
-                                .buttonStyle(.plain)
-                                .font(Tokens.TypeScale.captionSB)
-                                .foregroundStyle(Tokens.Color.textSec)
+                                .quietAction(tint: Tokens.Color.textSec)
                         }
                         if queue.activeCount > 0 {
                             Button("Cancel all") { queue.cancelAll() }
-                                .buttonStyle(.plain)
-                                .font(Tokens.TypeScale.captionSB)
-                                .foregroundStyle(Tokens.Color.danger)
+                                .quietAction(tint: Tokens.Color.danger)
                         }
                         Spacer(minLength: 0)
                     }
@@ -1314,9 +1286,7 @@ struct PasteRepositorySheet: View {
                                     Button("Inspect") {
                                         onInstall(ModelCatalogService.descriptor(forVariant: variant, in: result))
                                     }
-                                    .buttonStyle(.plain)
-                                    .font(Tokens.TypeScale.captionSB)
-                                    .foregroundStyle(Tokens.Color.accent)
+                                    .quietAction()
                                     .disabled(!variant.isSupported)
                                 }
                                 .padding(.vertical, Tokens.Space.x2)

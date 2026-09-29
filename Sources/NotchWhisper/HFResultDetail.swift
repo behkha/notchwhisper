@@ -139,9 +139,7 @@ struct HFResultDetail: View {
                 if variant.isSupported {
                     ModelPrimaryButton(model: descriptor, lifecycle: lifecycle, actions: actions)
                     Button("Details") { onOpenDetails(descriptor) }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.captionSB)
-                        .foregroundStyle(Tokens.Color.textSec)
+                        .quietAction(tint: Tokens.Color.textSec)
                 }
             }
             if let job = queue.job(for: descriptor.id), job.state != .finished {

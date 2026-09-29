@@ -1,9 +1,77 @@
 import SwiftUI
 import Carbon
 
-/// Settings — a scroll of grouped glass cards on the Aurora canvas (Raycast /
-/// Wispr-Flow style), not a system `Form`. All behaviour is unchanged; only
-/// the presentation was rebuilt.
+/// The Settings panes, in sidebar order. Deep links (`showSettings(pane:)`)
+/// and the stored last-open pane both use the raw value.
+enum SettingsPane: String, CaseIterable, Identifiable {
+    case general, microphone, voice, shortcuts, model, ai, appearance, feedback, updates
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general:    return "General"
+        case .microphone: return "Microphone"
+        case .voice:      return "Voice Detection"
+        case .shortcuts:  return "Shortcuts"
+        case .model:      return "Model"
+        case .ai:         return "AI Processing"
+        case .appearance: return "Appearance"
+        case .feedback:   return "Sounds & Alerts"
+        case .updates:    return "Updates"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .general:    return "How your words reach the app you're working in."
+        case .microphone: return "Which input NotchWhisper listens to."
+        case .voice:      return "Keep accidental presses from typing text you never said."
+        case .shortcuts:  return "The keys that start a dictation, anywhere on your Mac."
+        case .model:      return "The speech engine, and how it stays ready."
+        case .ai:         return "Clean up, format or rewrite a transcript before it's inserted."
+        case .appearance: return "Accent color, and how the notch looks while you speak."
+        case .feedback:   return "Sounds, haptics and notifications."
+        case .updates:    return "Keep NotchWhisper current with its source."
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .general:    return "gearshape.fill"
+        case .microphone: return "mic.fill"
+        case .voice:      return "waveform"
+        case .shortcuts:  return "keyboard.fill"
+        case .model:      return "cpu.fill"
+        case .ai:         return "sparkles"
+        case .appearance: return "paintpalette.fill"
+        case .feedback:   return "bell.badge.fill"
+        case .updates:    return "arrow.triangle.2.circlepath"
+        }
+    }
+
+    /// System Settings-style tile colors: fixed per category, independent of
+    /// the accent theme, so the sidebar reads the same for everyone.
+    var tile: SwiftUI.Color {
+        switch self {
+        case .general:    return SwiftUI.Color(red: 0.56, green: 0.57, blue: 0.61)
+        case .microphone: return SwiftUI.Color(red: 1.00, green: 0.27, blue: 0.36)
+        case .voice:      return SwiftUI.Color(red: 0.66, green: 0.36, blue: 0.92)
+        case .shortcuts:  return SwiftUI.Color(red: 0.38, green: 0.42, blue: 0.50)
+        case .model:      return SwiftUI.Color(red: 0.10, green: 0.52, blue: 1.00)
+        case .ai:         return SwiftUI.Color(red: 0.40, green: 0.38, blue: 0.95)
+        case .appearance: return SwiftUI.Color(red: 0.18, green: 0.66, blue: 0.86)
+        case .feedback:   return SwiftUI.Color(red: 1.00, green: 0.25, blue: 0.21)
+        case .updates:    return SwiftUI.Color(red: 0.20, green: 0.72, blue: 0.40)
+        }
+    }
+
+    static let defaultsKey = "settingsPane"
+}
+
+/// Settings — System Settings' shape on the Graphite canvas: a vibrant
+/// sidebar of colored category tiles beside one pane of grouped rows at a
+/// time. All behaviour is unchanged; only the presentation was rebuilt.
 struct SettingsView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: Settings
@@ -14,44 +82,123 @@ struct SettingsView: View {
     @ObservedObject private var connections = LLMConnectionStore.shared
     @ObservedObject private var customModes = CustomModeStore.shared
 
+    @AppStorage(SettingsPane.defaultsKey) private var paneRaw: String = SettingsPane.general.rawValue
+    @Namespace private var paneSelection
+
+    private var pane: SettingsPane { SettingsPane(rawValue: paneRaw) ?? .general }
 
     var body: some View {
         let _ = theme.theme
-        ScrollView {
-            VStack(alignment: .leading, spacing: Tokens.Space.x6) {
-                SectionHeader("Settings", eyebrow: "NotchWhisper")
-
-                dictationGroup
-                MicrophoneSettingsGroup()
-                voiceGroup
-                appearanceGroup
-                ShortcutsSection()
-                modelGroup
-                llmGroup
-                feedbackGroup
-                updatesGroup
+        HStack(spacing: 0) {
+            sidebar
+            Hairline(vertical: true).ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: Tokens.Space.x6) {
+                    paneHeader
+                    paneContent
+                        .environment(\.settingsGroupTitleHidden, pane != .general)
+                }
+                .padding(.horizontal, Tokens.Space.x8)
+                .padding(.top, Tokens.Space.x10)
+                .padding(.bottom, Tokens.Space.x10)
+                .frame(maxWidth: 640, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
-            .padding(Tokens.Space.x8)
-            .frame(maxWidth: 620, alignment: .leading)
-            .frame(maxWidth: .infinity)
+            .id(pane)
+            .scrollIndicators(.automatic)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AuroraBackground())
         }
-        .scrollIndicators(.never)
-        .background(AuroraBackground())
+        .ignoresSafeArea(.container, edges: .top)
         .environment(\.colorScheme, .dark)
         .tint(Tokens.Color.accent)
         .focusEffectDisabled()
     }
 
-    // MARK: General / dictation
+    // MARK: Sidebar
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            ForEach(SettingsPane.allCases) { item in
+                let selected = item == pane
+                Button {
+                    withAnimation(Tokens.Motion.select(reduceMotion: Tokens.A11y.reduceMotion)) { paneRaw = item.rawValue }
+                } label: {
+                    HStack(spacing: Tokens.Space.x2 + 2) {
+                        IconTile(item.icon, tint: item.tile, size: 22, style: .solid)
+                        Text(item.title)
+                            .font(Tokens.TypeScale.body.weight(selected ? .semibold : .regular))
+                            .foregroundStyle(selected ? Tokens.Color.text : Tokens.Color.text.opacity(0.86))
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 7)
+                    .frame(height: 32)
+                    .background {
+                        if selected {
+                            RoundedRectangle(cornerRadius: Tokens.Radius.sm, style: .continuous)
+                                .fill(Tokens.Color.selectionFill)
+                                .matchedGeometryEffect(id: "pane", in: paneSelection)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, Tokens.Layout.titlebarInset)
+        .frame(width: 214)
+        .background(VisualEffectBackground(material: .sidebar).ignoresSafeArea())
+    }
+
+    // MARK: Pane
+
+    private var paneHeader: some View {
+        HStack(alignment: .center, spacing: Tokens.Space.x4) {
+            IconTile(pane.icon, tint: pane.tile, size: 44, style: .solid)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(pane.title)
+                    .font(Tokens.TypeScale.title1)
+                    .foregroundStyle(Tokens.Color.text)
+                Text(pane.summary)
+                    .font(Tokens.TypeScale.callout)
+                    .foregroundStyle(Tokens.Color.textSec)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var paneContent: some View {
+        switch pane {
+        case .general:
+            dictationGroup
+            languageGroup
+            systemGroup
+        case .microphone: MicrophoneSettingsGroup()
+        case .voice:      voiceGroup
+        case .shortcuts:  ShortcutsSection()
+        case .model:      modelGroup
+        case .ai:         llmGroup
+        case .appearance: appearanceGroup
+        case .feedback:   feedbackGroup
+        case .updates:    updatesGroup
+        }
+    }
+
+    // MARK: General
 
     private var dictationGroup: some View {
         SettingsGroup(title: "Dictation") {
             SettingRow(icon: "dot.radiowaves.left.and.right", title: "Live dictation",
                        subtitle: LlamaModelOption.isLlamaId(settings.modelId)
                             ? "Not available with Qwen3-ASR — that model uses hold-to-talk. Switch to a Whisper model for live dictation."
-                            : "Type into the focused field as you speak. The Record button, the menu bar and every shortcut become press-to-start / press-to-stop — unless a shortcut pins its own behaviour below.") {
+                            : "Type into the focused field as you speak. The Record button, the menu bar and every shortcut become press-to-start / press-to-stop — unless a shortcut pins its own behaviour.") {
                 Toggle("", isOn: $settings.liveDictation)
-                    .labelsHidden().toggleStyle(.switch)
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
                     .disabled(LlamaModelOption.isLlamaId(settings.modelId))
                     .onChange(of: settings.liveDictation) { _, _ in
                         NotificationCenter.default.post(name: .dictationChanged, object: nil)
@@ -59,14 +206,23 @@ struct SettingsView: View {
             }
             SettingRow(icon: "keyboard", title: "Type into the focused app",
                        subtitle: "Off keeps every dictation in Transcripts only — nothing is typed anywhere.") {
-                Toggle("", isOn: $settings.autoTypeEnabled).labelsHidden().toggleStyle(.switch)
+                Toggle("", isOn: $settings.autoTypeEnabled).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
             SettingRow(icon: "return", title: "New line after each dictation",
                        subtitle: "Press Return once the transcript is inserted.") {
-                Toggle("", isOn: $settings.insertNewline).labelsHidden().toggleStyle(.switch)
+                Toggle("", isOn: $settings.insertNewline).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
-            SettingRow(icon: "globe", title: "Language",
-                       subtitle: "The language you speak. Auto-detect handles one language at a time; naming it is faster and more accurate. A shortcut can pick a different one.") {
+            SettingRow(icon: "terminal", title: "Paste into terminal programs",
+                       subtitle: "Claude Code, Codex, vim and friends read a typed newline as Return, which submits the line. Pasting keeps a multi-line dictation in one piece. A bare shell prompt is still typed, so your clipboard is left alone.") {
+                Toggle("", isOn: $settings.pasteIntoTerminalTools).labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+        }
+    }
+
+    private var languageGroup: some View {
+        SettingsGroup(title: "Language") {
+            SettingRow(icon: "globe", title: "Spoken language",
+                       subtitle: "Auto-detect handles one language at a time; naming it is faster and more accurate. A shortcut can pick a different one.") {
                 Menu {
                     ForEach(LanguageChoice.all, id: \.code) { choice in
                         Button(choice.name) { settings.language = choice.code.isEmpty ? nil : choice.code }
@@ -74,20 +230,21 @@ struct SettingsView: View {
                 } label: {
                     Text(LanguageChoice.label(for: settings.language)).lineLimit(1)
                 }
-                .menuStyle(.borderlessButton)
-                .frame(maxWidth: 200)
+                .popupMenuStyle()
+                .frame(maxWidth: 180)
             }
             SettingRow(icon: "character.book.closed", title: "Translate to English",
                        subtitle: "Whisper writes English whatever language you speak, instead of transcribing it as spoken.") {
-                Toggle("", isOn: $settings.translateToEnglish).labelsHidden().toggleStyle(.switch)
+                Toggle("", isOn: $settings.translateToEnglish).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
-            SettingRow(icon: "terminal", title: "Paste into terminal programs",
-                       subtitle: "Claude Code, Codex, vim and friends read a typed newline as Return, which submits the line. Pasting keeps a multi-line dictation in one piece. A bare shell prompt is still typed, so your clipboard is left alone.") {
-                Toggle("", isOn: $settings.pasteIntoTerminalTools).labelsHidden().toggleStyle(.switch)
-            }
+        }
+    }
+
+    private var systemGroup: some View {
+        SettingsGroup(title: "System") {
             SettingRow(icon: "power", title: "Launch at login",
                        subtitle: "Start quietly in the menu bar when you log in.") {
-                Toggle("", isOn: $settings.launchAtLogin).labelsHidden().toggleStyle(.switch)
+                Toggle("", isOn: $settings.launchAtLogin).labelsHidden().toggleStyle(.switch).controlSize(.small)
                     .onChange(of: settings.launchAtLogin) { _, _ in settings.applyLaunchAtLogin() }
             }
         }
@@ -100,15 +257,15 @@ struct SettingsView: View {
                       footnote: "Whisper invents text when it hears nothing — \"Thank you.\" on a silent recording is the classic. These checks keep an accidental press from typing a sentence you never said.") {
             SettingRow(icon: "waveform.slash", title: "Ignore silent recordings",
                        subtitle: "A recording with no speech in it is discarded instead of transcribed. The menu bar offers to transcribe it anyway.") {
-                Toggle("", isOn: $settings.vadIgnoreSilent).labelsHidden().toggleStyle(.switch)
+                Toggle("", isOn: $settings.vadIgnoreSilent).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
             SettingRow(icon: "scissors", title: "Trim silence before transcribing",
                        subtitle: "Cuts the quiet before and after you speak. Faster, and a little more accurate.") {
-                Toggle("", isOn: $settings.vadTrimSilence).labelsHidden().toggleStyle(.switch)
+                Toggle("", isOn: $settings.vadTrimSilence).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
             VStack(alignment: .leading, spacing: Tokens.Space.x3) {
                 Text("Sensitivity")
-                    .font(Tokens.TypeScale.body.weight(.medium))
+                    .font(Tokens.TypeScale.body)
                     .foregroundStyle(Tokens.Color.text)
                 Picker("", selection: $settings.vadSensitivity) {
                     ForEach(VoiceActivityDetector.Sensitivity.allCases) { Text($0.label).tag($0) }
@@ -116,9 +273,10 @@ struct SettingsView: View {
                 .pickerStyle(.segmented).labelsHidden()
                 Text(settings.vadSensitivity.blurb)
                     .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, Tokens.Space.x4)
-            .padding(.vertical, Tokens.Space.x3)
+            .padding(.vertical, Tokens.Space.x4)
             SettingRow(icon: "timer", title: "Minimum press length",
                        subtitle: "Shorter presses of a hold-to-talk shortcut are ignored as accidental.") {
                 Picker("", selection: $settings.minPressMilliseconds) {
@@ -150,17 +308,17 @@ struct SettingsView: View {
         SettingsGroup(title: "Feedback") {
             SettingRow(icon: "speaker.wave.2", title: "Sounds",
                        subtitle: "A soft tick when the mic opens, a pop when it closes, a low note if something fails.") {
-                Toggle("", isOn: $settings.soundFeedback).labelsHidden().toggleStyle(.switch)
+                Toggle("", isOn: $settings.soundFeedback).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
             SettingRow(icon: "hand.tap", title: "Haptic feedback",
                        subtitle: "A tap when recording starts (Force Touch trackpads).") {
-                Toggle("", isOn: $settings.hapticEnabled).labelsHidden().toggleStyle(.switch)
+                Toggle("", isOn: $settings.hapticEnabled).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
             SettingRow(icon: "bell.badge", title: "Notifications",
                        subtitle: UserNotifier.isAvailable
                         ? "A system notification when a model finishes installing, a download fails, or an AI pass falls back to your original text — only while NotchWhisper is in the background."
                         : "Available when NotchWhisper runs as a packaged app.") {
-                Toggle("", isOn: $settings.notificationsEnabled).labelsHidden().toggleStyle(.switch)
+                Toggle("", isOn: $settings.notificationsEnabled).labelsHidden().toggleStyle(.switch).controlSize(.small)
                     .disabled(!UserNotifier.isAvailable)
             }
         }
@@ -171,51 +329,59 @@ struct SettingsView: View {
     private var appearanceGroup: some View {
         SettingsGroup(title: "Appearance") {
             VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-                Text("Accent theme")
-                    .font(Tokens.TypeScale.body.weight(.medium))
-                    .foregroundStyle(Tokens.Color.text)
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Accent color")
+                        .font(Tokens.TypeScale.body)
+                        .foregroundStyle(Tokens.Color.text)
+                    Spacer()
+                    Text(settings.themeColor.displayName)
+                        .font(Tokens.TypeScale.callout)
+                        .foregroundStyle(Tokens.Color.textSec)
+                        .contentTransition(.opacity)
+                }
                 HStack(spacing: Tokens.Space.x3) {
                     ForEach(Tokens.Theme.allCases) { t in
-                        let sel = settings.themeColor == t
-                        Button { settings.themeColor = t } label: {
-                            Circle().fill(t.accent).frame(width: 26, height: 26)
-                                .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: sel ? 2 : 0).padding(-3))
-                                .overlay(Circle().strokeBorder(.white.opacity(0.15), lineWidth: 1))
+                        ThemeSwatch(theme: t, selected: settings.themeColor == t) {
+                            withAnimation(Tokens.Motion.quick) { settings.themeColor = t }
                         }
-                        .buttonStyle(.plain)
-                        .help(t.displayName)
                     }
-                    Spacer()
+                    Spacer(minLength: 0)
                 }
-                Text("Recolors the app, the notch glow and the visualizers.")
+                Text("Colors the primary action, the current selection, the notch glow and the visualizers — nothing else.")
                     .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, Tokens.Space.x4)
-            .padding(.vertical, Tokens.Space.x3)
+            .padding(.vertical, Tokens.Space.x4)
 
             SettingRow(icon: "sparkles", title: "Voice-reactive notch glow",
-                       subtitle: "The notch halo breathes and heats with your voice.") {
-                Toggle("", isOn: $settings.reactiveGlow).labelsHidden().toggleStyle(.switch)
+                       subtitle: "The notch halo breathes and warms with your voice.") {
+                Toggle("", isOn: $settings.reactiveGlow).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
 
             VStack(alignment: .leading, spacing: Tokens.Space.x3) {
                 Text("Notch visualizer")
-                    .font(Tokens.TypeScale.body.weight(.medium))
+                    .font(Tokens.TypeScale.body)
                     .foregroundStyle(Tokens.Color.text)
                 Picker("", selection: $settings.visualizerStyle) {
                     ForEach(VisualizerStyle.allCases) { Text($0.display).tag($0) }
                 }
                 .pickerStyle(.segmented).labelsHidden()
-                Text(settings.visualizerStyle.blurb)
-                    .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
                 VisualizerPreview(style: settings.visualizerStyle)
-                    .frame(height: 64)
+                    .frame(height: 72)
                     .frame(maxWidth: .infinity)
                     .background(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous).fill(.black))
-                    .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous).strokeBorder(Tokens.Color.hairline, lineWidth: 1))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous)
+                            .strokeBorder(LinearGradient(colors: [Tokens.Color.black(0.4), Tokens.Color.white(0.06)],
+                                                         startPoint: .top, endPoint: .bottom), lineWidth: 1)
+                    )
+                Text(settings.visualizerStyle.blurb)
+                    .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, Tokens.Space.x4)
-            .padding(.vertical, Tokens.Space.x3)
+            .padding(.vertical, Tokens.Space.x4)
         }
     }
 
@@ -256,7 +422,7 @@ struct SettingsView: View {
             SettingRow(icon: "wand.and.stars", title: "Choose the best model automatically",
                        subtitle: "NotchWhisper picks the best installed model for each dictation, based on your Mac, your language and whether you're on battery. It never changes model while you're recording.") {
                 Toggle("", isOn: $settings.autoSelectModel)
-                    .toggleStyle(.switch)
+                    .toggleStyle(.switch).controlSize(.small)
                     .labelsHidden()
             }
 
@@ -298,10 +464,11 @@ struct SettingsView: View {
                         .foregroundStyle(Tokens.Color.textSec)
                         .lineLimit(2)
                     Spacer(minLength: Tokens.Space.x3)
-                    Button("Open Models") { AppDelegate.shared?.showMainWindow() }
-                        .buttonStyle(.plain)
-                        .font(Tokens.TypeScale.captionSB)
-                        .foregroundStyle(Tokens.Color.accent)
+                    Button("Open Models") {
+                        AppDelegate.shared?.showMainWindow()
+                        NotificationCenter.default.post(name: .openMainPage, object: MainView.Nav.models.rawValue)
+                    }
+                    .quietAction()
                 }
                 .padding(.horizontal, Tokens.Space.x4)
                 .padding(.vertical, Tokens.Space.x3)
@@ -344,7 +511,7 @@ struct SettingsView: View {
 
             SettingRow(icon: "arrow.triangle.2.circlepath", title: "Check for updates automatically",
                        subtitle: lastCheckSubtitle) {
-                Toggle("", isOn: $updates.autoCheck).labelsHidden().toggleStyle(.switch)
+                Toggle("", isOn: $updates.autoCheck).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
 
             if updates.pendingUpdate != nil || updateStatusLine != nil {
@@ -363,9 +530,7 @@ struct SettingsView: View {
 
     private var lastCheckSubtitle: String {
         guard let last = updates.lastCheck else { return "Never checked." }
-        let f = RelativeDateTimeFormatter()
-        f.unitsStyle = .full
-        return "Last checked \(f.localizedString(for: last, relativeTo: Date()))."
+        return "Last checked \(last.relativeLabel)."
     }
 
     private var updateStatusLine: String? {
@@ -389,7 +554,7 @@ struct SettingsView: View {
                         : "Optionally clean up, format, rewrite or summarize transcripts with an AI model — or with a mode you write yourself. Set up a connection on the AI page.") {
             SettingRow(icon: "wand.and.stars", title: "Process with AI",
                        subtitle: "Runs after transcription, before the text is inserted.") {
-                Toggle("", isOn: $settings.llmEnabled).labelsHidden().toggleStyle(.switch)
+                Toggle("", isOn: $settings.llmEnabled).labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
 
             if settings.llmEnabled {
@@ -444,7 +609,7 @@ struct SettingsView: View {
                 Text(customModes.label(for: settings.processingMode))
                     .lineLimit(1)
             }
-            .menuStyle(.borderlessButton)
+            .popupMenuStyle()
             .frame(maxWidth: 200)
         }
     }
@@ -467,13 +632,14 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
 
-            HStack(spacing: Tokens.Space.x4) {
+            HStack(spacing: Tokens.Space.x2) {
                 Button("Write your own mode") { openAI(.modes) }
-                    .buttonStyle(.plain).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.accent)
+                    .quietAction()
                 Button("Manage modes") { openAI(.modes) }
-                    .buttonStyle(.plain).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.accent)
+                    .quietAction()
                 Spacer(minLength: 0)
             }
+            .padding(.leading, -7)
         }
         .padding(.horizontal, Tokens.Space.x4)
         .padding(.vertical, Tokens.Space.x3)
@@ -498,4 +664,41 @@ struct SettingsView: View {
         NotificationCenter.default.post(name: .openAIPage, object: tab.rawValue)
     }
 
+}
+
+/// One accent swatch: a lit sphere of the theme color; the chosen one wears a
+/// ring and a centre pip.
+private struct ThemeSwatch: View {
+    let theme: Tokens.Theme
+    let selected: Bool
+    let action: () -> Void
+    @ViewState private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(RadialGradient(colors: [theme.accent.opacity(1), theme.accent.opacity(0.78)],
+                                         center: .init(x: 0.35, y: 0.3), startRadius: 0, endRadius: 18))
+                Circle()
+                    .strokeBorder(LinearGradient(colors: [.white.opacity(0.4), .white.opacity(0.05)],
+                                                 startPoint: .top, endPoint: .bottom), lineWidth: 1)
+                if selected {
+                    Circle().fill(theme.onAccent.opacity(0.85)).frame(width: 7, height: 7)
+                }
+            }
+            .frame(width: 24, height: 24)
+            .padding(3)
+            .overlay(
+                Circle().strokeBorder(selected ? theme.accent.opacity(0.9) : (hovering ? Tokens.Color.hairlineStrong : .clear),
+                                      lineWidth: 1.5)
+            )
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(theme.displayName)
+        .accessibilityLabel(theme.displayName)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
 }

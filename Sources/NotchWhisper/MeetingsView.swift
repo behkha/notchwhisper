@@ -21,34 +21,28 @@ struct MeetingsView: View {
 
     var body: some View {
         let _ = theme.theme
-        ScrollView {
-            VStack(alignment: .leading, spacing: Tokens.Space.x6) {
-                SectionHeader("Meetings", eyebrow: "Record",
-                              subtitle: "Record a call or a room, get a timestamped transcript and minutes. The audio never leaves this Mac; minutes go wherever your AI connection points.") {
-                    Chip(text: ModelRegistry.shared.descriptor(for: settings.modelId).displayName,
-                         systemImage: "cpu", tint: Tokens.Color.accent)
-                }
-
-                if store.consentAcknowledged { recordCard } else { consentCard }
-
-                if let error = store.lastError { errorBanner(error) }
-
-                if store.sessions.isEmpty {
-                    EmptyStateView(icon: "person.2.wave.2.fill", title: "No meetings yet",
-                                   message: "Start a recording above. When you stop, it's transcribed here with timestamps you can click to replay.")
-                        .frame(height: 260)
-                        .card(padding: nil)
-                } else {
-                    sessionList
-                }
-
-                if let session = selectedSession { detailCard(session) }
+        PageScroll(spacing: Tokens.Space.x6) {
+            SectionHeader("Meetings", eyebrow: "Record a call or a room",
+                          subtitle: "Get a timestamped transcript and minutes. The audio never leaves this Mac; minutes go wherever your AI connection points.") {
+                Chip(text: ModelRegistry.shared.descriptor(for: settings.modelId).displayName,
+                     systemImage: "cpu", tint: Tokens.Color.textSec, filled: false)
             }
-            .padding(Tokens.Space.x8)
-            .frame(maxWidth: 940, alignment: .leading)
-            .frame(maxWidth: .infinity)
+
+            if store.consentAcknowledged { recordCard } else { consentCard }
+
+            if let error = store.lastError { errorBanner(error) }
+
+            if store.sessions.isEmpty {
+                EmptyStateView(icon: "person.2.wave.2", title: "No meetings yet",
+                               message: "Start a recording above. When you stop, it's transcribed here with timestamps you can click to replay.")
+                    .frame(height: 260)
+                    .card(padding: nil, elevated: false)
+            } else {
+                sessionList
+            }
+
+            if let session = selectedSession { detailCard(session) }
         }
-        .scrollIndicators(.never)
         .alert("Delete this meeting?", isPresented: Binding(get: { pendingDelete != nil },
                                                              set: { if !$0 { pendingDelete = nil } })) {
             Button("Delete", role: .destructive) {
@@ -97,18 +91,20 @@ struct MeetingsView: View {
     private var consentCard: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x3) {
             HStack(spacing: Tokens.Space.x3) {
-                IconTile("hand.raised.fill", size: 36)
+                IconTile("hand.raised.fill", tint: Tokens.Color.warn, size: 36)
                 Text("Before the first recording")
                     .font(Tokens.TypeScale.title2).foregroundStyle(Tokens.Color.text)
             }
             Text("Recording a conversation without the other people's knowledge is illegal in many places and a breach of trust everywhere else. Tell them, and get their consent — that part is on you.")
-                .font(Tokens.TypeScale.callout).foregroundStyle(Tokens.Color.textSec)
+                .font(Tokens.TypeScale.body).foregroundStyle(Tokens.Color.textSec)
+                .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
             Text("What NotchWhisper does: keeps the recording and the transcript on this Mac. Capturing the Mac's own audio (the other side of a call) needs the Screen Recording permission — only audio is ever read, never the screen. Minutes are written by your AI connection, local or hosted, and you're asked before a hosted one sees a meeting.")
                 .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("I understand") { store.consentAcknowledged = true }
+            Button("I Understand") { store.consentAcknowledged = true }
                 .primaryAction()
+                .padding(.top, Tokens.Space.x1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .card()
@@ -128,38 +124,40 @@ struct MeetingsView: View {
                 } label: {
                     HStack(spacing: Tokens.Space.x2) {
                         Image(systemName: store.isRecording ? "stop.fill" : "record.circle")
-                        Text(store.isRecording ? "Stop" : "Start recording")
+                        Text(store.isRecording ? "Stop" : "Start Recording")
                     }
                 }
-                .primaryAction()
+                .primaryAction(large: true)
                 .disabled(store.transcribingID != nil && !store.isRecording)
 
                 if store.isRecording {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(AudioFileImport.durationLabel(seconds: store.elapsed))
-                            .font(Tokens.TypeScale.title2).monospacedDigit()
+                            .font(Tokens.TypeScale.stat)
                             .foregroundStyle(Tokens.Color.text)
                         Text(store.recordingSource.label)
-                            .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
+                            .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
                     }
                     levelMeter
                 } else {
                     Text("Stop to get a transcript with timestamps, then minutes.")
-                        .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
+                        .font(Tokens.TypeScale.body).foregroundStyle(Tokens.Color.textSec)
                 }
                 Spacer(minLength: 0)
             }
 
             if !store.isRecording {
-                HStack(alignment: .top, spacing: Tokens.Space.x3) {
-                    Toggle("", isOn: $includeSystemAudio).labelsHidden().toggleStyle(.switch)
-                    VStack(alignment: .leading, spacing: 2) {
+                Hairline()
+                HStack(alignment: .center, spacing: Tokens.Space.x3) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text("Include the Mac's audio")
-                            .font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.text)
+                            .font(Tokens.TypeScale.body).foregroundStyle(Tokens.Color.text)
                         Text("The other side of a call. macOS asks for the Screen Recording permission the first time — only audio is read. Off records just your microphone.")
-                            .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
+                            .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    Spacer(minLength: Tokens.Space.x4)
+                    Toggle("", isOn: $includeSystemAudio).labelsHidden().toggleStyle(.switch).controlSize(.small)
                 }
             }
 
@@ -183,7 +181,7 @@ struct MeetingsView: View {
     private var levelMeter: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Tokens.Color.fillQuiet)
+                Capsule().fill(Tokens.Color.black(0.3))
                 Capsule().fill(Tokens.Color.accent)
                     .frame(width: max(4, geo.size.width * CGFloat(store.level)))
                     .animation(.linear(duration: 0.1), value: store.level)
@@ -193,43 +191,30 @@ struct MeetingsView: View {
     }
 
     private func errorBanner(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: Tokens.Space.x2) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(Tokens.Color.warn)
-            Text(message)
-                .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-            Button { store.lastError = nil } label: { Image(systemName: "xmark") }
-                .buttonStyle(.plain).foregroundStyle(Tokens.Color.textTert)
+        NoticeBanner(icon: "exclamationmark.triangle.fill", title: "Something went wrong", message: message) {
+            IconButton(systemImage: "xmark", help: "Dismiss") { store.lastError = nil }
         }
-        .padding(Tokens.Space.x3)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .card(radius: Tokens.Radius.md, padding: nil, elevated: false)
     }
 
     // MARK: Sessions
 
     private var sessionList: some View {
         VStack(alignment: .leading, spacing: Tokens.Space.x3) {
-            HStack {
-                Text("Recorded")
-                    .font(Tokens.TypeScale.title2).foregroundStyle(Tokens.Color.text)
-                Spacer()
+            GroupLabel("Recordings") {
                 if store.totalAudioBytes > 0 {
                     Text("\(ByteCountFormatter.string(fromByteCount: store.totalAudioBytes, countStyle: .file)) of audio kept")
-                        .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
+                        .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
                 }
             }
             VStack(spacing: 0) {
                 ForEach(store.sessions) { session in
                     sessionRow(session)
                     if session.id != store.sessions.last?.id {
-                        Divider().overlay(Tokens.Color.hairline)
+                        Hairline().padding(.leading, Tokens.Space.x4)
                     }
                 }
             }
-            .card(padding: nil)
+            .card(padding: nil, elevated: false)
         }
     }
 
@@ -244,13 +229,14 @@ struct MeetingsView: View {
             }
         } label: {
             HStack(spacing: Tokens.Space.x3) {
-                IconTile(session.id == store.recordingID ? "record.circle" : "person.2.wave.2.fill", size: 32)
+                IconTile(session.id == store.recordingID ? "record.circle" : "person.2.wave.2",
+                         tint: session.id == store.recordingID ? Tokens.Color.record : Tokens.Color.textSec, size: 32)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(session.title)
                         .font(Tokens.TypeScale.body.weight(.medium)).foregroundStyle(Tokens.Color.text)
                         .lineLimit(1)
                     Text("\(dateFormatter.string(from: session.startedAt)) · \(session.id == store.recordingID ? "recording" : session.durationLabel) · \(session.source.label)")
-                        .font(Tokens.TypeScale.micro).foregroundStyle(Tokens.Color.textTert)
+                        .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textTert)
                 }
                 Spacer(minLength: Tokens.Space.x2)
                 if session.id == store.recordingID {
@@ -263,11 +249,13 @@ struct MeetingsView: View {
                     if session.summary != nil { Chip(text: "Minutes", systemImage: "list.bullet", tint: Tokens.Color.accent) }
                     if !session.hasAudio { Chip(text: "Audio deleted", tint: Tokens.Color.textTert, filled: false) }
                 }
-                Image(systemName: selected ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(Tokens.Color.textTert)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold)).foregroundStyle(Tokens.Color.textTert)
+                    .rotationEffect(.degrees(selected ? 180 : 0))
             }
             .padding(.horizontal, Tokens.Space.x4)
             .padding(.vertical, Tokens.Space.x3)
+            .background(selected ? Tokens.Color.selectionFill.opacity(0.6) : .clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -289,11 +277,22 @@ struct MeetingsView: View {
                     Button { store.stopPlayback() } label: { Label("Stop playback", systemImage: "stop.fill") }
                         .secondaryAction()
                 }
+                // Destructive actions live behind "…" so the action row never
+                // runs out of width and nothing is one slip from a delete.
+                MoreMenu(help: "More meeting actions") {
+                    if session.hasAudio, store.recordingID != session.id {
+                        Button("Delete audio, keep transcript") { store.deleteAudio(session.id) }
+                            .disabled(busy)
+                        Divider()
+                    }
+                    Button("Delete Meeting…", role: .destructive) { pendingDelete = session }
+                        .disabled(busy)
+                }
             }
 
-            HStack(spacing: Tokens.Space.x3) {
+            FlowLayout(spacing: Tokens.Space.x2, lineSpacing: Tokens.Space.x2) {
                 if session.hasAudio, store.recordingID != session.id {
-                    Button(session.isTranscribed ? "Transcribe again" : "Transcribe") {
+                    Button(session.isTranscribed ? "Transcribe Again" : "Transcribe") {
                         Task { await store.transcribe(session.id) }
                     }
                     .primaryAction()
@@ -310,11 +309,10 @@ struct MeetingsView: View {
                             }
                         }
                     } label: {
-                        Label(session.summary == nil ? "Write minutes" : "Rewrite minutes",
-                              systemImage: "sparkles")
+                        MenuLabel(session.summary == nil ? "Write Minutes" : "Rewrite Minutes",
+                                  systemImage: "sparkles")
                     }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
+                    .secondaryMenu()
                     .disabled(busy)
 
                     Menu {
@@ -323,11 +321,10 @@ struct MeetingsView: View {
                                 Button(format.label) { store.export(session.id, as: format) }
                             }
                         }
-                    } label: { Label("Export", systemImage: "square.and.arrow.up") }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
+                    } label: { MenuLabel("Export", systemImage: "square.and.arrow.up") }
+                    .secondaryMenu()
 
-                    Button(copied ? "Copied" : "Copy transcript") {
+                    Button(copied ? "Copied" : "Copy Transcript") {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(session.markdownExport, forType: .string)
                         copied = true
@@ -335,15 +332,6 @@ struct MeetingsView: View {
                     }
                     .secondaryAction()
                 }
-                Spacer(minLength: 0)
-                if session.hasAudio, store.recordingID != session.id {
-                    Button("Delete audio, keep transcript") { store.deleteAudio(session.id) }
-                        .buttonStyle(.plain).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
-                        .disabled(busy)
-                }
-                Button("Delete meeting") { pendingDelete = session }
-                    .buttonStyle(.plain).font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.danger)
-                    .disabled(busy)
             }
 
             if store.summarizingID == session.id {
@@ -362,7 +350,8 @@ struct MeetingsView: View {
                 }
                 .padding(Tokens.Space.x4)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Tokens.Color.fillQuiet, in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
+                .background(Tokens.Color.black(0.2), in: RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Tokens.Radius.md, style: .continuous).strokeBorder(Tokens.Color.hairline, lineWidth: 1))
             }
 
             if session.isTranscribed {
@@ -393,11 +382,10 @@ struct MeetingsView: View {
         return VStack(alignment: .leading, spacing: Tokens.Space.x2) {
             HStack {
                 Text("Transcript")
-                    .font(Tokens.TypeScale.captionSB).foregroundStyle(Tokens.Color.text)
+                    .font(Tokens.TypeScale.headline).foregroundStyle(Tokens.Color.text)
                 Spacer()
-                TextField("Search this meeting", text: $search)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 220)
+                SearchField(text: $search, prompt: "Search this meeting")
+                    .frame(maxWidth: 240)
             }
             if lines.isEmpty {
                 Text("Nothing matches \"\(search)\".")
@@ -410,7 +398,7 @@ struct MeetingsView: View {
                             store.play(session.id, from: line.start)
                         } label: {
                             Text(line.timestampLabel)
-                                .font(Tokens.TypeScale.micro).monospacedDigit()
+                                .font(Tokens.TypeScale.caption).monospacedDigit()
                                 .foregroundStyle(session.hasAudio ? Tokens.Color.accent : Tokens.Color.textTert)
                                 .frame(width: 52, alignment: .trailing)
                         }
@@ -418,7 +406,7 @@ struct MeetingsView: View {
                         .disabled(!session.hasAudio)
                         .help(session.hasAudio ? "Play from here" : "Audio deleted")
                         Text(line.text)
-                            .font(Tokens.TypeScale.caption).foregroundStyle(Tokens.Color.textSec)
+                            .font(Tokens.TypeScale.body).foregroundStyle(Tokens.Color.textSec)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }

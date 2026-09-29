@@ -222,8 +222,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = main
     }
 
-    /// Shared window chrome for the bespoke Aurora windows: full-bleed dark,
-    /// transparent titlebar, no title text — SwiftUI paints everything.
+    /// Shared window chrome for the Graphite windows: full-bleed dark,
+    /// transparent titlebar with no separator, no title text — SwiftUI paints
+    /// everything, and sidebars use real behind-window vibrancy.
     private func makeAuroraWindow(_ root: some View, width: CGFloat, height: CGFloat,
                                   minW: CGFloat, minH: CGFloat, title: String) -> NSWindow {
         let hosting = NSHostingView(rootView: root)
@@ -234,9 +235,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         win.title = title
         win.titlebarAppearsTransparent = true
         win.titleVisibility = .hidden
+        win.titlebarSeparatorStyle = .none
         win.isMovableByWindowBackground = true
         win.appearance = NSAppearance(named: .darkAqua)
-        win.backgroundColor = NSColor(red: 0.043, green: 0.043, blue: 0.055, alpha: 1)
+        win.backgroundColor = NSColor(red: 0.071, green: 0.071, blue: 0.078, alpha: 1)
         win.isOpaque = true
         win.contentView = hosting
         hosting.autoresizingMask = [.width, .height]
@@ -263,7 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let root = SettingsView()
             .environmentObject(state)
             .environmentObject(settings)
-        let win = makeAuroraWindow(root, width: 620, height: 720, minW: 560, minH: 560,
+        let win = makeAuroraWindow(root, width: 800, height: 620, minW: 720, minH: 500,
                                    title: "Settings")
         win.level = .normal
         settingsWindow = win
@@ -277,6 +279,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showSettings() {
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Settings, opened on a specific pane. The pane is the stored selection
+    /// the view reads through `@AppStorage`, so this works even before the
+    /// Settings window has ever been shown.
+    func openSettings(_ pane: SettingsPane) {
+        UserDefaults.standard.set(pane.rawValue, forKey: SettingsPane.defaultsKey)
+        showSettings()
     }
 
     /// The Updates window. Built on demand — most launches never open it.
