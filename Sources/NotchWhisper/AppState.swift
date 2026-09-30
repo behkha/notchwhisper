@@ -24,7 +24,11 @@ enum NotchMode: Equatable {
 
     // MARK: Recording / live UI
     @Published var mode: NotchMode = .idle
+    /// Live dictation caption, in the two tiers live captions use: the text
+    /// that is final, and the tentative words after it that may still change
+    /// (with the space that joins them, when the language uses spaces).
     @Published var partialText: String = ""
+    @Published var partialTentative: String = ""
     @Published var lastText: String = ""
     @Published var levels: [Float] = Array(repeating: 0.12, count: 28)
     /// Latest raw 16 kHz mono chunk from the recorder — feeds the spectrum

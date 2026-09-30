@@ -1,4 +1,5 @@
 import Foundation
+import os
 import AppKit
 import ApplicationServices
 import Carbon
@@ -28,6 +29,33 @@ enum AutoTyper {
     }
 
     private static let queue = DispatchQueue(label: "com.behkha.notchwhisper.autotyper", qos: .userInitiated)
+    /// Typing jobs enqueued and not finished yet, and when the last one did.
+    private static let pending = OSAllocatedUnfairLock(initialState: (jobs: 0, lastDone: Date.distantPast))
+
+    /// How long every keystroke enqueued so far has been posted, or nil while
+    /// some are still queued. Posted is not yet applied: the target handles
+    /// its events a beat later, so a reader of the field waits a little more.
+    static var idleFor: TimeInterval? {
+        pending.withLock { $0.jobs == 0 ? Date().timeIntervalSince($0.lastDone) : nil }
+    }
+
+    /// Bumped when the user takes over the keyboard or mouse mid-dictation. A
+    /// live correction enqueued under an older generation stops before its
+    /// next keystroke: Backspaces meant for the typist's own words must not
+    /// land wherever the user just clicked.
+    private static let generation = OSAllocatedUnfairLock(initialState: 0)
+
+    /// Stops every live correction already queued or in flight.
+    static func cancelPending() { generation.withLock { $0 += 1 } }
+
+    /// Runs `job` on the typing queue, counted in `pending`.
+    private static func enqueue(_ job: @escaping @Sendable () -> Void) {
+        pending.withLock { $0.jobs += 1 }
+        queue.async {
+            job()
+            pending.withLock { $0.jobs -= 1; $0.lastDone = Date() }
+        }
+    }
 
     /// How text reaches the target.
     ///
@@ -87,7 +115,7 @@ enum AutoTyper {
         let saved = snapshotPasteboard(pasteboard)
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
-        queue.async {
+        enqueue {
             pressCommandV()
             // The target reads the clipboard asynchronously after the
             // keystroke, so the restore has to wait for it to have pasted.
@@ -105,9 +133,36 @@ enum AutoTyper {
     static func type(_ text: String) -> String {
         guard !text.isEmpty else { return "empty" }
         guard isTrusted else { return "untrusted" }
-        queue.async { typeNow(text) }
+        enqueue { typeNow(text) }
         return "queued"
     }
+
+    /// Enqueues `deleting` Backspaces followed by `text` — how live dictation
+    /// corrects the words it typed a moment ago. One queue item, so nothing
+    /// else can be typed between the deletion and its replacement.
+    ///
+    /// Cancellable: `cancelPending()` stops it between keystrokes.
+    @discardableResult
+    static func replace(deleting: Int, with text: String) -> String {
+        guard deleting > 0 || !text.isEmpty else { return "empty" }
+        guard isTrusted else { return "untrusted" }
+        let issued = generation.withLock { $0 }
+        enqueue {
+            let current = { generation.withLock { $0 } == issued }
+            for _ in 0..<max(0, deleting) {
+                guard current() else { return }
+                pressKey(51)                        // kVK_Delete (Backspace)
+                Thread.sleep(forTimeInterval: 0.001)
+            }
+            if !text.isEmpty { typeNow(text, while: current) }
+        }
+        return "queued"
+    }
+
+    /// Stamped into every event this app posts (`eventSourceUserData`), so a
+    /// watcher of the user's own typing — live dictation stops rewriting the
+    /// moment the user types — can tell those keystrokes from ours.
+    static let syntheticEventTag: Int64 = 0x4E57_5459   // "NWTY"
 
     /// Synchronous variant for the one-shot CLI/test entry points (`main.swift`
     /// `--type-test`), where blocking is fine and the process exits right after.
@@ -119,14 +174,18 @@ enum AutoTyper {
         return "cgevent"
     }
 
-    private static func typeNow(_ text: String) {
+    private static func typeNow(_ text: String, while current: () -> Bool = { true }) {
         let lines = text.components(separatedBy: "\n")
         for (index, line) in lines.enumerated() {
             for ch in line {
+                guard current() else { return }
                 sendChars(String(ch))
                 Thread.sleep(forTimeInterval: 0.001) // pacing; 1ms per char
             }
-            if index < lines.count - 1 { pressReturn() }
+            if index < lines.count - 1 {
+                guard current() else { return }
+                pressReturn()
+            }
         }
     }
 
@@ -173,6 +232,7 @@ enum AutoTyper {
         func post(_ key: CGKeyCode, down: Bool, flags: CGEventFlags) {
             let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: down)
             event?.flags = flags
+            event?.setIntegerValueField(.eventSourceUserData, value: syntheticEventTag)
             event?.post(tap: .cghidEventTap)
             Thread.sleep(forTimeInterval: 0.012)
         }
@@ -209,17 +269,28 @@ enum AutoTyper {
 
     // MARK: - Synthetic keystrokes (Unicode-string events)
 
-    private static func pressReturn() {
-        CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true)?.post(tap: .cghidEventTap)
-        CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: false)?.post(tap: .cghidEventTap)
+    private static func pressReturn() { pressKey(36) }   // kVK_Return
+
+    /// A bare key press. No modifier flags: with ⌥ held, Backspace would
+    /// delete a whole word.
+    private static func pressKey(_ key: CGKeyCode) {
+        for down in [true, false] {
+            let event = CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: down)
+            event?.flags = []
+            event?.setIntegerValueField(.eventSourceUserData, value: syntheticEventTag)
+            event?.post(tap: .cghidEventTap)
+        }
     }
 
     private static func sendChars(_ str: String) {
-        let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)
-        down?.keyboardSetUnicodeString(stringLength: str.utf16.count, unicodeString: Array(str.utf16))
-        down?.post(tap: .cghidEventTap)
-        let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
-        up?.keyboardSetUnicodeString(stringLength: str.utf16.count, unicodeString: Array(str.utf16))
-        up?.post(tap: .cghidEventTap)
+        for down in [true, false] {
+            let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down)
+            event?.keyboardSetUnicodeString(stringLength: str.utf16.count, unicodeString: Array(str.utf16))
+            // Clear modifiers: a letter typed while the user holds ⌘ must not
+            // arrive as a shortcut.
+            event?.flags = []
+            event?.setIntegerValueField(.eventSourceUserData, value: syntheticEventTag)
+            event?.post(tap: .cghidEventTap)
+        }
     }
 }

@@ -129,7 +129,8 @@ enum ModelRuntimeRegistry {
             minimumOS: "macOS 14",
             minimumMajorOS: 14,
             requiresAppleSilicon: true,
-            // ~100× real time, so the live window is simply re-decoded each tick.
+            // ~100× real time, so live dictation re-decodes the unfinished
+            // phrase several times a second.
             supportsStreaming: true,
             executesRepositoryCode: false,
             loaderDescription: "Loads compiled Parakeet .mlmodelc bundles through FluidAudio. No repository code is executed."

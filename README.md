@@ -38,7 +38,7 @@ On first launch the default `base` model downloads from Hugging Face (you'll see
 
 - **Notch display** — a FaceTime-style pill lives in the camera notch (or the menu-bar band on non-notched Macs) showing idle → recording waveform → transcribing → improving → done → error, plus a live download-percentage badge.
 - **Hold-to-talk** — press and hold a global hotkey (default **Right `⌥`**) to record, release to transcribe. Works while any other app is focused.
-- **Live dictation** — flip it on in Settings → General and the hotkey becomes press-on / press-off: speak and the words are typed into the focused field **in real time**, with the live transcript shown in the notch.
+- **Live dictation** — flip it on in Settings → General and the hotkey becomes press-on / press-off. It works like live captions: words are typed into the focused field as you speak, and the last few are corrected in place as the rest of the sentence arrives. The notch shows a two-line caption, with the words still being settled in a dimmer tone.
 - **File transcription** — the **Upload** page takes any audio or video file (drop it in or pick it), decodes it locally, and transcribes the whole thing with a progress bar you can cancel. The text is editable in place, copyable, saveable as `.txt`, and saved to history like any other transcript.
 - **Auto-type anywhere** — the transcript is inserted into the focused field via the Accessibility API (with a keystroke fallback) so it lands in any app.
 - **Model manager** — the **Models** page is a full manager, not just a picker: it shows the active engine and its health, everything installed, what's recommended *for your Mac*, and a searchable catalog that spans the built-in models and [Hugging Face](https://huggingface.co/models). Installs are queued, resumable, pausable and verified before a model is ever activated; models can be benchmarked and compared on your own audio, tested in a playground, imported from disk, pinned to a revision, and removed with a storage view that shows exactly what each one costs.
@@ -66,7 +66,7 @@ On first launch the default `base` model downloads from Hugging Face (you'll see
 3. Hold the hotkey (Right `⌥`), speak, release. The text appears wherever your cursor is.
 
 **Live dictation**
-In **Settings → General**, enable *Live dictation*. The hotkey switches to a toggle: press once to start a continuous session, speak, press again to stop. Words are typed as you talk; the notch shows the live transcript.
+In **Settings → General**, enable *Live dictation*. The hotkey switches to a toggle: press once to start a continuous session, speak, press again to stop. Words are typed as you talk and the last few are corrected as the sentence goes on, like live captions; the notch shows the caption. The moment you type, click or switch apps yourself, NotchWhisper stops correcting what is already on the page and carries on from your cursor. Turn off *Correct as you speak* to have each phrase typed once, when it's final, with no corrections.
 
 **Transcribing a file**
 Open the main window → **Upload**, then drop in a recording (or click *Choose file…*). MP3, WAV, M4A, AAC, FLAC, AIFF, CAF, MP4 and MOV all work, at any length — the audio is decoded to 16 kHz mono on your Mac and run through the same engine, dictionary bias and correction pass as dictation. Long files show progress over the clip and can be cancelled mid-run. Nothing is auto-typed; you get the text on the page to edit, copy, or save.
@@ -153,7 +153,7 @@ The prebuilt llama.cpp libraries are vendored in `vendor/llama/` (pinned to a ll
 
 ### Parakeet (FluidAudio)
 
-Apple Silicon only. [Parakeet TDT](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) is NVIDIA's FastConformer + token-and-duration transducer — a different architecture from Whisper, so its Core ML bundles (`Preprocessor`, `Encoder`, `Decoder`, `JointDecision`) are opened by [FluidAudio](https://github.com/FluidInference/FluidAudio) rather than WhisperKit. It runs on the Neural Engine at roughly 100× real time, fast enough to re-decode the live window on every tick, so it drives **live dictation** as well as hold-to-talk, uploads and meetings.
+Apple Silicon only. [Parakeet TDT](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) is NVIDIA's FastConformer + token-and-duration transducer — a different architecture from Whisper, so its Core ML bundles (`Preprocessor`, `Encoder`, `Decoder`, `JointDecision`) are opened by [FluidAudio](https://github.com/FluidInference/FluidAudio) rather than WhisperKit. It runs on the Neural Engine at roughly 100× real time, fast enough to re-decode the unfinished phrase several times a second, so it drives **live dictation** as well as hold-to-talk, uploads and meetings.
 
 | Model | Download | Languages |
 | --- | --- | --- |
@@ -250,6 +250,7 @@ Every finished dictation is saved to **Transcripts** (searchable, with copy / co
 | Setting | Where | Options | Default |
 | --- | --- | --- | --- |
 | Live dictation | Dictation | on / off | off |
+| Correct as you speak | Dictation | on / off (live dictation only) | on |
 | Type into the focused app | Dictation | on / off | on |
 | New line after each dictation | Dictation | on / off | off |
 | Language | Dictation | auto-detect, or any Whisper language | auto-detect |
@@ -282,7 +283,7 @@ flowchart LR
     A[Microphone] --> B[AudioRecorder<br/>16 kHz mono + live RMS levels]
     B --> C{Interaction}
     C -->|Hold-to-talk| D[Transcriber<br/>WhisperKit]
-    C -->|Live dictation| E[LiveTranscriber<br/>bounded sliding-window loop]
+    C -->|Live dictation| E[LiveTranscriber<br/>final + tentative text, typed as a diff]
     E --> D
     D --> F[Dictionary<br/>biasing + corrections]
     F --> G{Local LLM<br/>enabled?}
@@ -296,7 +297,7 @@ flowchart LR
     H --> L
 ```
 
-Microphone audio is resampled to 16 kHz mono (Whisper's input rate) in `AudioRecorder`, transcribed on-device by WhisperKit, optionally polished by a local LLM, and typed into the focused field by `AutoTyper`. Live dictation runs the same recognizer in a bounded sliding-window loop so latency stays flat no matter how long you speak.
+Microphone audio is resampled to 16 kHz mono (Whisper's input rate) in `AudioRecorder`, transcribed on-device by WhisperKit, optionally polished by a local LLM, and typed into the focused field by `AutoTyper`. Live dictation keeps two tiers of text, the way live captions do: final words that never change, and a guess at the words still being spoken. Apple Speech produces both natively (`SpeechAnalyzer` with volatile results); Whisper and Parakeet re-decode the whole unfinished phrase on every pass and make it final at pauses and finished sentences. `LiveTypist` types only the difference from what is already on the page: Backspace over the words that changed, then their new version. Final text is never taken back.
 
 ### Source layout
 
@@ -317,9 +318,14 @@ Sources/NotchWhisper/
 ├── ParakeetASR.swift     FluidAudio engine for Parakeet TDT (download, load, transcribe)
 ├── ParakeetModels.swift  Parakeet catalog (parakeet:* ids)
 ├── AppleSpeechASR.swift  SpeechAnalyzer engine + locale asset installs (apple:speech)
-├── EngineSegment.swift   Timed text spans from the non-Whisper engines, grouped for live dictation
+├── EngineSegment.swift   Timed text spans from the non-Whisper engines, grouped into sentences
 ├── GGUFDownloader.swift  Resumable 2-file GGUF download from Hugging Face
-├── LiveTranscriber.swift Continuous type-as-you-speak loop (WhisperKit, Parakeet, Apple Speech)
+├── LiveTranscriber.swift Live dictation session: recognizer → formatting → typist → notch caption
+├── LiveRecognizer.swift  Two-tier live recognition; re-decoding engine for Whisper and Parakeet
+├── AppleLiveRecognizer.swift Apple Speech streaming (SpeechAnalyzer, volatile + final results)
+├── LiveTypist.swift      Types the diff with Backspace; stops when the user takes over the page
+├── LiveText.swift        Live words, spacing where phrases meet, agreement, decoder-loop cleanup
+├── LiveVoiceTracker.swift Streaming speech detection (pauses, where to cut)
 ├── AutoTyper.swift       Accessibility insert + CGEvent keystroke fallback
 ├── HotkeyMonitor.swift   Global hotkey tap (bare modifier / combination / key + modifiers)
 ├── HotkeyRecorder.swift  Shortcut recorder for Settings (keyDown + flagsChanged)

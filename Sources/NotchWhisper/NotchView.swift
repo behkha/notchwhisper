@@ -151,8 +151,9 @@ struct NotchView: View {
             // The island grows DOWN from the notch. Content lives BELOW the
             // physical notch band (bandHeight), so the visualizer is never
             // clipped by the hardware cutout: band + 64pt visualizer + margin.
+            // Live dictation adds a two-line caption under a compact row.
             return CGSize(width: 420,
-                          height: controller.notchInfo.bandHeight + 78)
+                          height: controller.notchInfo.bandHeight + (state.mode == .dictating ? 84 : 78))
         case .result:
             // Errors carry a real message and need room to breathe; "Done" is
             // a single word and stays compact. Never narrower than the physical
@@ -449,10 +450,10 @@ struct NotchView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
         case .dictating:
-            // Same active island as recording, plus a live transcript line that
-            // shows what is being recognized + typed right now (truncated to
-            // the middle dynamic-island style — the newest words stay visible).
-            VStack(spacing: 6) {
+            // The recording row, compact, over a two-line live caption: final
+            // words bright, the words still being settled dimmer — they are
+            // corrected in place as the sentence goes on, like live captions.
+            VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 10) {
                     Circle()
                         .fill(Tokens.Color.record)
@@ -460,30 +461,26 @@ struct NotchView: View {
                         .scaleEffect(recordDotScale(t: t))
                         .shadow(color: Tokens.Color.record.opacity(0.6), radius: 4)
                     sessionChip
-                    Text(state.partialText.isEmpty ? "Listening…" : state.partialText)
-                        .font(Tokens.TypeScale.notchLabel)
-                        .foregroundStyle(.white.opacity(0.92))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    AudioVisualizer(
+                        style: settings.visualizerStyle,
+                        state: .speaking,
+                        heights: waveform.frame.heights,
+                        energy: waveform.frame.energy,
+                        tint: settings.reactiveGlow && !Tokens.A11y.reduceMotion
+                            ? Tokens.glowRGB(for: waveform.frame.glow)
+                            : nil,
+                        t: t
+                    )
+                    .frame(height: 22)
                     Text(elapsed)
                         .font(Tokens.TypeScale.notchLabel.monospacedDigit())
                         .foregroundStyle(.white.opacity(0.7))
                         .lineLimit(1)
                 }
-                AudioVisualizer(
-                    style: settings.visualizerStyle,
-                    state: .speaking,
-                    heights: waveform.frame.heights,
-                    energy: waveform.frame.energy,
-                    tint: settings.reactiveGlow && !Tokens.A11y.reduceMotion
-                        ? Tokens.glowRGB(for: waveform.frame.glow)
-                        : nil,
-                    t: t
-                )
-                .frame(height: 34)
+                LiveCaption(final: state.partialText, tentative: state.partialTentative)
             }
             .padding(.horizontal, 20)
+            .padding(.top, 4)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
         case .transcribing, .improving:
@@ -586,6 +583,51 @@ struct NotchView: View {
         guard let start = state.recordingStart else { return "0:00" }
         let s = Int(Date().timeIntervalSince(start))
         return String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
+// MARK: - Live caption
+
+/// The live-dictation caption: the final text, then the tentative words after
+/// it in a dimmer tone, as live captions show them. Only the newest two lines'
+/// worth is kept, cut at a word, so the words being spoken stay in view.
+struct LiveCaption: View {
+    let final: String
+    let tentative: String
+
+    var body: some View {
+        let (head, tail) = Self.visible(final: final, tentative: tentative)
+        Group {
+            if head.isEmpty && tail.trimmingCharacters(in: .whitespaces).isEmpty {
+                Text("Listening…").foregroundStyle(.white.opacity(0.45))
+            } else {
+                Text(Self.styled(head, opacity: 0.94) + Self.styled(tail, opacity: 0.5))
+            }
+        }
+        .font(Tokens.TypeScale.notchCallout)
+        .lineLimit(2)
+        .truncationMode(.head)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private static func styled(_ text: String, opacity: Double) -> AttributedString {
+        var out = AttributedString(text)
+        out.foregroundColor = .white.opacity(opacity)
+        return out
+    }
+
+    /// The tail of `final + tentative` that fits about two lines, split back
+    /// into its two tiers.
+    static func visible(final: String, tentative: String, limit: Int = 100) -> (String, String) {
+        let total = final.count + tentative.count
+        guard total > limit else { return (final, tentative) }
+        var cut = total - limit
+        let whole = Array(final + tentative)
+        while cut < whole.count, whole[cut] != " " { cut += 1 }
+        if cut < final.count {
+            return ("…" + String(final.dropFirst(cut)), tentative)
+        }
+        return ("…", String(tentative.dropFirst(cut - final.count)))
     }
 }
 

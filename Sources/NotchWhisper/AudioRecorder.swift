@@ -26,8 +26,8 @@ import WhisperKit
     /// 16 kHz mono capture buffer.
     ///
     /// MUTATED ON THE MIC TAP'S AUDIO THREAD (AVAudioEngine tap callbacks do
-    /// NOT run on the main thread) and copied/trimmed from the MainActor by
-    /// the live-dictation loop — every access must hold `bufferLock`. The
+    /// NOT run on the main thread) and drained from the MainActor by the
+    /// live-dictation loop — every access must hold `bufferLock`. The
     /// unguarded version of this buffer is a real data race that corrupts
     /// mid-session: dictation would type the first sentence(s) and then stall
     /// or produce garbage once the concurrent append/copy/trim collided.
@@ -196,13 +196,16 @@ import WhisperKit
         pushLevel(min(1.0, max(0.06, rms * 7.0)))
     }
 
-    /// Copy of everything captured so far (16 kHz mono) — read by the live
-    /// dictation loop without stopping the stream. Lock-guarded: the tap
-    /// callback appends on the audio thread while this runs on the MainActor.
-    var accumulatedSamples: [Float] {
+    /// Takes everything captured since the last call, leaving the buffer
+    /// empty — how live dictation consumes the stream as it arrives. Lock-
+    /// guarded: the tap appends on the audio thread while this runs on the
+    /// MainActor.
+    func drainSamples() -> [Float] {
         bufferLock.lock()
         defer { bufferLock.unlock() }
-        return audioSamples
+        let out = audioSamples
+        audioSamples.removeAll(keepingCapacity: true)
+        return out
     }
 
     /// Current buffer length (lock-guarded, safe from any thread).
@@ -210,23 +213,6 @@ import WhisperKit
         bufferLock.lock()
         defer { bufferLock.unlock() }
         return audioSamples.count
-    }
-
-    /// Drop the first `count` already-transcribed samples so a long dictation
-    /// session doesn't grow the buffer without bound.
-    ///
-    /// Returns how many samples were ACTUALLY dropped — possibly fewer than
-    /// requested if the buffer shrank concurrently. Callers MUST adjust their
-    /// bookkeeping (`typedUpto`, …) by the RETURNED value, never the requested
-    /// one, or every sample index desyncs from the buffer and dictation stalls.
-    @discardableResult
-    func trimSamples(_ count: Int) -> Int {
-        guard count > 0 else { return 0 }
-        bufferLock.lock()
-        defer { bufferLock.unlock() }
-        guard audioSamples.count > count else { return 0 }
-        audioSamples.removeFirst(count)
-        return count
     }
 
     /// Stop recording and return the captured 16 kHz mono samples.

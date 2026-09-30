@@ -179,7 +179,6 @@ final class AppleSpeechASR {
     func transcribe(
         _ samples: [Float],
         contextualStrings: [String] = [],
-        splitAt: Double? = nil,
         isCancelled: @escaping @Sendable () -> Bool = { false },
         onProgress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async throws -> (text: String, segments: [EngineSegment]) {
@@ -211,8 +210,7 @@ final class AppleSpeechASR {
 
         let totalSeconds = Double(samples.count) / 16_000
         // Each result is a phrase whose words are runs carrying their own time
-        // range. Words, not phrases, go to the segmenter: a phrase can straddle
-        // the live loop's typed boundary, a word almost never does.
+        // range; the segmenter regroups the words into sentences.
         let collector = Task { () -> (texts: [String], tokens: [(text: String, start: Double, end: Double)]) in
             var texts: [String] = []
             var tokens: [(text: String, start: Double, end: Double)] = []
@@ -267,7 +265,7 @@ final class AppleSpeechASR {
         let text = collected.texts.joined(separator: " ")
             .replacingOccurrences(of: "  ", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        var segments = EngineSegment.group(collected.tokens, splitAt: splitAt)
+        var segments = EngineSegment.group(collected.tokens)
         // No word timings (an attribute the recognizer didn't fill): one span.
         if segments.isEmpty, !text.isEmpty {
             segments = [EngineSegment(start: 0, end: totalSeconds, text: text)]

@@ -18,6 +18,7 @@ import ServiceManagement
         static let autoType       = "autoTypeEnabled"
         static let insertNewline  = "insertNewline"
         static let liveDictation  = "liveDictation"
+        static let liveRewrites   = "liveRewrites"
         static let terminalPaste  = "pasteIntoTerminalTools"
         static let language       = "language"        // nil = auto-detect
         static let task           = "task"            // "transcribe" | "translate"
@@ -113,6 +114,12 @@ import ServiceManagement
     /// (press to start, press again to stop) instead of hold-to-talk.
     @Published var liveDictation: Bool {
         didSet { defaults.set(liveDictation, forKey: Key.liveDictation) }
+    }
+    /// Live dictation types each word the moment it is heard and corrects the
+    /// last few in place as the sentence goes on — live captions, in the
+    /// document. Off, it types each phrase once, when it is final.
+    @Published var liveRewrites: Bool {
+        didSet { defaults.set(liveRewrites, forKey: Key.liveRewrites) }
     }
     /// In a terminal, deliver text to a running PROGRAM (Claude Code, Codex,
     /// vim) by pasting rather than typing. Typing sends every newline as a
@@ -284,6 +291,7 @@ import ServiceManagement
         self.autoTypeEnabled = d.object(forKey: Key.autoType) != nil ? d.bool(forKey: Key.autoType) : true
         self.insertNewline   = d.bool(forKey: Key.insertNewline)
         self.liveDictation   = d.object(forKey: Key.liveDictation) != nil ? d.bool(forKey: Key.liveDictation) : false
+        self.liveRewrites    = d.object(forKey: Key.liveRewrites) != nil ? d.bool(forKey: Key.liveRewrites) : true
         self.pasteIntoTerminalTools = d.object(forKey: Key.terminalPaste) != nil ? d.bool(forKey: Key.terminalPaste) : true
         self.language        = d.string(forKey: Key.language)
         self.task            = d.string(forKey: Key.task) ?? "transcribe"

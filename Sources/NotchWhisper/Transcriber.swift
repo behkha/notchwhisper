@@ -717,51 +717,6 @@ import WhisperKit
             .trimmingCharacters(in: .whitespacesAndNewlines as CharacterSet)
     }
 
-    /// Fast, incremental real-time dictation decode. Transcribes only `samples`
-    /// (a short ~1–2 s chunk) and uses the already-transcribed `runningText` as
-    /// a prefill prompt so the model continues the sentence naturally without
-    /// re-reading earlier audio. Uses a single greedy decode (no temperature
-    /// fallbacks) — each pass is cheap so words can stream out as you speak.
-    func liveTranscribeChunk(_ samples: [Float], runningText: String, biasTerms: [String] = []) async throws -> String {
-        if activeEngineIsLlama { throw TranscriberError.liveUnsupported }
-        if activeEngine != .whisperKit { return try await transcribe(samples, biasTerms: biasTerms) }
-        guard let w = whisper else { throw TranscriberError.notLoaded }
-
-        // Prompt context: recent already-transcribed text (capped so the token
-        // budget stays bounded) + a few dictionary terms for bias.
-        var ids: [Int] = []
-        if let tok = w.tokenizer {
-            let context = String(runningText.suffix(120))
-            if !context.isEmpty {
-                ids.append(contentsOf: tok.encode(text: context))
-            }
-            let bias = DictionaryStore.shared.biasingTerms()
-            for term in bias {
-                let t = term.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !t.isEmpty else { continue }
-                ids.append(contentsOf: tok.encode(text: t))
-            }
-        }
-        // Cap the total prompt to Whisper's practical budget.
-        if ids.count > 200 { ids = Array(ids.suffix(200)) }
-
-        let opts = DecodingOptions(
-            verbose: false,
-            task: settings.task == "translate" ? .translate : .transcribe,
-            language: effectiveLanguage,
-            temperature: 0.0,
-            temperatureFallbackCount: 0,   // single greedy pass → fast, low-latency
-            usePrefillPrompt: true,
-            skipSpecialTokens: true,
-            withoutTimestamps: true,
-            promptTokens: ids.isEmpty ? nil : ids
-        )
-        let results = try await w.transcribe(audioArray: samples, decodeOptions: opts)
-        return results.map { $0.text }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines as CharacterSet)
-    }
-
     /// Shared decode for hold-to-talk: bias the engine with dictionary terms and
     /// run Whisper over the whole utterance (timestamps folded away).
     private func decode(_ samples: [Float], biasTerms: [String]) async throws -> [TranscriptionSegment] {
@@ -798,89 +753,111 @@ import WhisperKit
         return results.flatMap { $0.segments }
     }
 
-    /// Live-dictation decode over a SHORT recent window. Single greedy pass
-    /// (no temperature fallbacks) for low latency, timestamps ON so segments
-    /// carry real audio positions (the confirmation logic in LiveTranscriber
-    /// needs them), dictionary bias as a prefill prompt.
+    /// The recognizer for a live-dictation session on the loaded model.
     ///
-    /// `typedBoundary` is where already-typed audio ends inside `samples`, in
-    /// seconds. Whisper's own segmentation is left alone; the other engines
-    /// split their segments there (see `EngineSegment.group`).
-    func liveTranscribe(_ samples: [Float], biasTerms: [String] = [],
-                        typedBoundary: Double? = nil) async throws -> [TranscriptionSegment] {
+    /// Apple Speech streams natively — one analyzer session, fed as audio
+    /// arrives. Whisper and Parakeet decode whole clips, so they re-decode the
+    /// unfinished phrase on every pass (see `RedecodeLiveRecognizer`).
+    func makeLiveRecognizer() async throws -> LiveRecognizer {
+        let bias = DictionaryStore.shared.biasingTerms()
+        let sensitivity = settings.vadSensitivity
         switch activeEngine {
         case .llamaCPP:
             throw TranscriberError.liveUnsupported
-        case .fluidAudio:
-            // Fast enough to re-decode the whole window every tick. Segments
-            // close at sentence ends and pauses, which is what lets the live
-            // loop type settled text early (see `EngineSegment.group`).
-            let out = try await parakeet.transcribe(samples, languageCode: effectiveLanguage,
-                                                    splitAt: typedBoundary)
-            return Self.whisperSegments(out.segments)
         case .appleSpeech:
             try await ensureAppleLanguage()
-            let out = try await appleSpeech.transcribe(samples, contextualStrings: biasTerms,
-                                                       splitAt: typedBoundary)
-            return Self.whisperSegments(out.segments)
-        case .whisperKit:
-            break
-        }
-        guard let w = whisper else { throw TranscriberError.notLoaded }
-
-        // Short bias prompt only: a long prefill on a short window makes
-        // Whisper invent text on quiet audio (see skill: cap ~100 tokens).
-        var initialPrompt: [Int]?
-        if !biasTerms.isEmpty, let tok = w.tokenizer {
-            var ids: [Int] = []
-            for term in biasTerms {
-                let t = term.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !t.isEmpty else { continue }
-                ids.append(contentsOf: tok.encode(text: t))
+            guard #available(macOS 26, *) else { throw AppleSpeechASR.EngineError.unavailable }
+            guard let locale = appleSpeech.locale else { throw AppleSpeechASR.EngineError.notLoaded }
+            return AppleLiveRecognizer(locale: locale, contextualStrings: bias)
+        case .fluidAudio:
+            // Parakeet takes no prompt: dictionary terms reach the text through
+            // the correction pass applied before typing.
+            let language = effectiveLanguage
+            return RedecodeLiveRecognizer(tuning: .parakeet, sensitivity: sensitivity) { [parakeet] samples in
+                try await parakeet.liveWords(samples, languageCode: language)
             }
-            if ids.count > 100 { ids = Array(ids.prefix(100)) }
-            if !ids.isEmpty { initialPrompt = ids }
+        case .whisperKit:
+            guard whisper != nil else { throw TranscriberError.notLoaded }
+            return RedecodeLiveRecognizer(tuning: .whisper, sensitivity: sensitivity) { [weak self] samples in
+                guard let self else { throw CancellationError() }
+                return try await self.whisperLiveWords(samples)
+            }
         }
+    }
 
-        // One greedy pass, no temperature fallbacks: a retry costs a whole
-        // extra decode and live dictation cannot absorb an unpredictable
-        // multi-second pass. (Measured: letting the repetition check retry took
-        // one 1.6 s window from 0.3 s to 4.7 s, and the higher-temperature
-        // retry replaced the repetition with fluent invented prose — worse
-        // output, far worse latency.) Whisper's decoder loops are handled
-        // downstream instead, by `LiveTranscriber.deloop` and by never decoding
-        // a window too short to be in distribution.
+    /// One Whisper pass for live dictation, with word timings.
+    ///
+    /// A single greedy decode — no temperature fallbacks. A retry costs a whole
+    /// extra pass, and live dictation cannot absorb an unpredictable one
+    /// (measured: letting the repetition check retry took one window from
+    /// 0.3 s to 4.7 s, and the hotter retry replaced the repetition with
+    /// fluent invented prose). Decoder loops are collapsed downstream instead
+    /// (`LiveText.deloop`), and silence is never decoded at all.
+    ///
+    /// No prompt, not even the dictionary's terms. With prompt tokens in the
+    /// decoder, WhisperKit's word alignment comes out shifted — every word of
+    /// the first sentence stacked at one instant, the rest a few seconds early
+    /// — and a window under two seconds decodes to nothing. Without them the
+    /// word times land within a frame or two of the speech, which is what lets
+    /// the live loop make a finished sentence final at the right place.
+    /// Dictionary corrections still apply to the text before it is typed.
+    /// (Fed its own earlier text as context, Whisper also repeats it into the
+    /// next phrase — whisper.cpp's streaming example runs without it too.)
+    func whisperLiveWords(_ samples: [Float]) async throws -> [LiveWord] {
+        guard let w = whisper else { throw TranscriberError.notLoaded }
         let opts = DecodingOptions(
             verbose: false,
             task: settings.task == "translate" ? .translate : .transcribe,
             language: effectiveLanguage,
             temperature: 0.0,
-            temperatureFallbackCount: 0,   // single greedy pass → predictable latency
+            temperatureFallbackCount: 0,
             usePrefillPrompt: true,
             skipSpecialTokens: true,
-            withoutTimestamps: false,      // timestamps REQUIRED for confirmation
-            promptTokens: initialPrompt,
+            withoutTimestamps: false,
+            wordTimestamps: true,
+            // WhisperKit skips the last `windowClipTime` of a clip; a live
+            // window IS its last second.
+            windowClipTime: 0.1,
             compressionRatioThreshold: 2.4,
             logProbThreshold: nil,
-            firstTokenLogProbThreshold: nil
+            firstTokenLogProbThreshold: nil,
+            noSpeechThreshold: nil
         )
         let results = try await w.transcribe(audioArray: samples, decodeOptions: opts)
-        return results.flatMap { $0.segments }
+        var words: [LiveWord] = []
+        for segment in results.flatMap(\.segments) {
+            if let timed = segment.words, !timed.isEmpty {
+                words += timed.map { LiveWord(text: $0.word, start: Double($0.start), end: Double($0.end)) }
+            } else {
+                // No alignment for this segment: its words share its span,
+                // which tells the live loop not to cut between them.
+                let start = Double(segment.start), end = max(Double(segment.start), Double(segment.end))
+                words += Self.splitKeepingSpaces(segment.text).map { LiveWord(text: $0, start: start, end: end) }
+            }
+        }
+        return words
+    }
+
+    /// " The stale smell" → [" The", " stale", " smell"]: each word keeps the
+    /// space in front of it. Text without spaces (Chinese) stays one piece.
+    static func splitKeepingSpaces(_ text: String) -> [String] {
+        var out: [String] = []
+        var current = ""
+        for ch in text {
+            if ch == " ", !current.trimmingCharacters(in: .whitespaces).isEmpty {
+                out.append(current)
+                current = ""
+            }
+            current.append(ch)
+        }
+        if !current.trimmingCharacters(in: .whitespaces).isEmpty { out.append(current) }
+        return out
     }
 
     struct TimedSegment {
         let start: TimeInterval
         let end: TimeInterval
         let text: String
-    }
-
-    /// The live loop is written against WhisperKit's segment type; the other
-    /// engines' timed spans map onto the fields it reads (start, end, text).
-    private static func whisperSegments(_ segments: [EngineSegment]) -> [TranscriptionSegment] {
-        segments.enumerated().map { index, segment in
-            TranscriptionSegment(id: index, start: Float(segment.start), end: Float(segment.end),
-                                 text: " " + segment.text)
-        }
     }
 
     /// Timestamped decode of one clip — the meeting transcript's unit of work.

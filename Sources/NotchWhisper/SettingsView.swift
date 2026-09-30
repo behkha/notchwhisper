@@ -204,6 +204,12 @@ struct SettingsView: View {
                         NotificationCenter.default.post(name: .dictationChanged, object: nil)
                     }
             }
+            SettingRow(icon: "text.cursor", title: "Correct as you speak",
+                       subtitle: "Types each word the moment it's heard and fixes the last few in place as the sentence goes on, like live captions. Off types each phrase once it's final. Stops correcting as soon as you type, click or switch apps.") {
+                Toggle("", isOn: $settings.liveRewrites)
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                    .disabled(!settings.liveDictation || !ModelEngine.supportsLive(settings.modelId))
+            }
             SettingRow(icon: "keyboard", title: "Type into the focused app",
                        subtitle: "Off keeps every dictation in Transcripts only — nothing is typed anywhere.") {
                 Toggle("", isOn: $settings.autoTypeEnabled).labelsHidden().toggleStyle(.switch).controlSize(.small)

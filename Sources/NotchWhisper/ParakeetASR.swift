@@ -134,26 +134,49 @@ final class ParakeetASR {
 
     // MARK: - Transcribe
 
-    /// Transcribe one utterance or window. Returns the text plus sentence-sized
-    /// segments timed relative to the start of `samples` (see
-    /// `EngineSegment.group` for `splitAt`).
+    /// Transcribe one utterance. Returns the text plus sentence-sized segments
+    /// timed relative to the start of `samples`.
     ///
     /// `languageCode` narrows v3's multilingual vocabulary to the language's
     /// script (it stops Polish drifting into Cyrillic, for example); v2 ignores it.
-    func transcribe(_ samples: [Float], languageCode: String?,
-                    splitAt: Double? = nil) async throws -> (text: String, segments: [EngineSegment]) {
+    func transcribe(_ samples: [Float], languageCode: String?) async throws -> (text: String, segments: [EngineSegment]) {
         guard let m = manager else { throw EngineError.notLoaded }
         let language = languageCode.flatMap { Language(rawValue: $0.lowercased()) }
         var state = TdtDecoderState.make()
         let result = try await m.transcribe(samples, decoderState: &state, language: language)
         let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let tokens = (result.tokenTimings ?? []).map { (text: $0.token, start: $0.startTime, end: $0.endTime) }
-        var segments = EngineSegment.group(tokens, splitAt: splitAt)
+        var segments = EngineSegment.group(tokens)
         // No timings (an empty or very short decode): the whole window is one span.
         if segments.isEmpty, !text.isEmpty {
             segments = [EngineSegment(start: 0, end: Double(samples.count) / 16_000, text: text)]
         }
         return (text, segments)
+    }
+
+    /// One live-dictation pass: the words of `samples` with their timings,
+    /// relative to its start. A word is a run of subword tokens up to the next
+    /// one that starts with a space.
+    func liveWords(_ samples: [Float], languageCode: String?) async throws -> [LiveWord] {
+        guard let m = manager else { throw EngineError.notLoaded }
+        let language = languageCode.flatMap { Language(rawValue: $0.lowercased()) }
+        var state = TdtDecoderState.make()
+        let result = try await m.transcribe(samples, decoderState: &state, language: language)
+        var words: [LiveWord] = []
+        for token in result.tokenTimings ?? [] {
+            let piece = token.token.replacingOccurrences(of: "\u{2581}", with: " ")
+            if words.isEmpty || piece.hasPrefix(" ") {
+                words.append(LiveWord(text: piece, start: token.startTime, end: token.endTime))
+            } else {
+                words[words.count - 1].text += piece
+                words[words.count - 1].end = max(words[words.count - 1].end, token.endTime)
+            }
+        }
+        let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if words.isEmpty, !text.isEmpty {
+            words = [LiveWord(text: text, start: 0, end: Double(samples.count) / 16_000)]
+        }
+        return words
     }
 
     /// Long-form transcription for files and meetings. FluidAudio chunks the
